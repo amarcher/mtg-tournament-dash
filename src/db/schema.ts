@@ -1,0 +1,166 @@
+import {
+  pgTable,
+  uuid,
+  text,
+  integer,
+  timestamp,
+  boolean,
+  pgEnum,
+  uniqueIndex,
+  index,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+export const eventStatus = pgEnum("event_status", [
+  "draft",
+  "active",
+  "complete",
+]);
+
+export const roundStatus = pgEnum("round_status", [
+  "pending",
+  "active",
+  "complete",
+]);
+
+export const matchStatus = pgEnum("match_status", [
+  "pending",
+  "in_progress",
+  "complete",
+]);
+
+export const tournamentFormat = pgEnum("tournament_format", [
+  "swiss",
+  "round_robin",
+  "single_elim",
+  "commander_pod",
+]);
+
+export const players = pgTable("players", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  displayName: text("display_name").notNull(),
+  avatarUrl: text("avatar_url"), // wizard portrait — "fresh" tier (full life)
+  avatarWoundedUrl: text("avatar_wounded_url"), // ≤75% life
+  avatarCriticalUrl: text("avatar_critical_url"), // ≤25% life
+  selfieUrl: text("selfie_url"), // original selfie upload (kept so we can regenerate)
+  wizardArchetype: text("wizard_archetype"),
+  currentElo: integer("current_elo").notNull().default(1200),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+export const events = pgTable("events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  format: tournamentFormat("format").notNull().default("swiss"),
+  status: eventStatus("status").notNull().default("draft"),
+  totalRounds: integer("total_rounds").notNull().default(3),
+  startingLife: integer("starting_life").notNull().default(20),
+  roundDurationSec: integer("round_duration_sec").notNull().default(3000),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+export const eventPlayers = pgTable(
+  "event_players",
+  {
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    seed: integer("seed").notNull(),
+    startingElo: integer("starting_elo").notNull(),
+    finalStanding: integer("final_standing"),
+    joinToken: text("join_token").notNull(),
+  },
+  (t) => ({
+    pk: uniqueIndex("event_players_pk").on(t.eventId, t.playerId),
+    tokenIdx: uniqueIndex("event_players_token_idx").on(t.joinToken),
+  })
+);
+
+export const rounds = pgTable(
+  "rounds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    roundNumber: integer("round_number").notNull(),
+    status: roundStatus("status").notNull().default("pending"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    uniq: uniqueIndex("rounds_event_number_idx").on(t.eventId, t.roundNumber),
+  })
+);
+
+export const matches = pgTable(
+  "matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    roundId: uuid("round_id")
+      .notNull()
+      .references(() => rounds.id, { onDelete: "cascade" }),
+    tableNumber: integer("table_number").notNull(),
+    playerAId: uuid("player_a_id")
+      .notNull()
+      .references(() => players.id),
+    playerBId: uuid("player_b_id").references(() => players.id), // null = bye
+    status: matchStatus("status").notNull().default("pending"),
+    winnerId: uuid("winner_id").references(() => players.id),
+    isDraw: boolean("is_draw").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    roundIdx: index("matches_round_idx").on(t.roundId),
+  })
+);
+
+export const games = pgTable(
+  "games",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    gameNumber: integer("game_number").notNull(),
+    playerALife: integer("player_a_life").notNull().default(20),
+    playerBLife: integer("player_b_life").notNull().default(20),
+    winnerId: uuid("winner_id").references(() => players.id),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    uniq: uniqueIndex("games_match_number_idx").on(t.matchId, t.gameNumber),
+  })
+);
+
+export const eloChanges = pgTable("elo_changes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  matchId: uuid("match_id")
+    .notNull()
+    .references(() => matches.id, { onDelete: "cascade" }),
+  playerId: uuid("player_id")
+    .notNull()
+    .references(() => players.id),
+  before: integer("before").notNull(),
+  after: integer("after").notNull(),
+  delta: integer("delta").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+export type Player = typeof players.$inferSelect;
+export type NewPlayer = typeof players.$inferInsert;
+export type Event = typeof events.$inferSelect;
+export type EventPlayer = typeof eventPlayers.$inferSelect;
+export type Round = typeof rounds.$inferSelect;
+export type Match = typeof matches.$inferSelect;
+export type Game = typeof games.$inferSelect;
+export type EloChange = typeof eloChanges.$inferSelect;

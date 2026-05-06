@@ -32,10 +32,17 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# but the placeholder template is safe and useful for new contributors
+!.env.example
 
 # vercel
 .vercel
 
+# user-uploaded selfies and generated wizards
+/public/selfies/
+/public/wizards/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.env*.local
