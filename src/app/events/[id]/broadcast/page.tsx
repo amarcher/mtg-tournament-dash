@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
@@ -10,6 +9,7 @@ import {
   getRoundMatches,
 } from "@/db/queries";
 import { qrDataUrl } from "@/lib/qr";
+import { getPublicBaseUrl } from "@/lib/public-url";
 import { BroadcastClient, type BroadcastMatch } from "./BroadcastClient";
 
 export const dynamic = "force-dynamic";
@@ -84,16 +84,11 @@ export default async function BroadcastPage({
   // Pre-load all players (for fallback names if standings is empty).
   void (await db.select().from(players));
 
-  // Compute the absolute claim URL from the actual incoming request so the QR
-  // resolves to whatever phones can reach (LAN IP in dev, vercel domain in
-  // prod) — not localhost or a hard-coded base.
-  const h = await headers();
-  const host =
-    h.get("x-forwarded-host") ?? h.get("host") ?? `localhost:3002`;
-  const proto =
-    h.get("x-forwarded-proto") ??
-    (host.startsWith("localhost") ? "http" : "https");
-  const claimUrl = `${proto}://${host}/events/${id}/claim`;
+  // Phones scan this from the TV, so the QR has to encode a host they can
+  // actually reach — not localhost. `getPublicBaseUrl` swaps loopback hosts
+  // for the auto-detected LAN IP and respects a `PUBLIC_URL` override.
+  const baseUrl = await getPublicBaseUrl();
+  const claimUrl = `${baseUrl}/events/${id}/claim`;
   const claimQr = await qrDataUrl(claimUrl);
 
   return (
@@ -120,7 +115,7 @@ export default async function BroadcastPage({
       }))}
       claimUrl={claimUrl}
       claimQrDataUrl={claimQr}
-      claimHostLabel={host}
+      claimHostLabel={baseUrl.replace(/^https?:\/\//, "")}
     />
   );
 }

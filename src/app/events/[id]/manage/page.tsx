@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import {
   getEvent,
@@ -14,6 +13,7 @@ import {
   setMatchResultAction,
 } from "@/app/events/actions";
 import { qrDataUrl } from "@/lib/qr";
+import { getPublicBaseUrl } from "@/lib/public-url";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +32,9 @@ export default async function ManagePage({
     getEventStandings(id),
   ]);
 
-  // Build absolute join URLs from the actual incoming request — same approach
-  // as the broadcast view's claim QR, so manage and broadcast always agree on
-  // the host phones see (LAN IP in dev, real domain in prod).
-  const h = await headers();
-  const host =
-    h.get("x-forwarded-host") ?? h.get("host") ?? `localhost:3002`;
-  const proto =
-    h.get("x-forwarded-proto") ??
-    (host.startsWith("localhost") ? "http" : "https");
-  const baseUrl = `${proto}://${host}`;
+  // Use the same LAN-aware base URL helper as the broadcast view so the QRs
+  // here resolve to a host phones can actually reach (not localhost).
+  const baseUrl = await getPublicBaseUrl();
   const rosterQrs = await Promise.all(
     roster.map((p) =>
       qrDataUrl(`${baseUrl}/events/${id}/join/${p.joinToken}`)

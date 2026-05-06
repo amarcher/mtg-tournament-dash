@@ -487,16 +487,16 @@ function PlayerSide({
         ↺
       </a>
 
-      {/* readability scrim — radial dark in the middle where the digits land,
-          plus a stronger bottom gradient to anchor name + life. */}
+      {/* readability scrim — keep the face bright (light wash only) and pile
+          the darkness into the bottom third where the life total + name sit. */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse at center, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 55%, rgba(0,0,0,0.7) 100%)",
+            "radial-gradient(ellipse at center, rgba(0,0,0,0.0) 0%, rgba(0,0,0,0.0) 50%, rgba(0,0,0,0.4) 100%)",
         }}
       />
-      <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black via-black/70 to-transparent" />
 
       {/* damage / heal pulse overlay (in front of scrim, behind text) */}
       <AnimatePresence>
@@ -514,17 +514,19 @@ function PlayerSide({
         )}
       </AnimatePresence>
 
-      {/* life total (the headline number, centered) */}
-      <div className="relative z-10 flex flex-1 items-center justify-center">
+      {/* life total — anchored to the lower third so the wizard's face stays
+          visible. `items-end` parks the digit at the bottom of the available
+          flex region, just above the pips + name. */}
+      <div className="relative z-10 flex flex-1 items-end justify-center pb-1">
         <motion.div
           key={life}
           initial={{ scale: 1.18 }}
           animate={{ scale: 1 }}
           className={`font-bold leading-none tabular-nums ${lifeColor}`}
           style={{
-            fontSize: "clamp(3rem, 50cqi, 13rem)",
+            fontSize: "clamp(2.5rem, 38cqi, 11rem)",
             textShadow:
-              "0 4px 22px rgba(0,0,0,0.85), 0 1px 2px rgba(0,0,0,0.9)",
+              "0 4px 22px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,1)",
           }}
         >
           {life}

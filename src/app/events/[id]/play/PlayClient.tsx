@@ -8,21 +8,32 @@ import {
 } from "@/app/events/actions";
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
+import { pickAvatarUrl, type AvatarTiers } from "@/lib/avatar-tier";
 
 type Props = {
   eventId: string;
   matchId: string;
   mySide: "a" | "b";
   players: { a: Player; b: Player | null };
+  startingLife: number;
   initialGame: Game;
   initialWins: { a: number; b: number };
 };
+
+function avatarsFor(p: Player | null): AvatarTiers {
+  return {
+    fresh: p?.avatarUrl ?? null,
+    wounded: p?.avatarWoundedUrl ?? null,
+    critical: p?.avatarCriticalUrl ?? null,
+  };
+}
 
 export function PlayClient({
   eventId,
   matchId,
   mySide,
   players,
+  startingLife,
   initialGame,
   initialWins,
 }: Props) {
@@ -67,14 +78,17 @@ export function PlayClient({
   const myName = mySide === "a" ? players.a.displayName : players.b?.displayName;
   const oppName = mySide === "a" ? players.b?.displayName : players.a.displayName;
 
-  const adjust = (delta: number) => {
-    // Optimistic.
-    if (mySide === "a") setALife((v) => v + delta);
+  // Either player can edit either side's life. SSE fan-out gives us
+  // last-write-wins automatically — every adjust hits the DB with the new
+  // total, then publishes a `life_changed` event everyone else applies.
+  const adjust = (side: "a" | "b", delta: number) => {
+    if (side === "a") setALife((v) => v + delta);
     else setBLife((v) => v + delta);
     startTransition(async () => {
-      await adjustLifeAction({ matchId, side: mySide, delta });
+      await adjustLifeAction({ matchId, side, delta });
     });
   };
+  const oppSide = mySide === "a" ? "b" : "a";
 
   const reportWinner = (winnerSide: "me" | "opp") => {
     const winnerId =
@@ -91,7 +105,13 @@ export function PlayClient({
   };
 
   return (
-    <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-6">
+    <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-4">
+      <Link
+        href="/"
+        className="text-sm text-zinc-500 hover:text-zinc-300"
+      >
+        ← Home
+      </Link>
       <header className="flex items-baseline justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-zinc-500">
@@ -123,35 +143,26 @@ export function PlayClient({
         <GamePips wins={mySide === "a" ? wins.b : wins.a} />
       </div>
 
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 text-center">
-        <div className="text-xs uppercase tracking-wide text-zinc-500">
-          Your life
-        </div>
-        <div className="my-2 text-7xl font-bold tabular-nums">{myLife}</div>
-        <div className="grid grid-cols-4 gap-2">
-          <LifeButton onClick={() => adjust(-5)} disabled={pending}>
-            −5
-          </LifeButton>
-          <LifeButton onClick={() => adjust(-1)} disabled={pending}>
-            −1
-          </LifeButton>
-          <LifeButton onClick={() => adjust(+1)} disabled={pending}>
-            +1
-          </LifeButton>
-          <LifeButton onClick={() => adjust(+5)} disabled={pending}>
-            +5
-          </LifeButton>
-        </div>
-      </div>
+      <LifePanel
+        label={`${myName ?? "You"} (you)`}
+        life={myLife}
+        startingLife={startingLife}
+        avatars={avatarsFor(mySide === "a" ? players.a : players.b)}
+        onAdjust={(d) => adjust(mySide, d)}
+        pending={pending}
+        emphasized
+      />
 
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 text-center">
-        <div className="text-xs uppercase tracking-wide text-zinc-500">
-          Opponent life
-        </div>
-        <div className="text-4xl font-semibold tabular-nums text-zinc-300">
-          {oppLife}
-        </div>
-      </div>
+      {oppName && (
+        <LifePanel
+          label={oppName}
+          life={oppLife}
+          startingLife={startingLife}
+          avatars={avatarsFor(mySide === "a" ? players.b : players.a)}
+          onAdjust={(d) => adjust(oppSide, d)}
+          pending={pending}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <button
@@ -170,6 +181,86 @@ export function PlayClient({
         </button>
       </div>
     </main>
+  );
+}
+
+function LifePanel({
+  label,
+  life,
+  startingLife,
+  avatars,
+  onAdjust,
+  pending,
+  emphasized,
+}: {
+  label: string;
+  life: number;
+  startingLife: number;
+  avatars: AvatarTiers;
+  onAdjust: (delta: number) => void;
+  pending: boolean;
+  emphasized?: boolean;
+}) {
+  // Same tier-aware portrait that the broadcast view uses, so the wizard on
+  // your phone looks the same as on the TV and visibly takes damage as life
+  // drops.
+  const bgUrl = pickAvatarUrl(life, startingLife, avatars);
+  return (
+    <div
+      className={`relative overflow-hidden rounded-2xl border p-5 text-center ${
+        emphasized
+          ? "border-amber-500/40 bg-zinc-900"
+          : "border-zinc-800 bg-zinc-900/60"
+      }`}
+    >
+      {bgUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={bgUrl}
+          alt=""
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-90"
+        />
+      )}
+      {/* Readability scrim: clear at the top so the face is visible, dark at
+          the bottom where the buttons sit. */}
+      {bgUrl && (
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/15 via-black/55 to-black/90" />
+      )}
+
+      <div className="relative z-10">
+        <div
+          className="text-xs uppercase tracking-wide text-zinc-300"
+          style={{ textShadow: "0 1px 4px rgba(0,0,0,0.9)" }}
+        >
+          {label}
+        </div>
+        <div
+          className={`my-1 font-bold tabular-nums ${
+            emphasized ? "text-7xl text-white" : "text-5xl text-zinc-100"
+          }`}
+          style={{
+            textShadow:
+              "0 4px 18px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,1)",
+          }}
+        >
+          {life}
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <LifeButton onClick={() => onAdjust(-5)} disabled={pending}>
+            −5
+          </LifeButton>
+          <LifeButton onClick={() => onAdjust(-1)} disabled={pending}>
+            −1
+          </LifeButton>
+          <LifeButton onClick={() => onAdjust(+1)} disabled={pending}>
+            +1
+          </LifeButton>
+          <LifeButton onClick={() => onAdjust(+5)} disabled={pending}>
+            +5
+          </LifeButton>
+        </div>
+      </div>
+    </div>
   );
 }
 

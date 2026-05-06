@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
@@ -5,6 +6,17 @@ import { games, players } from "@/db/schema";
 import { getCurrentPlayer } from "@/lib/auth";
 import { getActiveMatchForPlayer, getEvent } from "@/db/queries";
 import { PlayClient } from "./PlayClient";
+
+function HomeLink() {
+  return (
+    <Link
+      href="/"
+      className="inline-block text-sm text-zinc-500 hover:text-zinc-300"
+    >
+      ← Home
+    </Link>
+  );
+}
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +32,10 @@ export default async function PlayPage({
   const me = await getCurrentPlayer(id);
   if (!me) {
     return (
-      <main className="mx-auto max-w-md w-full px-6 py-20 text-center">
+      <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
+        <div className="mb-6 text-left">
+          <HomeLink />
+        </div>
         <h1 className="text-2xl font-semibold">Not signed in</h1>
         <p className="mt-3 text-sm text-zinc-400">
           Open the join link the organizer sent you. It looks like
@@ -35,7 +50,10 @@ export default async function PlayPage({
   const match = await getActiveMatchForPlayer(id, me.playerId);
   if (!match) {
     return (
-      <main className="mx-auto max-w-md w-full px-6 py-20 text-center">
+      <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
+        <div className="mb-6 text-left">
+          <HomeLink />
+        </div>
         <h1 className="text-2xl font-semibold">Hi {me.displayName}</h1>
         <p className="mt-3 text-zinc-400">
           No active match for you right now. Wait for the next round to start.
@@ -77,6 +95,7 @@ export default async function PlayPage({
       matchId={match.id}
       mySide={mySide}
       players={{ a, b }}
+      startingLife={event.startingLife}
       initialGame={activeGame}
       initialWins={{ a: aWins, b: bWins }}
     />
