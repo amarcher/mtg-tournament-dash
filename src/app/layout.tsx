@@ -23,11 +23,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    // suppressHydrationWarning on <html>/<body> swallows attribute diffs
+    // caused by Chrome extensions that inject markers into the document
+    // (e.g. Google's "__gcrremoteframetoken"). React's hydration is otherwise
+    // strict and surfaces those as scary console errors.
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-zinc-950 text-zinc-100">
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col bg-zinc-950 text-zinc-100"
+      >
         {children}
       </body>
     </html>

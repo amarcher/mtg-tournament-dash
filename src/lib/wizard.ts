@@ -1,6 +1,18 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
+// heic-convert ships no types; declare a minimal ambient signature inline.
+// Sharp's bundled libheif on macOS Apple Silicon does NOT ship the HEVC
+// decoder plugin, so iPhone HEIC photos (which are HEVC-compressed) crash
+// with "Support for this compression format has not been built in". We sniff
+// for HEIC magic bytes and round-trip through heic-convert (pure JS) first,
+// then hand a JPEG to Sharp. ~3-5s per HEIC; non-HEIC inputs skip this.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const heicConvert = require("heic-convert") as (args: {
+  buffer: ArrayBufferLike | Uint8Array;
+  format: "JPEG" | "PNG";
+  quality?: number;
+}) => Promise<ArrayBufferLike>;
 import { WIZARD_ARCHETYPES, type WizardArchetype } from "./wizard-types";
 
 export { WIZARD_ARCHETYPES, type WizardArchetype };
@@ -9,15 +21,31 @@ const IMAGEGEN_URL =
   process.env.IMAGEGEN_URL ?? "http://127.0.0.1:8000";
 
 /**
+ * Detect HEIC/HEIF by ISO BMFF box magic (bytes 4-7 == "ftyp" and brand 8-11
+ * matches a known HEIC variant). Cheaper and more reliable than trusting the
+ * MIME type or filename, both of which iOS sometimes drops.
+ */
+function isHeic(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  if (buf.toString("ascii", 4, 8) !== "ftyp") return false;
+  const brand = buf.toString("ascii", 8, 12);
+  return ["heic", "heix", "hevc", "hevx", "mif1", "msf1", "heim", "heis"].includes(brand);
+}
+
+/**
  * Normalize any iPhone-friendly input (HEIC, HEIF, JPEG, PNG, WebP) to a
- * 1024×1024 center-cropped JPEG. FLUX edit expects square inputs and we want
- * file sizes consistent. Sharp 0.34 ships with libheif, so HEIC just works.
+ * 1024×1024 letterboxed JPEG. HEIC inputs are pre-converted via heic-convert
+ * because Sharp's libheif on this build can't handle HEVC. `fit: contain`
+ * keeps the whole frame so we never accidentally chop a face out of an
+ * off-center selfie.
  */
 async function selfieToSquareJpeg(input: Buffer): Promise<Buffer> {
-  // `fit: contain` letterboxes rather than cropping so we never accidentally
-  // chop a face out of an off-center selfie. The black bars give the edit
-  // model a clean reference frame.
-  return sharp(input, { failOn: "none" })
+  let decoded = input;
+  if (isHeic(input)) {
+    const out = await heicConvert({ buffer: input, format: "JPEG", quality: 0.95 });
+    decoded = Buffer.from(out as ArrayBuffer);
+  }
+  return sharp(decoded, { failOn: "none" })
     .rotate() // honor EXIF orientation (iPhone defaults to landscape sensor)
     .resize({
       width: 1024,

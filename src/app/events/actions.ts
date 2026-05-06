@@ -299,8 +299,11 @@ export async function reportGameWinnerAction(args: {
     .select()
     .from(matches)
     .where(eq(matches.id, args.matchId));
-  if (!match || match.status !== "in_progress")
-    throw new Error("Match not in progress");
+  if (!match) throw new Error("Match not found");
+  // Touch UIs double-fire all the time; swallow late calls instead of
+  // crashing the player view. The first call already produced the state the
+  // user intended.
+  if (match.status === "complete") return;
 
   const [game] = await db
     .select()
@@ -308,7 +311,8 @@ export async function reportGameWinnerAction(args: {
     .where(and(eq(games.matchId, args.matchId), isNull(games.winnerId)))
     .orderBy(games.gameNumber)
     .limit(1);
-  if (!game) throw new Error("No active game");
+  // Same idempotency reasoning — if there's no open game, no-op.
+  if (!game) return;
 
   await db
     .update(games)
