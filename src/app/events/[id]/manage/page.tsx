@@ -262,6 +262,24 @@ export default async function ManagePage({
               <th className="px-3 py-2">Player</th>
               <th className="px-3 py-2 text-right">W-L-D</th>
               <th className="px-3 py-2 text-right">Pts</th>
+              <th
+                className="px-3 py-2 text-right"
+                title="Opponents' Match-Win Percentage — primary MTG tiebreaker"
+              >
+                OMW%
+              </th>
+              <th
+                className="px-3 py-2 text-right"
+                title="Game-Win Percentage — secondary MTG tiebreaker"
+              >
+                GW%
+              </th>
+              <th
+                className="px-3 py-2 text-right"
+                title="Opponents' Game-Win Percentage — tertiary MTG tiebreaker"
+              >
+                OGW%
+              </th>
               <th className="px-3 py-2 text-right">ELO</th>
             </tr>
           </thead>
@@ -277,6 +295,15 @@ export default async function ManagePage({
                   {s.wins}-{s.losses}-{s.draws}
                 </td>
                 <td className="px-3 py-2 text-right font-mono">{s.matchPoints}</td>
+                <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                  {(s.opponentMatchWinPct * 100).toFixed(1)}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                  {(s.gameWinPct * 100).toFixed(1)}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                  {(s.opponentGameWinPct * 100).toFixed(1)}
+                </td>
                 <td className="px-3 py-2 text-right font-mono text-zinc-400">
                   {s.currentElo}
                 </td>
