@@ -33,6 +33,7 @@ import {
 import { generateJoinToken } from "../src/lib/auth";
 import {
   getCurrentRound,
+  getEventRounds,
   getEventStandings,
   getRoundMatches,
 } from "../src/db/queries";
@@ -359,6 +360,216 @@ async function runWizardizeIntegrationTest(playerId: string) {
   ok("post-clean generated wizard/selfie files");
 }
 
+/**
+ * 6-player Swiss correctness pass. Asserts the exact pairing structure the
+ * organizer expects on game night:
+ *   • R1: all 6 paired into 3 matches.
+ *   • R2: exactly one W-vs-W, one L-vs-L, and one cross (W-vs-L) match.
+ *     No rematches.
+ *   • R3: small matchpoint diffs only, no rematches across the event.
+ *   • Final: event auto-completes, standings sorted, final_standing 1..6.
+ *
+ * Drives every match via the phone path (reportGameWinnerAction × 2 = 2-0 BO3
+ * sweep) so we exercise the same code paths a real tournament uses.
+ */
+async function runSixPlayerSwissPass() {
+  console.log("\n--- 6-player Swiss correctness pass ---");
+  await cleanup();
+
+  const { event } = await setupEvent(6);
+  ok(`set up 6-player event ${event.id.slice(0, 8)}`);
+
+  // === Round 1 ===
+  await startNextRoundAction(event.id);
+  let round = await getCurrentRound(event.id);
+  let ms = await getRoundMatches(round!.id);
+  assert(ms.length === 3, "R1: exactly 3 matches");
+  assert(ms.every((m) => m.playerB !== null), "R1: no bye (even count)");
+
+  for (const { match, playerA, playerB } of ms) {
+    if (!playerB) continue;
+    const winner =
+      playerA.displayName < playerB.displayName ? playerA : playerB;
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+  }
+  await completeRoundAction(event.id);
+
+  let standings = await getEventStandings(event.id);
+  const r1Winners = new Set(
+    standings.filter((s) => s.matchPoints === 3).map((s) => s.playerId)
+  );
+  const r1Losers = new Set(
+    standings.filter((s) => s.matchPoints === 0).map((s) => s.playerId)
+  );
+  assert(r1Winners.size === 3, "R1: 3 winners at 3 pts");
+  assert(r1Losers.size === 3, "R1: 3 losers at 0 pts");
+
+  // === Round 2 ===
+  await startNextRoundAction(event.id);
+  round = await getCurrentRound(event.id);
+  ms = await getRoundMatches(round!.id);
+  assert(ms.length === 3, "R2: exactly 3 matches");
+  assert(ms.every((m) => m.playerB !== null), "R2: no bye");
+
+  const tier = (id: string) => (r1Winners.has(id) ? "W" : "L");
+  const r2Tiers = ms.map(({ playerA, playerB }) =>
+    [tier(playerA.id), tier(playerB!.id)].sort().join("")
+  );
+  assert(
+    r2Tiers.filter((t) => t === "WW").length === 1,
+    "R2: exactly one W-vs-W match"
+  );
+  assert(
+    r2Tiers.filter((t) => t === "LL").length === 1,
+    "R2: exactly one L-vs-L match"
+  );
+  assert(
+    r2Tiers.filter((t) => t === "LW").length === 1,
+    "R2: exactly one cross (W-vs-L) match"
+  );
+
+  // Cumulative pair set, for rematch checking.
+  const seenPairs = new Set<string>();
+  const r1Round = (await getEventRounds(event.id)).find(
+    (r) => r.roundNumber === 1
+  )!;
+  for (const m of await getRoundMatches(r1Round.id)) {
+    if (m.playerB) seenPairs.add([m.playerA.id, m.playerB.id].sort().join("|"));
+  }
+  for (const m of ms) {
+    const k = [m.playerA.id, m.playerB!.id].sort().join("|");
+    assert(!seenPairs.has(k), `R2 pair is not an R1 rematch`);
+    seenPairs.add(k);
+  }
+
+  for (const { match, playerA, playerB } of ms) {
+    if (!playerB) continue;
+    const winner =
+      playerA.displayName < playerB.displayName ? playerA : playerB;
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+  }
+  await completeRoundAction(event.id);
+
+  standings = await getEventStandings(event.id);
+  const pointsById = new Map(standings.map((s) => [s.playerId, s.matchPoints]));
+
+  // === Round 3 ===
+  await startNextRoundAction(event.id);
+  round = await getCurrentRound(event.id);
+  ms = await getRoundMatches(round!.id);
+  assert(ms.length === 3, "R3: exactly 3 matches");
+  assert(ms.every((m) => m.playerB !== null), "R3: no bye");
+
+  for (const m of ms) {
+    const k = [m.playerA.id, m.playerB!.id].sort().join("|");
+    assert(!seenPairs.has(k), `R3 pair is not a prior rematch`);
+    seenPairs.add(k);
+
+    const pa = pointsById.get(m.playerA.id)!;
+    const pb = pointsById.get(m.playerB!.id)!;
+    // Swiss should keep matchpoint diffs tight. With 6 players the worst
+    // achievable diff after R2 (given the rematch constraint) is 3.
+    assert(
+      Math.abs(pa - pb) <= 3,
+      `R3 pair ${m.playerA.displayName}(${pa}) vs ${m.playerB!.displayName}(${pb}): diff ≤ 3`
+    );
+  }
+
+  for (const { match, playerA, playerB } of ms) {
+    if (!playerB) continue;
+    const winner =
+      playerA.displayName < playerB.displayName ? playerA : playerB;
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+  }
+  await completeRoundAction(event.id);
+
+  // === Final assertions ===
+  const [final] = await db.select().from(events).where(eq(events.id, event.id));
+  assert(final.status === "complete", "6p event auto-marked complete");
+
+  const finalStandings = await getEventStandings(event.id);
+  assert(finalStandings.length === 6, "final standings: 6 players");
+  for (const s of finalStandings) {
+    assert(
+      s.opponentsFaced.length === 3 && new Set(s.opponentsFaced).size === 3,
+      `${s.displayName}: 3 unique opponents`
+    );
+  }
+  for (let i = 1; i < finalStandings.length; i++) {
+    const prev = finalStandings[i - 1];
+    const cur = finalStandings[i];
+    const order =
+      prev.matchPoints > cur.matchPoints
+        ? true
+        : prev.matchPoints < cur.matchPoints
+          ? false
+          : prev.opponentMatchWinPct > cur.opponentMatchWinPct
+            ? true
+            : prev.opponentMatchWinPct < cur.opponentMatchWinPct
+              ? false
+              : prev.gameWinPct > cur.gameWinPct
+                ? true
+                : prev.gameWinPct < cur.gameWinPct
+                  ? false
+                  : prev.opponentGameWinPct > cur.opponentGameWinPct
+                    ? true
+                    : prev.opponentGameWinPct < cur.opponentGameWinPct
+                      ? false
+                      : prev.currentElo >= cur.currentElo;
+    assert(
+      order,
+      `final standings row ${i - 1} ≥ row ${i} (MTG tiebreakers)`
+    );
+  }
+  // GW% sanity for the 6-player run: P1 swept 3 matches (2-0 each) → 6/6
+  // games → 100% GW%. P6 lost every match (0-2 each) → 0/6 games → 0% GW%.
+  const top = finalStandings[0];
+  const bot = finalStandings[finalStandings.length - 1];
+  assert(top.gameWinPct === 1, "top player has 100% GW%");
+  assert(bot.gameWinPct === 0, "bottom player has 0% GW%");
+
+  const finalRoster = await db
+    .select({
+      playerId: eventPlayers.playerId,
+      finalStanding: eventPlayers.finalStanding,
+    })
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, event.id));
+  const fsValues = finalRoster
+    .map((r) => r.finalStanding)
+    .sort((a, b) => (a ?? 0) - (b ?? 0));
+  assert(
+    JSON.stringify(fsValues) === JSON.stringify([1, 2, 3, 4, 5, 6]),
+    "event_players.final_standing populated 1..6"
+  );
+
+  // Print a tidy leaderboard so the operator can eyeball it.
+  console.log("\n  Final leaderboard (6p):");
+  console.log(
+    "    #  Player                MP  W-L-D   OMW%   GW%   OGW%   ELO"
+  );
+  for (let i = 0; i < finalStandings.length; i++) {
+    const s = finalStandings[i];
+    const pct = (n: number) => (n * 100).toFixed(1).padStart(5);
+    console.log(
+      `    ${(i + 1).toString().padStart(2)}. ${s.displayName.padEnd(20)} ` +
+        `${s.matchPoints.toString().padStart(2)}  ` +
+        `${s.wins}-${s.losses}-${s.draws}   ` +
+        `${pct(s.opponentMatchWinPct)} ${pct(s.gameWinPct)} ${pct(
+          s.opponentGameWinPct
+        )}  ${s.currentElo}`
+    );
+  }
+  console.log("");
+
+  ok("6-player Swiss: clean leaderboard after 3 rounds");
+  await cleanup();
+  ok("post-clean 6-player rows");
+}
+
 async function checkRoutes(eventId: string) {
   // Probe the server first; skip silently if it isn't running OR if something
   // unrelated is on the port. Look for "MTG Dash" in the response so a
@@ -486,14 +697,48 @@ async function main() {
   const movedElo = standings.filter((s) => s.currentElo !== 1200).length;
   assert(movedElo > 0, "ELO ratings changed for at least one player");
 
-  // Standings sorted by match points then ELO.
+  // Standings sorted by MTG tiebreakers: MP > OMW% > GW% > OGW% > ELO.
   for (let i = 1; i < standings.length; i++) {
     const prev = standings[i - 1];
     const cur = standings[i];
+    const order =
+      prev.matchPoints > cur.matchPoints
+        ? true
+        : prev.matchPoints < cur.matchPoints
+          ? false
+          : prev.opponentMatchWinPct > cur.opponentMatchWinPct
+            ? true
+            : prev.opponentMatchWinPct < cur.opponentMatchWinPct
+              ? false
+              : prev.gameWinPct > cur.gameWinPct
+                ? true
+                : prev.gameWinPct < cur.gameWinPct
+                  ? false
+                  : prev.opponentGameWinPct > cur.opponentGameWinPct
+                    ? true
+                    : prev.opponentGameWinPct < cur.opponentGameWinPct
+                      ? false
+                      : prev.currentElo >= cur.currentElo;
+    assert(order, `standings ordering: row ${i - 1} ≥ row ${i} (MTG tiebreakers)`);
+  }
+
+  // Tiebreaker fields are populated and within [0, 1].
+  for (const s of standings) {
     assert(
-      prev.matchPoints > cur.matchPoints ||
-        (prev.matchPoints === cur.matchPoints && prev.currentElo >= cur.currentElo),
-      `standings ordering: row ${i - 1} ≥ row ${i}`
+      s.opponentMatchWinPct >= 0 && s.opponentMatchWinPct <= 1,
+      `${s.displayName}: OMW% in [0,1]`
+    );
+    assert(
+      s.gameWinPct >= 0 && s.gameWinPct <= 1,
+      `${s.displayName}: GW% in [0,1]`
+    );
+    assert(
+      s.opponentGameWinPct >= 0 && s.opponentGameWinPct <= 1,
+      `${s.displayName}: OGW% in [0,1]`
+    );
+    assert(
+      s.gameWins > 0 || s.matchPoints === 0,
+      `${s.displayName}: gameWins > 0 if any match was won`
     );
   }
 
@@ -502,6 +747,8 @@ async function main() {
   // FLUX-backed wizardize: ~90s when the image-gen server is up. Run it on
   // the first test player so the avatar columns also get exercised.
   await runWizardizeIntegrationTest(testPlayers[0].id);
+
+  await runSixPlayerSwissPass();
 
   await cleanup();
   ok("post-clean test rows");

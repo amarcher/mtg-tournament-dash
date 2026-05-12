@@ -10,6 +10,11 @@ import {
   players,
   rounds,
 } from "./schema";
+import {
+  compareByMtgTiebreakers,
+  computeTiebreakers,
+  type PlayerMatchRecord,
+} from "@/lib/tiebreakers";
 
 export async function listLeagues() {
   return db.select().from(leagues).orderBy(asc(leagues.name));
@@ -156,8 +161,17 @@ export async function getMatchGames(matchId: string) {
 }
 
 /**
- * Match-points standings for an event so far. Win = 3, draw = 1, loss = 0.
- * Bye is treated as a 3-0 win.
+ * Match-points standings for an event so far.
+ *
+ * Sort order follows the MTG tournament tiebreakers (see src/lib/tiebreakers):
+ *   match points > opponents' match-win % > game-win % > opponents' game-win %.
+ * `currentElo` is a final stable tiebreaker beyond MTG's four — meaningful for
+ * friend leagues where the math often runs out.
+ *
+ * Byes count as a 2-0 match win for the player but don't contribute an
+ * opponent to OMW%/OGW%. Game-level wins/losses are read from the `games`
+ * table; matches resolved via organizer override have their game rows
+ * synthesized (see setMatchResultAction) so GW% stays meaningful.
  */
 export async function getEventStandings(eventId: string) {
   const roster = await getEventRoster(eventId);
@@ -174,6 +188,9 @@ export async function getEventStandings(eventId: string) {
       wins: 0,
       losses: 0,
       draws: 0,
+      gameWins: 0,
+      gameLosses: 0,
+      gameDraws: 0,
       currentElo: p.currentElo,
       avatarUrl: p.avatarUrl,
       avatarWoundedUrl: p.avatarWoundedUrl,
@@ -182,6 +199,9 @@ export async function getEventStandings(eventId: string) {
       avatarDefeatUrl: p.avatarDefeatUrl,
       opponentsFaced: [] as string[],
       hasHadBye: false,
+      opponentMatchWinPct: 0,
+      gameWinPct: 0,
+      opponentGameWinPct: 0,
     }));
   }
 
@@ -190,73 +210,120 @@ export async function getEventStandings(eventId: string) {
     .from(matches)
     .where(inArray(matches.roundId, completedRoundIds));
 
-  const stats = new Map<
-    string,
-    {
-      wins: number;
-      losses: number;
-      draws: number;
-      opponents: Set<string>;
-      bye: boolean;
-    }
-  >();
+  const matchIds = completedMatches.map((m) => m.id);
+  const completedGames = matchIds.length
+    ? await db.select().from(games).where(inArray(games.matchId, matchIds))
+    : [];
+
+  const records = new Map<string, PlayerMatchRecord>();
   for (const p of roster) {
-    stats.set(p.playerId, {
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      opponents: new Set(),
-      bye: false,
+    records.set(p.playerId, {
+      opponents: [],
+      matchWins: 0,
+      matchLosses: 0,
+      matchDraws: 0,
+      byes: 0,
+      gameWins: 0,
+      gameLosses: 0,
+      gameDraws: 0,
     });
   }
 
   for (const m of completedMatches) {
-    const a = stats.get(m.playerAId);
+    const a = records.get(m.playerAId);
     if (!a) continue;
     if (m.playerBId === null) {
-      // Bye → counts as a win.
-      a.wins += 1;
-      a.bye = true;
+      a.byes += 1;
       continue;
     }
-    const b = stats.get(m.playerBId);
+    const b = records.get(m.playerBId);
     if (!b) continue;
-    a.opponents.add(m.playerBId);
-    b.opponents.add(m.playerAId);
+    a.opponents.push(m.playerBId);
+    b.opponents.push(m.playerAId);
     if (m.isDraw) {
-      a.draws += 1;
-      b.draws += 1;
+      a.matchDraws += 1;
+      b.matchDraws += 1;
     } else if (m.winnerId === m.playerAId) {
-      a.wins += 1;
-      b.losses += 1;
+      a.matchWins += 1;
+      b.matchLosses += 1;
     } else if (m.winnerId === m.playerBId) {
-      b.wins += 1;
-      a.losses += 1;
+      b.matchWins += 1;
+      a.matchLosses += 1;
     }
   }
 
+  const matchById = new Map(completedMatches.map((m) => [m.id, m]));
+  for (const g of completedGames) {
+    const m = matchById.get(g.matchId);
+    if (!m || m.playerBId === null) continue;
+    const aRec = records.get(m.playerAId);
+    const bRec = records.get(m.playerBId);
+    if (!aRec || !bRec) continue;
+    if (!g.winnerId) {
+      // Game with no recorded winner — only counts if the match itself was
+      // a draw, in which case treat the game as a draw too.
+      if (m.isDraw) {
+        aRec.gameDraws += 1;
+        bRec.gameDraws += 1;
+      }
+      continue;
+    }
+    if (g.winnerId === m.playerAId) {
+      aRec.gameWins += 1;
+      bRec.gameLosses += 1;
+    } else if (g.winnerId === m.playerBId) {
+      bRec.gameWins += 1;
+      aRec.gameLosses += 1;
+    }
+  }
+
+  const tb = computeTiebreakers(records);
+
   return roster
     .map((p) => {
-      const s = stats.get(p.playerId)!;
+      const r = records.get(p.playerId)!;
+      const t = tb.get(p.playerId)!;
       return {
         playerId: p.playerId,
         displayName: p.displayName,
-        matchPoints: s.wins * 3 + s.draws * 1,
-        wins: s.wins,
-        losses: s.losses,
-        draws: s.draws,
+        matchPoints: t.matchPoints,
+        wins: r.matchWins + r.byes,
+        losses: r.matchLosses,
+        draws: r.matchDraws,
+        gameWins: r.gameWins + r.byes * 2,
+        gameLosses: r.gameLosses,
+        gameDraws: r.gameDraws,
         currentElo: p.currentElo,
         avatarUrl: p.avatarUrl,
         avatarWoundedUrl: p.avatarWoundedUrl,
         avatarCriticalUrl: p.avatarCriticalUrl,
         avatarVictoryUrl: p.avatarVictoryUrl,
         avatarDefeatUrl: p.avatarDefeatUrl,
-        opponentsFaced: Array.from(s.opponents),
-        hasHadBye: s.bye,
+        opponentsFaced: r.opponents,
+        hasHadBye: r.byes > 0,
+        opponentMatchWinPct: t.opponentMatchWinPct,
+        gameWinPct: t.gameWinPct,
+        opponentGameWinPct: t.opponentGameWinPct,
       };
     })
     .sort((a, b) => {
-      if (b.matchPoints !== a.matchPoints) return b.matchPoints - a.matchPoints;
+      const cmp = compareByMtgTiebreakers(
+        {
+          matchPoints: a.matchPoints,
+          matchWinPct: 0,
+          gameWinPct: a.gameWinPct,
+          opponentMatchWinPct: a.opponentMatchWinPct,
+          opponentGameWinPct: a.opponentGameWinPct,
+        },
+        {
+          matchPoints: b.matchPoints,
+          matchWinPct: 0,
+          gameWinPct: b.gameWinPct,
+          opponentMatchWinPct: b.opponentMatchWinPct,
+          opponentGameWinPct: b.opponentGameWinPct,
+        }
+      );
+      if (cmp !== 0) return cmp;
       return b.currentElo - a.currentElo;
     });
 }

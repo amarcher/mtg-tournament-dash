@@ -585,6 +585,66 @@ export async function setMatchResultAction(formData: FormData) {
     })
     .where(eq(matches.id, match.id));
 
+  // Synthesize game rows for decisive overrides so MTG game-win% tiebreakers
+  // still mean something on mixed-input tournaments (some matches reported via
+  // phone, some called by the organizer). Assume a 2-0 BO3 sweep — the most
+  // common outcome. For draws, leave game rows untouched: the actual game
+  // state is genuinely unknown, and the match-level draw is enough for MP.
+  if (winnerId && !isDraw) {
+    const existing = await db
+      .select()
+      .from(games)
+      .where(eq(games.matchId, match.id))
+      .orderBy(games.gameNumber);
+    const now = new Date();
+    const [roundForEvent] = await db
+      .select()
+      .from(rounds)
+      .where(eq(rounds.id, match.roundId));
+    const [eventRow] = await db
+      .select()
+      .from(events)
+      .where(eq(events.id, roundForEvent.eventId));
+    const startingLife = eventRow?.startingLife ?? 20;
+    if (existing.length === 0) {
+      await db.insert(games).values([
+        {
+          matchId: match.id,
+          gameNumber: 1,
+          playerALife: startingLife,
+          playerBLife: startingLife,
+          winnerId,
+          completedAt: now,
+        },
+        {
+          matchId: match.id,
+          gameNumber: 2,
+          playerALife: startingLife,
+          playerBLife: startingLife,
+          winnerId,
+          completedAt: now,
+        },
+      ]);
+    } else {
+      // Update the in-progress game and add a second decisive game.
+      const g1 = existing[0];
+      await db
+        .update(games)
+        .set({ winnerId, completedAt: now })
+        .where(eq(games.id, g1.id));
+      if (existing.length === 1) {
+        await db.insert(games).values({
+          matchId: match.id,
+          gameNumber: 2,
+          playerALife: startingLife,
+          playerBLife: startingLife,
+          winnerId,
+          completedAt: now,
+        });
+      }
+    }
+  }
+
   const [round] = await db
     .select()
     .from(rounds)
