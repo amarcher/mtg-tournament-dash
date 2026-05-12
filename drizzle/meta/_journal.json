@@ -29,6 +29,27 @@
       "when": 1778038603487,
       "tag": "0003_early_patriot",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778597797513,
+      "tag": "0004_square_randall",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778600763178,
+      "tag": "0005_blushing_landau",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778602913733,
+      "tag": "0006_silly_clea",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getEvent, getEventRoster } from "@/db/queries";
-import { getCurrentPlayer } from "@/lib/auth";
+import { getEvent, getEventRoster, getLeague } from "@/db/queries";
+import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
 import { claimIdentityAction } from "@/app/events/actions";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +18,11 @@ export default async function ClaimPage({
   const event = await getEvent(id);
   if (!event) notFound();
 
-  const [roster, me] = await Promise.all([
+  const [league, roster, me, leagueMe] = await Promise.all([
+    getLeague(event.leagueId),
     getEventRoster(id),
     getCurrentPlayer(id),
+    getCurrentLeaguePlayer(event.leagueId),
   ]);
 
   // "Switch player" toggle: when the user lands here already claimed, we show
@@ -29,14 +31,55 @@ export default async function ClaimPage({
   const switchMode = sp.switch === "1";
   const showBanner = me && !switchMode;
 
+  const onRoster = leagueMe
+    ? roster.find((r) => r.playerId === leagueMe.id)
+    : null;
+
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">{event.name}</h1>
+        {league && (
+          <Link
+            href={`/leagues/${league.slug}`}
+            className="text-sm text-zinc-500 hover:text-zinc-300"
+          >
+            ← {league.name}
+          </Link>
+        )}
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          {event.name}
+        </h1>
         <p className="mt-1 text-sm text-zinc-500">
           Tap your wizard to claim your seat.
         </p>
       </div>
+
+      {!me && leagueMe && onRoster && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <span className="text-amber-200">
+            We recognize you as <strong>{leagueMe.displayName}</strong> from{" "}
+            {league?.name ?? "this league"}.
+          </span>
+          <form action={claimIdentityAction} className="ml-auto">
+            <input type="hidden" name="eventId" value={id} />
+            <input type="hidden" name="playerId" value={leagueMe.id} />
+            <button
+              type="submit"
+              className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+            >
+              Continue as {leagueMe.displayName} →
+            </button>
+          </form>
+        </div>
+      )}
+
+      {!me && leagueMe && !onRoster && (
+        <div className="mb-6 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
+          You&apos;re <strong>{leagueMe.displayName}</strong> in{" "}
+          {league?.name ?? "this league"}, but you&apos;re not on this
+          event&apos;s roster. Ask the organizer to add you.
+        </div>
+      )}
 
       {showBanner && (
         <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm">

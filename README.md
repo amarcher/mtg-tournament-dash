@@ -6,11 +6,12 @@ Built because no off-the-shelf tool ships a TV broadcast view with live life tot
 
 ## What's in here
 
+- **Leagues** (`/leagues/[slug]`) — every wizard and every event belongs to a league (e.g. "Lexington Dads Magic Draft"). New players self-create their identity from `/leagues/[slug]/claim` straight from a phone; the per-league cookie survives across every event in that league, so a returning player just taps their wizard once.
 - **Broadcast view** (`/events/[id]/broadcast`) — full-screen 16:9 layout for casting to a TV. Live life totals, Swiss pairings, round timer, standings, damage/heal pulse animations. Each player's wizard portrait is the background of their cell and crossfades through three damage tiers as their life drops.
 - **Phone score keeping** (`/events/[id]/play`) — players adjust their own life total and report game / match wins from one-handed phone UI. Updates fan out over Server-Sent Events.
-- **One-tap join** — `/events/[id]/claim` shows the wizard-portrait roster as tappable cards. A QR code in the broadcast corner links straight there, so phones don't need to know the LAN IP.
-- **Selfie-to-wizard** — players upload a phone selfie (HEIC works), pick an archetype (pyromancer, frost mage, druid, necromancer, illusionist, stormcaller, blood mage, archmage), and the FLUX.2 Klein image-edit model generates three identity-preserving portraits at full / wounded / critical states.
-- **Persistent history** — head-to-head matrix, per-player pages, ELO ratings (K=32, starting 1200) accumulated across every event you've ever run.
+- **One-tap join** — `/events/[id]/claim` shows the event roster as tappable cards. A QR code in the broadcast corner links straight there. If the visitor already has a league cookie, the page recognizes them and offers a single "Continue as X" button.
+- **Selfie-to-wizard** — players upload a phone selfie (HEIC works), pick an archetype (pyromancer, frost mage, druid, necromancer, illusionist, stormcaller, blood mage, archmage), and the FLUX.2 Klein image-edit model generates five identity-preserving portraits — fresh, wounded, critical (mid-fight states) plus victory and defeat (post-match states). All five are family-friendly (no blood/gore). Generated images live on the image-gen server and are streamed through the Next.js `/files/<name>` proxy route.
+- **League-scoped history** — head-to-head, per-player profiles, and ELO ratings (K=32, starting 1200) accumulate across every event in the league.
 - **Swiss pairings** — pure backtracking matching with rematch avoidance and bye handling. Unit-tested. `src/lib/pairings/swiss.ts`.
 
 ## Stack
@@ -38,6 +39,9 @@ vercel env pull .env.local
 echo "COOKIE_SECRET=$(openssl rand -hex 32)" >> .env.local
 
 # 3. Apply migrations + seed
+#    Seeding creates two leagues: "Demo League" (6 placeholder players) and
+#    "Lexington Dads Magic Draft" (empty). Skip the seed if you want a blank
+#    install and create your own league via the DB or seed file.
 npm run db:migrate
 npm run db:seed
 
@@ -55,7 +59,13 @@ Required env vars (`.env.local`):
 DATABASE_URL=postgresql://...        # Neon connection string from Vercel
 COOKIE_SECRET=...                    # 64 hex chars from openssl rand -hex 32
 IMAGEGEN_URL=http://127.0.0.1:8000   # optional, default shown
+IMAGEGEN_FILES_TOKEN=...             # shared secret with the image-gen server
+                                     # (same value as FLUX server's FILES_TOKEN)
+TUNNEL_HOSTNAME=mtg.yourdomain.com   # optional, only for `npm run tunnel:named`
+CLOUDFLARE_API_TOKEN=...             # optional, only for `npm run cf:skip-waf`
 ```
+
+`IMAGEGEN_FILES_TOKEN` authenticates wizard-image uploads to the FLUX server's `/files/<name>` endpoint. Generate with `openssl rand -hex 32` and set the same value as `FILES_TOKEN` in `~/Programs/image-gen/.env`.
 
 ## Scripts
 
@@ -64,30 +74,52 @@ IMAGEGEN_URL=http://127.0.0.1:8000   # optional, default shown
 | `npm run dev` | Next.js dev server with HMR |
 | `npm run build` && `npm start` | Production build + serve |
 | `npm run lan` | Build + serve on `0.0.0.0:3002`, prints the LAN URL so phones on the same Wi-Fi can connect |
+| `npm run tunnel` | Same as `lan`, but fronts the server with a cloudflared Quick Tunnel so phones get a public HTTPS URL (no "Not Secure" warning, no LAN IP literal). Requires `brew install cloudflared`. URL rotates per session. |
+| `npm run tunnel:named` | Same as `tunnel`, but uses a *named* Cloudflare Tunnel so the URL stays stable across runs (e.g. `https://mtg.yourdomain.com`). Requires the one-time setup below and `TUNNEL_HOSTNAME=...` in the environment. |
 | `npm test` | Vitest unit tests (Swiss pairings, ELO math, avatar tier picker) |
 | `npm run lint` | ESLint |
-| `npm run verify` | End-to-end harness: spins up an isolated 8-player tournament, drives every action, exercises the FLUX wizardize pipeline if the server is reachable, then cleans up. ~6 s without FLUX, ~50 s with it. Set `SKIP_FLUX=1` to skip the image-gen step. |
+| `npm run verify` | End-to-end harness: spins up an isolated `_verify_`-prefixed league + 8-player event, drives every action, exercises the FLUX wizardize pipeline if the server is reachable, then cleans up. ~6 s without FLUX, ~2½ min with it. Set `SKIP_FLUX=1` to skip the image-gen step. |
 | `npm run db:generate` | Generate a Drizzle migration from schema changes |
 | `npm run db:migrate` | Apply pending migrations to Neon |
 | `npm run db:studio` | Open Drizzle Studio |
-| `npm run db:seed` | Seed a default roster |
+| `npm run db:seed` | Idempotent. Creates the "Demo League" (6 placeholder players) and "Lexington Dads Magic Draft" (empty). Safe to re-run. |
+| `npm run migrate:files` | One-shot. Migrates any legacy `/public/{selfies,wizards}/*` images onto the FLUX server's `/files` endpoint and rewrites DB URLs. Already run once on the live data; re-running skips already-migrated rows. |
+| `npm run cf:skip-waf` | One-shot. Creates a Cloudflare WAF custom rule that skips managed rules for POST requests to `mtg.<your-host>`, which is required for multipart selfie uploads to reach Next.js through cloudflared. |
 
 ## Game-day flow
 
-1. `npm run lan` on the host laptop. Note the LAN URL it prints.
-2. Cast Chrome on the laptop to the TV; open `/events/new`, pick the roster, hit create.
-3. Phones in the room scan the QR code in the broadcast corner → land on `/claim` → tap their wizard portrait.
-4. Organizer hits "Start round 1" on `/events/[id]/manage`.
-5. Players adjust their own life total / report game wins from their phones; the broadcast view updates in real time.
-6. Round timer counts down 50 minutes by default. When matches finish (or organizer overrides via `/manage`), the round can be closed and the next paired automatically.
-7. After the final round, ELO is updated, final standings are written, and the event is marked complete.
+1. `npm run lan` on the host laptop. Note the LAN URL it prints. (Or `npm run tunnel` for a public HTTPS URL via cloudflared — phones see no security warning, and guests can join from cellular too.)
+2. From phones, players hit `/leagues/lexington-dads-magic-draft/claim` (or whatever your league's slug is) and tap an existing wizard or "Create wizard" to onboard. The league cookie sticks for a year.
+3. Cast Chrome on the laptop to the TV; open `/leagues/[slug]/events/new`, pick the roster, hit create.
+4. Phones in the room scan the QR code in the broadcast corner → land on `/claim`. If they already have a league cookie they see "Continue as X"; otherwise they tap their wizard portrait.
+5. Organizer hits "Start round 1" on `/events/[id]/manage`.
+6. Players adjust their own life total / report game wins from their phones; the broadcast view updates in real time.
+7. Round timer counts down 50 minutes by default. When matches finish (or organizer overrides via `/manage`), the round can be closed and the next paired automatically.
+8. After the final round, ELO is updated, final standings are written, and the event is marked complete.
+
+### Stable tunnel URL (optional)
+
+If you own a domain on Cloudflare's free DNS, you can swap the rotating `*.trycloudflare.com` URL for a stable one like `https://mtg.yourdomain.com`. One-time setup, then `npm run tunnel:named` instead of `npm run tunnel`:
+
+```sh
+brew install cloudflared
+cloudflared tunnel login                              # opens browser, picks domain
+cloudflared tunnel create mtg-dash                    # writes ~/.cloudflared/<UUID>.json
+cloudflared tunnel route dns mtg-dash mtg.yourdomain.com
+```
+
+Then add `TUNNEL_HOSTNAME=mtg.yourdomain.com` to `.env.local` (the script sources it automatically) — or prefix the command for a one-off. The script generates a temporary cloudflared config from that env var on each run, so no YAML to edit by hand. `TUNNEL_NAME` defaults to `mtg-dash` but can be overridden if you reuse the tunnel for other projects.
 
 ## Architecture notes
 
-- **Cookies**: each player gets a 192-bit random `joinToken` per event stored in `event_players.join_token`. The `/claim` page sets it via httpOnly cookie scoped to `/events/[id]`. No real auth — friends-only assumption.
+- **Identity is per-league**: `players` rows belong to a single `league` (`players.league_id`) and carry a durable `league_token`. Tapping a wizard on `/leagues/[slug]/claim` sets an `mtg_league_<leagueId>` httpOnly cookie scoped to `/`, good for a year, so the player is recognized across every event in that league. Portable cross-league identities are a future migration.
+- **Per-event cookies**: each `event_players` row still gets a 192-bit `join_token`. Claiming on `/events/[id]/claim` sets both the per-event cookie (used by `/play` and the realtime views) and the league cookie. No real auth — friends-only assumption.
 - **Real-time**: a single in-process `Map<eventId, Set<controller>>` pubsub. Mutations hit Postgres, then publish a typed event (`life_changed`, `game_complete`, `match_complete`, `round_started`, `round_completed`). Broadcast view holds one EventSource and re-renders accordingly.
-- **Wizard tiers**: portraits are generated upfront — fresh (>75% life), wounded (25–75%), critical (≤25%). The broadcast `PlayerSide` calls `pickAvatarUrl` from `src/lib/avatar-tier.ts`, which has a cascading fallback chain so older single-portrait players still render correctly.
+- **Wizard tiers**: five portraits are generated upfront — three life-based (fresh > 75 %, wounded 25–75 %, critical ≤ 25 %) and two match-outcome (victory, defeat). The broadcast `PlayerSide` calls `pickAvatarUrl` while a match is in progress and `pickMatchOutcomeAvatar` once it resolves; both cascade through sibling tiers so older 3-tier players still render correctly.
 - **HEIC handling**: iPhone selfies hit a Sharp pipeline with libheif so they normalize to a 1024×1024 JPEG before going to FLUX `/edit`.
+- **Image storage**: generated portraits are stored on the FLUX server (`~/Programs/image-gen/files/`), not in the Next.js `/public` dir. The DB stores `/files/<name>?v=<ts>` URLs; the Next.js proxy route at `src/app/files/[file]/route.ts` streams them from `127.0.0.1:8000/files/<name>` to the browser. This keeps image storage decoupled from the Next build manifest, so a freshly wizardized player's portrait appears without rebuilding. The same files are also reachable directly at `imagegen.mised.tech/files/<name>` if you've set up that ingress.
+- **Wizardize is a background job**: `generateWizardAction` flips a `wizard_job_started_at` flag and returns in under a second; a fire-and-forget Promise then runs the ~2½ min FLUX work and writes results when done. The player page polls `router.refresh()` every 4 s while the flag is set. This pattern exists because Cloudflare's free-tier edge has a 100 s HTTP response timeout that would kill a synchronous wizardize.
+- **Cloudflare WAF caveat**: behind cloudflared, multipart selfie uploads match the managed OWASP ruleset and get blocked with a 403 unless you install a skip rule. `npm run cf:skip-waf` does this once via the Cloudflare API.
 
 ## What this is not
 

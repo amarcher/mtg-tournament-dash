@@ -36,32 +36,74 @@ export const tournamentFormat = pgEnum("tournament_format", [
   "commander_pod",
 ]);
 
-export const players = pgTable("players", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  displayName: text("display_name").notNull(),
-  avatarUrl: text("avatar_url"), // wizard portrait — "fresh" tier (full life)
-  avatarWoundedUrl: text("avatar_wounded_url"), // ≤75% life
-  avatarCriticalUrl: text("avatar_critical_url"), // ≤25% life
-  selfieUrl: text("selfie_url"), // original selfie upload (kept so we can regenerate)
-  wizardArchetype: text("wizard_archetype"),
-  currentElo: integer("current_elo").notNull().default(1200),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-});
+export const leagues = pgTable(
+  "leagues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex("leagues_slug_idx").on(t.slug),
+  })
+);
 
-export const events = pgTable("events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  format: tournamentFormat("format").notNull().default("swiss"),
-  status: eventStatus("status").notNull().default("draft"),
-  totalRounds: integer("total_rounds").notNull().default(3),
-  startingLife: integer("starting_life").notNull().default(20),
-  roundDurationSec: integer("round_duration_sec").notNull().default(3000),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-});
+export const players = pgTable(
+  "players",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    leagueToken: text("league_token").notNull(),
+    displayName: text("display_name").notNull(),
+    avatarUrl: text("avatar_url"),
+    avatarWoundedUrl: text("avatar_wounded_url"),
+    avatarCriticalUrl: text("avatar_critical_url"),
+    avatarVictoryUrl: text("avatar_victory_url"),
+    avatarDefeatUrl: text("avatar_defeat_url"),
+    selfieUrl: text("selfie_url"),
+    wizardArchetype: text("wizard_archetype"),
+    // Set when wizardize starts; cleared when the background job finishes
+    // (success or failure). The player page polls while this is non-null.
+    wizardJobStartedAt: timestamp("wizard_job_started_at", {
+      withTimezone: true,
+    }),
+    currentElo: integer("current_elo").notNull().default(1200),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    leagueIdx: index("players_league_idx").on(t.leagueId),
+    tokenIdx: uniqueIndex("players_league_token_idx").on(t.leagueToken),
+  })
+);
+
+export const events = pgTable(
+  "events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    format: tournamentFormat("format").notNull().default("swiss"),
+    status: eventStatus("status").notNull().default("draft"),
+    totalRounds: integer("total_rounds").notNull().default(3),
+    startingLife: integer("starting_life").notNull().default(20),
+    roundDurationSec: integer("round_duration_sec").notNull().default(3000),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    leagueIdx: index("events_league_idx").on(t.leagueId),
+  })
+);
 
 export const eventPlayers = pgTable(
   "event_players",
@@ -156,6 +198,8 @@ export const eloChanges = pgTable("elo_changes", {
     .default(sql`now()`),
 });
 
+export type League = typeof leagues.$inferSelect;
+export type NewLeague = typeof leagues.$inferInsert;
 export type Player = typeof players.$inferSelect;
 export type NewPlayer = typeof players.$inferInsert;
 export type Event = typeof events.$inferSelect;

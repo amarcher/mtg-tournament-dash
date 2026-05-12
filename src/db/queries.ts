@@ -5,17 +5,62 @@ import {
   eventPlayers,
   events,
   games,
+  leagues,
   matches,
   players,
   rounds,
 } from "./schema";
 
-export async function listAllPlayers() {
-  return db.select().from(players).orderBy(desc(players.currentElo));
+export async function listLeagues() {
+  return db.select().from(leagues).orderBy(asc(leagues.name));
 }
 
-export async function listAllEvents() {
-  return db.select().from(events).orderBy(desc(events.createdAt));
+export async function getLeagueBySlug(slug: string) {
+  const [row] = await db.select().from(leagues).where(eq(leagues.slug, slug));
+  return row ?? null;
+}
+
+export async function getLeague(leagueId: string) {
+  const [row] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, leagueId));
+  return row ?? null;
+}
+
+export async function listLeaguePlayers(leagueId: string) {
+  return db
+    .select()
+    .from(players)
+    .where(eq(players.leagueId, leagueId))
+    .orderBy(desc(players.currentElo));
+}
+
+export async function listOpenLeagueEvents(leagueId: string) {
+  return db
+    .select()
+    .from(events)
+    .where(
+      and(eq(events.leagueId, leagueId), sql`${events.status} <> 'complete'`)
+    )
+    .orderBy(desc(events.createdAt));
+}
+
+export async function listLeagueEvents(leagueId: string) {
+  return db
+    .select()
+    .from(events)
+    .where(eq(events.leagueId, leagueId))
+    .orderBy(desc(events.createdAt));
+}
+
+export async function getPlayerByLeagueToken(token: string) {
+  const [row] = await db
+    .select()
+    .from(players)
+    .where(eq(players.leagueToken, token))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function getEvent(eventId: string) {
@@ -37,6 +82,8 @@ export async function getEventRoster(eventId: string) {
       avatarUrl: players.avatarUrl,
       avatarWoundedUrl: players.avatarWoundedUrl,
       avatarCriticalUrl: players.avatarCriticalUrl,
+      avatarVictoryUrl: players.avatarVictoryUrl,
+      avatarDefeatUrl: players.avatarDefeatUrl,
     })
     .from(eventPlayers)
     .innerJoin(players, eq(players.id, eventPlayers.playerId))
@@ -63,6 +110,8 @@ export async function getRoundMatches(roundId: string) {
         avatarUrl: players.avatarUrl,
         avatarWoundedUrl: players.avatarWoundedUrl,
         avatarCriticalUrl: players.avatarCriticalUrl,
+        avatarVictoryUrl: players.avatarVictoryUrl,
+        avatarDefeatUrl: players.avatarDefeatUrl,
       },
     })
     .from(matches)
@@ -83,6 +132,8 @@ export async function getRoundMatches(roundId: string) {
           avatarUrl: players.avatarUrl,
           avatarWoundedUrl: players.avatarWoundedUrl,
           avatarCriticalUrl: players.avatarCriticalUrl,
+          avatarVictoryUrl: players.avatarVictoryUrl,
+          avatarDefeatUrl: players.avatarDefeatUrl,
         })
         .from(players)
         .where(inArray(players.id, playerBIds))
@@ -127,6 +178,8 @@ export async function getEventStandings(eventId: string) {
       avatarUrl: p.avatarUrl,
       avatarWoundedUrl: p.avatarWoundedUrl,
       avatarCriticalUrl: p.avatarCriticalUrl,
+      avatarVictoryUrl: p.avatarVictoryUrl,
+      avatarDefeatUrl: p.avatarDefeatUrl,
       opponentsFaced: [] as string[],
       hasHadBye: false,
     }));
@@ -196,6 +249,8 @@ export async function getEventStandings(eventId: string) {
         avatarUrl: p.avatarUrl,
         avatarWoundedUrl: p.avatarWoundedUrl,
         avatarCriticalUrl: p.avatarCriticalUrl,
+        avatarVictoryUrl: p.avatarVictoryUrl,
+        avatarDefeatUrl: p.avatarDefeatUrl,
         opponentsFaced: Array.from(s.opponents),
         hasHadBye: s.bye,
       };
@@ -254,14 +309,6 @@ export async function listEloHistory(playerId: string, limit = 50) {
     .limit(limit);
 }
 
-export async function listOpenEvents() {
-  return db
-    .select()
-    .from(events)
-    .where(sql`${events.status} <> 'complete'`)
-    .orderBy(desc(events.createdAt));
-}
-
 export async function getPlayer(playerId: string) {
   const [row] = await db
     .select()
@@ -270,8 +317,7 @@ export async function getPlayer(playerId: string) {
   return row;
 }
 
-/** Head-to-head: how many times has playerA beaten playerB? */
-export async function getHeadToHeadMatrix() {
+export async function getLeagueHeadToHead(leagueId: string) {
   const rows = await db
     .select({
       winnerId: matches.winnerId,
@@ -280,8 +326,11 @@ export async function getHeadToHeadMatrix() {
         ELSE ${matches.playerAId} END`,
     })
     .from(matches)
+    .innerJoin(rounds, eq(rounds.id, matches.roundId))
+    .innerJoin(events, eq(events.id, rounds.eventId))
     .where(
       and(
+        eq(events.leagueId, leagueId),
         eq(matches.status, "complete"),
         eq(matches.isDraw, false),
         sql`${matches.winnerId} IS NOT NULL`

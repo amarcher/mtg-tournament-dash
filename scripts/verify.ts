@@ -18,10 +18,10 @@ config({ path: ".env.local" });
 config({ path: ".env" });
 
 import { eq, like } from "drizzle-orm";
-import { readFile, stat, unlink } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { db } from "../src/db/client";
-import { events, eventPlayers, players } from "../src/db/schema";
+import { events, eventPlayers, leagues, players } from "../src/db/schema";
 import {
   startNextRoundAction,
   reportGameWinnerAction,
@@ -58,16 +58,26 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 async function cleanup() {
-  // Cascade deletes children (rounds, matches, games, elo_changes, event_players).
+  // Delete events first so the matches/elo_changes cascade clears out the
+  // elo_changes rows that reference players (elo_changes.player_id has no
+  // ON DELETE CASCADE). Then deleting the league cascades to its players.
   await db.delete(events).where(like(events.name, `${PREFIX}%`));
-  await db.delete(players).where(like(players.displayName, `${PREFIX}%`));
+  await db.delete(leagues).where(like(leagues.slug, `${PREFIX}%`));
 }
 
 async function setupEvent(playerCount: number) {
+  const slug = `${PREFIX}league`;
+  const [league] = await db
+    .insert(leagues)
+    .values({ slug, name: `${PREFIX}League` })
+    .returning();
+
   const inserted = await db
     .insert(players)
     .values(
       Array.from({ length: playerCount }, (_, i) => ({
+        leagueId: league.id,
+        leagueToken: generateJoinToken(),
         displayName: `${PREFIX}P${i + 1}`,
       }))
     )
@@ -76,6 +86,7 @@ async function setupEvent(playerCount: number) {
   const [event] = await db
     .insert(events)
     .values({
+      leagueId: league.id,
       name: `${PREFIX}event`,
       totalRounds: 3,
       startingLife: 20,
@@ -92,7 +103,7 @@ async function setupEvent(playerCount: number) {
     }))
   );
 
-  return { event, players: inserted };
+  return { event, league, players: inserted };
 }
 
 function makeFormData(entries: Record<string, string>): FormData {
@@ -246,65 +257,112 @@ async function runWizardizeIntegrationTest(playerId: string) {
     })
   );
   await generateWizardAction(fd);
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  ok(`generateWizardAction ran end-to-end against FLUX (${elapsed}s)`);
-
-  // Each variant on disk should be a real JPEG, not a 0-byte error response.
-  const wizardsDir = join(process.cwd(), "public", "wizards");
-  for (const tier of ["fresh", "wounded", "critical"] as const) {
-    const file = join(wizardsDir, `${playerId}-${tier}.jpg`);
-    try {
-      const s = await stat(file);
-      assert(s.size > 50_000, `${tier} variant > 50KB on disk (${s.size} B)`);
-    } catch {
-      fail(`${tier} variant missing on disk: ${file}`);
-    }
+  // Action now returns immediately and runs FLUX in the background. Poll the
+  // DB until wizard_job_started_at clears (success or failure).
+  let row: {
+    avatarUrl: string | null;
+    avatarWoundedUrl: string | null;
+    avatarCriticalUrl: string | null;
+    avatarVictoryUrl: string | null;
+    avatarDefeatUrl: string | null;
+    selfieUrl: string | null;
+    wizardArchetype: string | null;
+    wizardJobStartedAt: Date | null;
+  } | undefined;
+  // 5 tiers × ~30 s each = up to 3 min of FLUX work. Generous deadline.
+  const deadline = Date.now() + 300_000;
+  while (Date.now() < deadline) {
+    [row] = await db
+      .select({
+        avatarUrl: players.avatarUrl,
+        avatarWoundedUrl: players.avatarWoundedUrl,
+        avatarCriticalUrl: players.avatarCriticalUrl,
+        avatarVictoryUrl: players.avatarVictoryUrl,
+        avatarDefeatUrl: players.avatarDefeatUrl,
+        selfieUrl: players.selfieUrl,
+        wizardArchetype: players.wizardArchetype,
+        wizardJobStartedAt: players.wizardJobStartedAt,
+      })
+      .from(players)
+      .where(eq(players.id, playerId));
+    if (row && row.wizardJobStartedAt === null && row.avatarUrl !== null) break;
+    await new Promise((r) => setTimeout(r, 2000));
   }
-
-  // DB columns should all be populated with cache-busted public paths.
-  const [row] = await db
-    .select({
-      avatarUrl: players.avatarUrl,
-      avatarWoundedUrl: players.avatarWoundedUrl,
-      avatarCriticalUrl: players.avatarCriticalUrl,
-      selfieUrl: players.selfieUrl,
-      wizardArchetype: players.wizardArchetype,
-    })
-    .from(players)
-    .where(eq(players.id, playerId));
+  if (!row) {
+    fail("could not read player row");
+    return;
+  }
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  ok(`generateWizardAction completed end-to-end against FLUX (${elapsed}s)`);
   assert(
-    row.avatarUrl?.includes(`${playerId}-fresh.jpg`),
+    row.avatarUrl?.includes(`wizard-${playerId}-fresh.jpg`),
     "fresh URL written to players.avatar_url"
   );
   assert(
-    row.avatarWoundedUrl?.includes(`${playerId}-wounded.jpg`),
+    row.avatarWoundedUrl?.includes(`wizard-${playerId}-wounded.jpg`),
     "wounded URL written to players.avatar_wounded_url"
   );
   assert(
-    row.avatarCriticalUrl?.includes(`${playerId}-critical.jpg`),
+    row.avatarCriticalUrl?.includes(`wizard-${playerId}-critical.jpg`),
     "critical URL written to players.avatar_critical_url"
   );
-  assert(row.selfieUrl?.includes(`${playerId}.jpg`), "selfie URL persisted");
+  assert(
+    row.avatarVictoryUrl?.includes(`wizard-${playerId}-victory.jpg`),
+    "victory URL written to players.avatar_victory_url"
+  );
+  assert(
+    row.avatarDefeatUrl?.includes(`wizard-${playerId}-defeat.jpg`),
+    "defeat URL written to players.avatar_defeat_url"
+  );
+  assert(
+    row.selfieUrl?.includes(`selfie-${playerId}.jpg`),
+    "selfie URL persisted"
+  );
   assert(row.wizardArchetype === "frost mage", "wizardArchetype persisted");
-
-  // Cache-bust query suffix should be present so phones don't see stale jpgs.
+  assert(row.avatarUrl?.startsWith("/files/"), "URLs point at /files/");
   assert(row.avatarUrl?.includes("?v="), "fresh URL has cache-buster");
 
-  // Clean up the generated files. The player row itself is purged by the
-  // outer cleanup(); files would otherwise leak into /public/.
-  for (const tier of ["fresh", "wounded", "critical"] as const) {
-    await unlink(join(wizardsDir, `${playerId}-${tier}.jpg`)).catch(
-      () => undefined
+  // Each variant on the image-gen server should be a real JPEG, not a 0-byte
+  // error response. Probe via the public /files endpoint.
+  for (const tier of ["fresh", "wounded", "critical", "victory", "defeat"] as const) {
+    const name = `wizard-${playerId}-${tier}.jpg`;
+    const res = await fetch(`${fluxUrl}/files/${name}`);
+    if (!res.ok) {
+      fail(`/files/${name} GET → ${res.status}`);
+      continue;
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    assert(
+      bytes.length > 50_000,
+      `${tier} variant > 50KB on image-gen (${bytes.length} B)`
     );
   }
-  await unlink(
-    join(process.cwd(), "public", "selfies", `${playerId}.jpg`)
-  ).catch(() => undefined);
+
+  // Clean up uploaded files via the DELETE endpoint.
+  const token = process.env.IMAGEGEN_FILES_TOKEN ?? "";
+  for (const tier of [
+    "fresh",
+    "wounded",
+    "critical",
+    "victory",
+    "defeat",
+  ] as const) {
+    await fetch(`${fluxUrl}/files/wizard-${playerId}-${tier}.jpg`, {
+      method: "DELETE",
+      headers: { "X-Files-Token": token },
+    }).catch(() => undefined);
+  }
+  await fetch(`${fluxUrl}/files/selfie-${playerId}.jpg`, {
+    method: "DELETE",
+    headers: { "X-Files-Token": token },
+  }).catch(() => undefined);
   ok("post-clean generated wizard/selfie files");
 }
 
 async function checkRoutes(eventId: string) {
-  // Probe the server first; skip silently if it isn't running.
+  // Probe the server first; skip silently if it isn't running OR if something
+  // unrelated is on the port. Look for "MTG Dash" in the response so a
+  // foreign dev server on the same port doesn't produce false 404s.
   try {
     const res = await fetch(`http://localhost:${VERIFY_PORT}/`, {
       cache: "no-store",
@@ -315,6 +373,13 @@ async function checkRoutes(eventId: string) {
       );
       return;
     }
+    const body = await res.text();
+    if (!body.includes("MTG Dash")) {
+      console.log(
+        `  · http checks skipped (something else is on :${VERIFY_PORT}; not our app)`
+      );
+      return;
+    }
   } catch {
     console.log(
       `  · http checks skipped (no server on :${VERIFY_PORT}; start one with npm run dev)`
@@ -322,10 +387,21 @@ async function checkRoutes(eventId: string) {
     return;
   }
 
+  const leagueSlug = `${PREFIX}league`;
   const checks: { path: string; mustInclude?: string[] }[] = [
     { path: "/", mustInclude: ["MTG"] },
-    { path: "/players" },
-    { path: "/events/new", mustInclude: ["Event name", "Players"] },
+    {
+      path: `/leagues/${leagueSlug}`,
+      mustInclude: [`${PREFIX}League`, `${PREFIX}P1`],
+    },
+    {
+      path: `/leagues/${leagueSlug}/claim`,
+      mustInclude: ["Create wizard", `${PREFIX}P1`],
+    },
+    {
+      path: `/leagues/${leagueSlug}/events/new`,
+      mustInclude: ["Event name", "Players"],
+    },
     {
       path: `/events/${eventId}/manage`,
       mustInclude: [`${PREFIX}P1`, "Standings"],
@@ -371,8 +447,8 @@ async function main() {
   await cleanup();
   ok("pre-clean leftover _verify_ rows");
 
-  const { event, players: testPlayers } = await setupEvent(8);
-  ok(`set up 8-player event ${event.id.slice(0, 8)}`);
+  const { event, league, players: testPlayers } = await setupEvent(8);
+  ok(`set up 8-player event ${event.id.slice(0, 8)} in league ${league.slug}`);
 
   await driveRound1ViaPhones(event.id);
   ok("round 1 — game-by-game flow + life adjust");
@@ -431,6 +507,10 @@ async function main() {
   ok("post-clean test rows");
 
   // Verify cleanup didn't miss anything.
+  const stragglerLeagues = await db
+    .select()
+    .from(leagues)
+    .where(like(leagues.slug, `${PREFIX}%`));
   const stragglerEvents = await db
     .select()
     .from(events)
@@ -439,6 +519,7 @@ async function main() {
     .select()
     .from(players)
     .where(like(players.displayName, `${PREFIX}%`));
+  assert(stragglerLeagues.length === 0, "no leftover verify leagues");
   assert(stragglerEvents.length === 0, "no leftover verify events");
   assert(stragglerPlayers.length === 0, "no leftover verify players");
 

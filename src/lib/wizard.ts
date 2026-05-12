@@ -1,5 +1,3 @@
-import { writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import sharp from "sharp";
 // heic-convert ships no types; declare a minimal ambient signature inline.
 // Sharp's bundled libheif on macOS Apple Silicon does NOT ship the HEVC
@@ -19,6 +17,7 @@ export { WIZARD_ARCHETYPES, type WizardArchetype };
 
 const IMAGEGEN_URL =
   process.env.IMAGEGEN_URL ?? "http://127.0.0.1:8000";
+const IMAGEGEN_FILES_TOKEN = process.env.IMAGEGEN_FILES_TOKEN;
 
 /**
  * Detect HEIC/HEIF by ISO BMFF box magic (bytes 4-7 == "ftyp" and brand 8-11
@@ -95,14 +94,24 @@ export function buildWizardPrompt(
   );
 }
 
-export type WizardTier = "fresh" | "wounded" | "critical";
+export type WizardTier =
+  | "fresh"
+  | "wounded"
+  | "critical"
+  | "victory"
+  | "defeat";
 
 const TIER_SUFFIX: Record<WizardTier, string> = {
   fresh: "",
   wounded:
-    " They look battle-weary: robes torn and ash-streaked at the shoulders, smoke and embers drifting around them, expression strained but determined, weary eyes.",
+    " They look battle-weary: robes dusted and slightly torn at the shoulders, soft motes of light drifting around them, expression strained but determined, tired eyes.",
+  // Family-friendly: weariness and weathered robes, no blood or gore.
   critical:
-    " They are at the edge of defeat: bloodied face, gaunt cheeks, eyes glowing fiercely, robes ragged and burned, last-stand pose, dramatic crimson backlight.",
+    " They are exhausted and weathered from a long duel: robes scorched and frayed at the edges, faint glowing motes of magic dimming around them, brow furrowed with focused resolve, eyes still bright with fight. Painterly, dramatic but never gory — no blood, no wounds, no fear, suitable for all ages.",
+  victory:
+    " They have just won the duel: a wry, satisfied smile playing at the corner of their mouth, eyes alight with quiet triumph, posture relaxed and confident, soft golden rim-light glowing around them, a faint shower of magical sparks rising in celebration.",
+  defeat:
+    " The duel is over and they have been vanquished: head hung slightly, chin lowered toward their chest, eyes cast downward in quiet resignation, no smile, expression solemn and accepting. Robes scorched and frayed at the shoulders just like in the critical state — visibly weathered from the fight. The magical glow around them has dimmed to almost nothing, ambient light cool and somber. Family-friendly, no blood, no anguish, no tears — dignified defeat.",
 };
 
 /**
@@ -119,10 +128,12 @@ export function buildVariantPrompt(
 }
 
 export type WizardVariantResult = {
-  selfiePath: string; // public path, e.g. /selfies/abc.jpg
+  selfiePath: string;
   freshPath: string;
   woundedPath: string;
   criticalPath: string;
+  victoryPath: string;
+  defeatPath: string;
 };
 
 /**
@@ -163,12 +174,38 @@ async function editOnce(
   return out;
 }
 
+async function uploadToFilesEndpoint(name: string, buf: Buffer): Promise<void> {
+  if (!IMAGEGEN_FILES_TOKEN) {
+    throw new Error(
+      "IMAGEGEN_FILES_TOKEN not set in .env.local — wizard storage requires it"
+    );
+  }
+  const res = await fetch(`${IMAGEGEN_URL}/files/${name}`, {
+    method: "PUT",
+    headers: {
+      "X-Files-Token": IMAGEGEN_FILES_TOKEN,
+      "Content-Type": "application/octet-stream",
+    },
+    body: new Uint8Array(buf),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `PUT /files/${name} returned ${res.status}: ${text.slice(0, 300)}`
+    );
+  }
+}
+
 /**
- * Save the uploaded selfie to disk and run FLUX.2 Klein /edit three times
- * (fresh, wounded, critical) against the same normalized selfie buffer.
- * Calls are sequential so a single GPU isn't asked to run three jobs at
- * once. All four returned paths are public URLs (relative to /) with
- * `?v=<timestamp>` cache busters.
+ * Normalize the uploaded selfie, run FLUX.2 Klein /edit three times
+ * (fresh, wounded, critical) against the same normalized selfie buffer, then
+ * upload all four images (selfie + three tiers) to the image-gen server's
+ * /files endpoint. Returned paths are `/files/<name>?v=<ts>` — relative URLs
+ * that the Next.js app proxies through to the image-gen server.
+ *
+ * Storing images on the image-gen server (not Next.js's `/public`) decouples
+ * them from the build manifest, so newly generated portraits show up
+ * immediately without a rebuild.
  */
 export async function generateWizardVariantsFromSelfie(args: {
   playerId: string;
@@ -178,17 +215,11 @@ export async function generateWizardVariantsFromSelfie(args: {
 }): Promise<WizardVariantResult> {
   const { playerId, selfie, archetype, freeform } = args;
 
-  const publicDir = join(process.cwd(), "public");
-  await mkdir(join(publicDir, "selfies"), { recursive: true });
-  await mkdir(join(publicDir, "wizards"), { recursive: true });
-
   // Normalize whatever the phone uploaded (HEIC, JPEG, PNG, WebP, …) into a
   // 1024² JPEG. We persist this normalized copy and feed it to FLUX as-is
   // for all three tier passes.
   const rawBuf = Buffer.from(await selfie.arrayBuffer());
   const selfieBuf = await selfieToSquareJpeg(rawBuf);
-  const selfieRel = `/selfies/${playerId}.jpg`;
-  await writeFile(join(publicDir, "selfies", `${playerId}.jpg`), selfieBuf);
 
   // Probe the server first so we can return a friendly error before we
   // commit to three sequential ~30s requests.
@@ -199,33 +230,46 @@ export async function generateWizardVariantsFromSelfie(args: {
     if (!health.ok) throw new Error(`status ${health.status}`);
   } catch (err) {
     throw new Error(
-      `Local image-gen server not reachable at ${IMAGEGEN_URL}. Start it with: cd ~/Programs/image-gen && FLUX_MODEL=flux2-klein nohup uv run uvicorn server.main:app --host 127.0.0.1 --port 8000 > /tmp/imagegen.log 2>&1 & disown\n(${(err as Error).message})`
+      `Local image-gen server not reachable at ${IMAGEGEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
     );
   }
 
-  // Three sequential /edit calls, same input buffer, three tier-specific
-  // prompts. ~30s each on the local FLUX server.
-  const tiers: WizardTier[] = ["fresh", "wounded", "critical"];
+  // Five sequential /edit calls, same input buffer, five tier-specific
+  // prompts. ~30 s each on the local FLUX server (~2.5 min total).
+  const tiers: WizardTier[] = [
+    "fresh",
+    "wounded",
+    "critical",
+    "victory",
+    "defeat",
+  ];
   const buffers: Record<WizardTier, Buffer> = {} as Record<WizardTier, Buffer>;
   for (const tier of tiers) {
     const prompt = buildVariantPrompt(archetype, freeform, tier);
     buffers[tier] = await editOnce(selfieBuf, prompt);
   }
 
-  const v = Date.now();
+  const selfieName = `selfie-${playerId}.jpg`;
+  const tierNames: Record<WizardTier, string> = {
+    fresh: `wizard-${playerId}-fresh.jpg`,
+    wounded: `wizard-${playerId}-wounded.jpg`,
+    critical: `wizard-${playerId}-critical.jpg`,
+    victory: `wizard-${playerId}-victory.jpg`,
+    defeat: `wizard-${playerId}-defeat.jpg`,
+  };
+
+  await uploadToFilesEndpoint(selfieName, selfieBuf);
   await Promise.all(
-    tiers.map((tier) =>
-      writeFile(
-        join(publicDir, "wizards", `${playerId}-${tier}.jpg`),
-        buffers[tier]
-      )
-    )
+    tiers.map((tier) => uploadToFilesEndpoint(tierNames[tier], buffers[tier]))
   );
 
+  const v = Date.now();
   return {
-    selfiePath: `${selfieRel}?v=${v}`,
-    freshPath: `/wizards/${playerId}-fresh.jpg?v=${v}`,
-    woundedPath: `/wizards/${playerId}-wounded.jpg?v=${v}`,
-    criticalPath: `/wizards/${playerId}-critical.jpg?v=${v}`,
+    selfiePath: `/files/${selfieName}?v=${v}`,
+    freshPath: `/files/${tierNames.fresh}?v=${v}`,
+    woundedPath: `/files/${tierNames.wounded}?v=${v}`,
+    criticalPath: `/files/${tierNames.critical}?v=${v}`,
+    victoryPath: `/files/${tierNames.victory}?v=${v}`,
+    defeatPath: `/files/${tierNames.defeat}?v=${v}`,
   };
 }

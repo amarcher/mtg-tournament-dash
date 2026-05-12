@@ -25,12 +25,14 @@ async function main() {
     throw new Error("need ≥6 seeded players (run pnpm db:seed)");
   }
   const six = allPlayers.slice(0, 6);
+  const leagueId = six[0].leagueId;
 
   // Create event directly in DB (bypassing the server action since it calls
   // redirect() which throws outside a request scope).
   const [event] = await db
     .insert(events)
     .values({
+      leagueId,
       name: "Smoke Test Cup",
       totalRounds: 3,
       startingLife: 20,

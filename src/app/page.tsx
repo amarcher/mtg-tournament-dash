@@ -1,100 +1,84 @@
 import Link from "next/link";
-import { listAllPlayers, listOpenEvents } from "@/db/queries";
+import { redirect } from "next/navigation";
+import { db } from "@/db/client";
+import { events, players } from "@/db/schema";
+import { eq, sql, desc } from "drizzle-orm";
+import { listLeagues } from "@/db/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [players, openEvents] = await Promise.all([
-    listAllPlayers(),
-    listOpenEvents(),
-  ]);
+  const all = await listLeagues();
+
+  if (all.length === 1) {
+    redirect(`/leagues/${all[0].slug}`);
+  }
+
+  const counts = await Promise.all(
+    all.map(async (l) => {
+      const [playerCount] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(players)
+        .where(eq(players.leagueId, l.id));
+      const [openCount] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(events)
+        .where(eq(events.leagueId, l.id));
+      const [latest] = await db
+        .select({ name: events.name, createdAt: events.createdAt })
+        .from(events)
+        .where(eq(events.leagueId, l.id))
+        .orderBy(desc(events.createdAt))
+        .limit(1);
+      return {
+        league: l,
+        players: playerCount?.n ?? 0,
+        events: openCount?.n ?? 0,
+        latest: latest ?? null,
+      };
+    })
+  );
 
   return (
-    <main className="mx-auto max-w-4xl w-full px-6 py-12">
-      <div className="mb-12 flex items-baseline justify-between">
-        <h1 className="text-4xl font-semibold tracking-tight">MTG Dash</h1>
-        <Link
-          href="/events/new"
-          className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400"
-        >
-          New event
-        </Link>
-      </div>
+    <main className="mx-auto max-w-3xl w-full px-6 py-12">
+      <h1 className="mb-2 text-4xl font-semibold tracking-tight">MTG Dash</h1>
+      <p className="mb-10 text-sm text-zinc-500">
+        Pick a league to enter.
+      </p>
 
-      <section className="mb-12">
-        <h2 className="mb-4 text-lg font-medium text-zinc-300">Active events</h2>
-        {openEvents.length === 0 ? (
-          <p className="text-sm text-zinc-500">No events in progress.</p>
-        ) : (
-          <ul className="space-y-2">
-            {openEvents.map((e) => (
-              <li
-                key={e.id}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+      {all.length === 0 ? (
+        <p className="text-sm text-zinc-500">
+          No leagues yet. Run <code className="text-amber-400">npm run db:seed</code> to scaffold one.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {counts.map((c) => (
+            <li
+              key={c.league.id}
+              className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 transition hover:border-amber-500/60"
+            >
+              <Link
+                href={`/leagues/${c.league.slug}`}
+                className="block"
               >
-                <div>
-                  <div className="font-medium">{e.name}</div>
-                  <div className="text-xs text-zinc-500">
-                    {e.format} · {e.totalRounds} rounds · {e.status}
-                  </div>
-                </div>
-                <div className="flex gap-2 text-sm">
-                  <Link
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 hover:bg-zinc-700"
-                    href={`/events/${e.id}/manage`}
-                  >
-                    Manage
-                  </Link>
-                  <Link
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 hover:bg-zinc-700"
-                    href={`/events/${e.id}/broadcast`}
-                  >
-                    Broadcast
-                  </Link>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="text-lg font-medium text-zinc-300">Leaderboard</h2>
-          <Link href="/players" className="text-xs text-zinc-500 hover:text-zinc-300">
-            All players →
-          </Link>
-        </div>
-        {players.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            No players yet. Add some when creating your first event.
-          </p>
-        ) : (
-          <ol className="space-y-1">
-            {players.slice(0, 10).map((p, i) => (
-              <li
-                key={p.id}
-                className="flex items-baseline justify-between rounded-md border border-zinc-800 bg-zinc-900/50 px-4 py-2"
-              >
-                <span className="flex items-baseline gap-3">
-                  <span className="w-6 text-right font-mono text-xs text-zinc-500">
-                    {i + 1}
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-xl font-medium tracking-tight">
+                    {c.league.name}
                   </span>
-                  <Link
-                    href={`/players/${p.id}`}
-                    className="font-medium hover:text-amber-400"
-                  >
-                    {p.displayName}
-                  </Link>
-                </span>
-                <span className="font-mono text-sm text-zinc-400">
-                  {p.currentElo}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
+                  <span className="font-mono text-xs text-zinc-500">
+                    /{c.league.slug}
+                  </span>
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">
+                  {c.players} wizard{c.players === 1 ? "" : "s"} ·{" "}
+                  {c.events} event{c.events === 1 ? "" : "s"}
+                  {c.latest ? ` · latest: ${c.latest.name}` : ""}
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }

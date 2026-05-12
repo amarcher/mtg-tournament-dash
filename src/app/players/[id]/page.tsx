@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { eq, or, and, desc, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { eloChanges, events, matches, players, rounds } from "@/db/schema";
-import { getPlayer } from "@/db/queries";
+import { getLeague, getPlayer } from "@/db/queries";
 import { WizardForm } from "./WizardForm";
+import { WizardGallery } from "./WizardGallery";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function PlayerPage({
   const { id } = await params;
   const player = await getPlayer(id);
   if (!player) notFound();
+  const league = await getLeague(player.leagueId);
 
   const myMatches = await db
     .select({
@@ -65,8 +67,11 @@ export default async function PlayerPage({
   return (
     <main className="mx-auto max-w-3xl w-full px-6 py-12">
       <div className="mb-8">
-        <Link href="/players" className="text-sm text-zinc-500 hover:text-zinc-300">
-          ← Players
+        <Link
+          href={league ? `/leagues/${league.slug}` : "/"}
+          className="text-sm text-zinc-500 hover:text-zinc-300"
+        >
+          ← {league?.name ?? "Home"}
         </Link>
         <div className="mt-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -113,29 +118,16 @@ export default async function PlayerPage({
           playerId={player.id}
           hasWizard={Boolean(player.avatarUrl)}
           defaultArchetype={player.wizardArchetype}
+          generating={Boolean(player.wizardJobStartedAt)}
         />
-        {player.selfieUrl && (
-          <div className="mt-6 flex items-center gap-4 text-xs text-zinc-500">
-            <span>original</span>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={player.selfieUrl}
-              alt=""
-              className="h-16 w-16 rounded-md object-cover"
-            />
-            {player.avatarUrl && (
-              <>
-                <span>→ wizard</span>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={player.avatarUrl}
-                  alt=""
-                  className="h-16 w-16 rounded-md object-cover"
-                />
-              </>
-            )}
-          </div>
-        )}
+        <WizardGallery
+          selfieUrl={player.selfieUrl}
+          freshUrl={player.avatarUrl}
+          woundedUrl={player.avatarWoundedUrl}
+          criticalUrl={player.avatarCriticalUrl}
+          victoryUrl={player.avatarVictoryUrl}
+          defeatUrl={player.avatarDefeatUrl}
+        />
       </section>
 
       <section className="mb-10 grid grid-cols-3 gap-3">

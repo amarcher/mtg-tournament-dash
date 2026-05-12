@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { generateWizardAction } from "@/app/events/actions";
 import { WIZARD_ARCHETYPES } from "@/lib/wizard-types";
@@ -8,13 +10,27 @@ type Props = {
   playerId: string;
   hasWizard: boolean;
   defaultArchetype: string | null;
+  /** Server-side rendered flag: a wizardize job is currently running. */
+  generating: boolean;
 };
 
 export function WizardForm({
   playerId,
   hasWizard,
   defaultArchetype,
+  generating,
 }: Props) {
+  const router = useRouter();
+
+  // While the background job is running, poll the page every 4 s so the
+  // avatar appears as soon as the DB row updates. ~25 polls max for a 90 s
+  // job; cheap RSC re-renders.
+  useEffect(() => {
+    if (!generating) return;
+    const t = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(t);
+  }, [generating, router]);
+
   return (
     <form
       action={generateWizardAction}
@@ -25,6 +41,7 @@ export function WizardForm({
       <FormBody
         hasWizard={hasWizard}
         defaultArchetype={defaultArchetype}
+        generating={generating}
       />
     </form>
   );
@@ -33,16 +50,19 @@ export function WizardForm({
 function FormBody({
   hasWizard,
   defaultArchetype,
+  generating,
 }: {
   hasWizard: boolean;
   defaultArchetype: string | null;
+  generating: boolean;
 }) {
   const { pending } = useFormStatus();
+  const busy = pending || generating;
 
   return (
     <>
       <fieldset
-        disabled={pending}
+        disabled={busy}
         className="contents disabled:opacity-60"
       >
         <div className="md:col-span-2">
@@ -89,10 +109,10 @@ function FormBody({
       <div className="flex items-center gap-3 md:col-span-2">
         <button
           type="submit"
-          disabled={pending}
+          disabled={busy}
           className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-500/40 disabled:text-zinc-950/60"
         >
-          {pending && (
+          {busy && (
             <svg
               className="h-4 w-4 animate-spin"
               viewBox="0 0 24 24"
@@ -116,15 +136,17 @@ function FormBody({
             </svg>
           )}
           {pending
-            ? "Painting 3 portraits…"
-            : hasWizard
-              ? "Re-generate wizard"
-              : "Generate wizard portrait"}
+            ? "Sending selfie…"
+            : generating
+              ? "Painting 5 portraits…"
+              : hasWizard
+                ? "Re-generate wizard"
+                : "Generate wizard portrait"}
         </button>
         <span className="text-xs text-zinc-500">
-          {pending
-            ? "Painting 3 portraits — about 90 seconds. Don’t navigate away."
-            : "~90 s on the local FLUX server (3 tier portraits)."}
+          {generating
+            ? "Painting 5 portraits in the background — about 2½ minutes. You can leave this page; the new wizard will appear on refresh."
+            : "~2½ min on the local FLUX server (5 tier portraits: fresh, wounded, critical, victory, defeat)."}
         </span>
       </div>
     </>

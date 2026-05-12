@@ -4,6 +4,7 @@ import {
   getEvent,
   getEventRoster,
   getEventRounds,
+  getLeague,
   getRoundMatches,
   getEventStandings,
 } from "@/db/queries";
@@ -26,7 +27,8 @@ export default async function ManagePage({
   const event = await getEvent(id);
   if (!event) notFound();
 
-  const [roster, rounds, standings] = await Promise.all([
+  const [league, roster, rounds, standings] = await Promise.all([
+    getLeague(event.leagueId),
     getEventRoster(id),
     getEventRounds(id),
     getEventStandings(id),
@@ -61,8 +63,11 @@ export default async function ManagePage({
   return (
     <main className="mx-auto max-w-5xl w-full px-6 py-12">
       <div className="mb-8">
-        <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-300">
-          ← Home
+        <Link
+          href={league ? `/leagues/${league.slug}` : "/"}
+          className="text-sm text-zinc-500 hover:text-zinc-300"
+        >
+          ← {league?.name ?? "Home"}
         </Link>
         <div className="mt-2 flex items-baseline justify-between">
           <h1 className="text-3xl font-semibold tracking-tight">{event.name}</h1>
