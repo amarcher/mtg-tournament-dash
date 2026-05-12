@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import type { EventMessage } from "@/lib/pubsub";
-import { pickAvatarUrl, type AvatarTiers } from "@/lib/avatar-tier";
+import {
+  pickAvatarUrl,
+  pickMatchOutcomeAvatar,
+  type AvatarTiers,
+} from "@/lib/avatar-tier";
 
 export type { AvatarTiers };
 
@@ -161,32 +165,8 @@ export function BroadcastClient({
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-      {/* JOIN QR — small persistent overlay so phones can scan in from
-          anywhere in the room without typing a LAN URL. Bottom-right keeps it
-          out of the headline life-total grid; pointer-events-none so it never
-          intercepts clicks if a future remote-control mode lands. */}
-      <a
-        href={claimUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="pointer-events-auto absolute bottom-3 right-3 z-30 flex w-[140px] flex-col items-center rounded-xl border border-zinc-700/80 bg-zinc-900/90 p-2 shadow-lg backdrop-blur"
-        aria-label="Open claim page"
-      >
-        <div className="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-amber-400">
-          Join
-        </div>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={claimQrDataUrl}
-          alt="Scan to claim your seat"
-          className="mt-1 h-[112px] w-[112px] rounded bg-white p-1"
-        />
-        <div className="mt-1 max-w-full truncate font-mono text-[0.6rem] text-zinc-400">
-          {claimHostLabel}
-        </div>
-      </a>
-      <header className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-12 py-4">
-        <div>
+      <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 px-12 py-4">
+        <div className="min-w-0">
           <h1 className="text-3xl font-semibold tracking-tight">
             {event.name}
           </h1>
@@ -196,10 +176,34 @@ export function BroadcastClient({
               : "Awaiting round start"}
           </div>
         </div>
-        <RoundTimer
-          startedAtIso={roundStartedAtIso}
-          durationSec={event.roundDurationSec}
-        />
+        <div className="flex items-center gap-6">
+          <a
+            href={claimUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-3 rounded-lg border border-zinc-700/80 bg-zinc-900/90 px-3 py-2 shadow-sm hover:border-amber-500/60"
+            aria-label="Open claim page"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={claimQrDataUrl}
+              alt="Scan to claim your seat"
+              className="h-14 w-14 rounded bg-white p-0.5"
+            />
+            <div className="flex flex-col">
+              <div className="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-amber-400">
+                Join
+              </div>
+              <div className="max-w-[180px] truncate font-mono text-[0.65rem] text-zinc-400">
+                {claimHostLabel}
+              </div>
+            </div>
+          </a>
+          <RoundTimer
+            startedAtIso={roundStartedAtIso}
+            durationSec={event.roundDurationSec}
+          />
+        </div>
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col gap-4 px-8 py-6">
@@ -344,16 +348,25 @@ function MatchCard({
     return (
       <motion.div
         layout
-        className="relative flex flex-col items-center justify-center rounded-2xl border border-amber-500/40 bg-zinc-900 p-6"
+        className="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-amber-500/40 bg-zinc-900 p-3"
       >
-        <div className="absolute left-4 top-3 text-[0.65rem] uppercase tracking-[0.25em] text-zinc-500">
-          Table {match.tableNumber}
+        <div className="z-10 flex shrink-0 items-baseline justify-between text-[0.65rem] uppercase tracking-[0.25em] text-zinc-400">
+          <span>Table {match.tableNumber}</span>
+          <span className="text-amber-400">BYE</span>
         </div>
-        <div className="absolute right-4 top-3 text-[0.65rem] uppercase tracking-[0.25em] text-amber-400">
-          BYE
+        <div className="mt-1 grid min-h-0 flex-1 grid-cols-2 gap-2">
+          <PlayerSide
+            playerId={match.playerA.id}
+            name={match.playerA.name}
+            life={match.playerA.life}
+            wins={match.playerA.wins}
+            avatars={match.playerA.avatars}
+            startingLife={startingLife}
+            isWinner
+            outcome="won"
+          />
+          <ByeSide />
         </div>
-        <div className="text-3xl font-semibold">{match.playerA.name}</div>
-        <div className="mt-2 text-sm text-zinc-500">automatic win</div>
       </motion.div>
     );
   }
@@ -374,7 +387,7 @@ function MatchCard({
         </span>
       </div>
 
-      <div className="mt-1 grid min-h-0 flex-1 grid-cols-2 gap-2">
+      <div className="relative mt-1 grid min-h-0 flex-1 grid-cols-2 gap-2">
         <PlayerSide
           playerId={match.playerA.id}
           name={match.playerA.name}
@@ -384,6 +397,13 @@ function MatchCard({
           startingLife={startingLife}
           pulse={pulses[`${match.matchId}:a`]}
           isWinner={match.winnerId === match.playerA.id}
+          outcome={
+            isComplete
+              ? match.winnerId === match.playerA.id
+                ? "won"
+                : "lost"
+              : null
+          }
         />
         <PlayerSide
           playerId={match.playerB.id}
@@ -394,6 +414,13 @@ function MatchCard({
           startingLife={startingLife}
           pulse={pulses[`${match.matchId}:b`]}
           isWinner={match.winnerId === match.playerB.id}
+          outcome={
+            isComplete
+              ? match.winnerId === match.playerB.id
+                ? "won"
+                : "lost"
+              : null
+          }
         />
       </div>
 
@@ -422,6 +449,7 @@ function PlayerSide({
   startingLife,
   pulse,
   isWinner,
+  outcome,
 }: {
   playerId: string;
   name: string;
@@ -431,6 +459,8 @@ function PlayerSide({
   startingLife: number;
   pulse?: "damage" | "heal";
   isWinner?: boolean;
+  /** "won" | "lost" once the match resolves; null while still in progress. */
+  outcome?: "won" | "lost" | null;
 }) {
   const lifeColor =
     life <= 5
@@ -439,9 +469,12 @@ function PlayerSide({
         ? "text-amber-300"
         : "text-zinc-100";
 
-  // Tier-pick logic lives in src/lib/avatar-tier.ts so we can unit-test the
-  // boundaries + cascading fallbacks without spinning up React.
-  const activeUrl = pickAvatarUrl(life, startingLife, avatars);
+  // When the match is over, show the outcome portrait (victory/defeat).
+  // Otherwise, pick by life total. Both call paths cascade through
+  // sibling tiers when the preferred portrait is missing.
+  const activeUrl = outcome
+    ? pickMatchOutcomeAvatar(outcome, avatars)
+    : pickAvatarUrl(life, startingLife, avatars);
 
   return (
     <div
@@ -514,29 +547,36 @@ function PlayerSide({
         )}
       </AnimatePresence>
 
-      {/* life total — anchored to the lower third so the wizard's face stays
-          visible. `items-end` parks the digit at the bottom of the available
-          flex region, just above the pips + name. */}
+      {/* Big number — life total during play, swaps to games won once the
+          match is complete (so the two sides read together as e.g. "2 – 0"
+          via the dash overlay on the parent). */}
       <div className="relative z-10 flex flex-1 items-end justify-center pb-1">
         <motion.div
-          key={life}
+          key={outcome ? `wins-${wins}` : `life-${life}`}
           initial={{ scale: 1.18 }}
           animate={{ scale: 1 }}
-          className={`font-bold leading-none tabular-nums ${lifeColor}`}
+          className={`font-bold leading-none tabular-nums ${
+            outcome
+              ? outcome === "won"
+                ? "text-amber-300"
+                : "text-zinc-400"
+              : lifeColor
+          }`}
           style={{
             fontSize: "clamp(2.5rem, 38cqi, 11rem)",
             textShadow:
               "0 4px 22px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,1)",
           }}
         >
-          {life}
+          {outcome ? wins : life}
         </motion.div>
       </div>
 
-      {/* name + game pips, anchored to bottom over the gradient */}
+      {/* name + game pips, anchored to bottom over the gradient. Best-of-3 →
+          first to 2 wins, so only two pips. */}
       <div className="relative z-10 flex w-full flex-col items-center gap-1">
         <div className="flex gap-1.5">
-          {[0, 1, 2].map((i) => (
+          {[0, 1].map((i) => (
             <span
               key={i}
               className={
@@ -554,6 +594,43 @@ function PlayerSide({
           }}
         >
           {name}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Empty-opponent placeholder for the "bye" side of an automatic-win match.
+// Mirrors PlayerSide's silhouette so the bye card looks like a real two-up
+// matchup instead of one giant text panel.
+function ByeSide() {
+  return (
+    <div
+      className="relative flex min-h-0 flex-col items-center justify-end overflow-hidden rounded-xl bg-zinc-950 ring-1 ring-zinc-800"
+      style={{ containerType: "inline-size" }}
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(245,158,11,0.10),transparent_60%)]" />
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black via-black/70 to-transparent" />
+      <div className="relative z-10 flex flex-1 items-center justify-center">
+        <div
+          className="font-bold tracking-[0.3em] text-amber-400/60"
+          style={{
+            fontSize: "clamp(1.5rem, 14cqi, 4rem)",
+            textShadow: "0 4px 18px rgba(0,0,0,0.9)",
+          }}
+        >
+          BYE
+        </div>
+      </div>
+      <div className="relative z-10 flex w-full flex-col items-center gap-1 pb-2">
+        <div className="text-[0.55rem] uppercase tracking-[0.3em] text-zinc-500">
+          no opponent
+        </div>
+        <div
+          className="text-base font-medium tracking-tight text-zinc-300"
+          style={{ textShadow: "0 2px 8px rgba(0,0,0,0.9)" }}
+        >
+          rests this round
         </div>
       </div>
     </div>

@@ -31,7 +31,12 @@ import {
 } from "@/db/queries";
 import { generateSwissPairings } from "@/lib/pairings/swiss";
 import { computeMatchElo } from "@/lib/elo";
-import { generateJoinToken, setPlayerCookie } from "@/lib/auth";
+import { leagues } from "@/db/schema";
+import {
+  generateJoinToken,
+  setLeagueCookie,
+  setPlayerCookie,
+} from "@/lib/auth";
 import { publish } from "@/lib/pubsub";
 import {
   generateWizardVariantsFromSelfie,
@@ -42,21 +47,33 @@ import {
 } from "@/lib/wizard-types";
 
 export async function createEventAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   const totalRounds = Number(formData.get("totalRounds") ?? 3);
   const startingLife = Number(formData.get("startingLife") ?? 20);
   const playerIds = formData.getAll("playerId").map(String).filter(Boolean);
 
+  if (!leagueId) throw new Error("League required");
   if (!name) throw new Error("Event name required");
   if (playerIds.length < 2) throw new Error("Need at least 2 players");
 
+  const leaguePlayers = await db
+    .select()
+    .from(players)
+    .where(eq(players.leagueId, leagueId));
+  const leaguePlayerIds = new Set(leaguePlayers.map((p) => p.id));
+  for (const pid of playerIds) {
+    if (!leaguePlayerIds.has(pid)) {
+      throw new Error("Player not in this league");
+    }
+  }
+
   const [created] = await db
     .insert(events)
-    .values({ name, totalRounds, startingLife })
+    .values({ leagueId, name, totalRounds, startingLife })
     .returning();
 
-  const allPlayers = await db.select().from(players);
-  const eloByPlayer = new Map(allPlayers.map((p) => [p.id, p.currentElo]));
+  const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
 
   await db.insert(eventPlayers).values(
     playerIds.map((pid, idx) => ({
@@ -72,12 +89,83 @@ export async function createEventAction(formData: FormData) {
 }
 
 export async function addPlayerAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
   const name = String(formData.get("name") ?? "").trim();
+  if (!leagueId) throw new Error("League required");
   if (!name) throw new Error("Player name required");
-  await db.insert(players).values({ displayName: name });
-  revalidatePath("/events/new");
-  revalidatePath("/players");
+  await db.insert(players).values({
+    leagueId,
+    leagueToken: generateJoinToken(),
+    displayName: name,
+  });
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, leagueId));
+  if (league) {
+    revalidatePath(`/leagues/${league.slug}`);
+    revalidatePath(`/leagues/${league.slug}/claim`);
+    revalidatePath(`/leagues/${league.slug}/events/new`);
+  }
   revalidatePath("/");
+}
+
+/**
+ * Self-service identity creation from the league claim page. Creates a player
+ * in the league, sets the league cookie, and redirects to wizardize (or the
+ * league home if the caller asks).
+ */
+export async function createLeaguePlayerAction(formData: FormData) {
+  const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!leagueSlug) throw new Error("League required");
+  if (!name) throw new Error("Display name required");
+
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.slug, leagueSlug));
+  if (!league) throw new Error("League not found");
+
+  const token = generateJoinToken();
+  const [player] = await db
+    .insert(players)
+    .values({
+      leagueId: league.id,
+      leagueToken: token,
+      displayName: name,
+    })
+    .returning();
+
+  await setLeagueCookie(league.id, token);
+  redirect(`/players/${player.id}`);
+}
+
+/**
+ * Tap an existing wizard card on the league claim page to claim that identity.
+ * Sets the league cookie so subsequent visits in this league recognize the
+ * player automatically.
+ */
+export async function claimLeaguePlayerAction(formData: FormData) {
+  const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
+  const playerId = String(formData.get("playerId") ?? "").trim();
+  if (!leagueSlug) throw new Error("League required");
+  if (!playerId) throw new Error("Player required");
+
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.slug, leagueSlug));
+  if (!league) throw new Error("League not found");
+
+  const [player] = await db
+    .select()
+    .from(players)
+    .where(and(eq(players.id, playerId), eq(players.leagueId, league.id)));
+  if (!player) throw new Error("Player is not in this league");
+
+  await setLeagueCookie(league.id, player.leagueToken);
+  redirect(`/leagues/${league.slug}`);
 }
 
 export async function generateWizardAction(formData: FormData) {
@@ -98,28 +186,77 @@ export async function generateWizardAction(formData: FormData) {
     ? (archetypeRaw as WizardArchetype)
     : ("archmage" as WizardArchetype);
 
-  const { selfiePath, freshPath, woundedPath, criticalPath } =
-    await generateWizardVariantsFromSelfie({
-      playerId,
-      selfie,
-      archetype,
-      freeform,
-    });
-
+  // Mark "generation in progress" so the page can show a polling state.
+  // We blank out the avatar columns so the UI doesn't show the stale wizard
+  // while the new one is being generated.
   await db
     .update(players)
     .set({
-      avatarUrl: freshPath,
-      avatarWoundedUrl: woundedPath,
-      avatarCriticalUrl: criticalPath,
-      selfieUrl: selfiePath,
       wizardArchetype: archetype,
+      wizardJobStartedAt: new Date(),
+      avatarUrl: null,
+      avatarWoundedUrl: null,
+      avatarCriticalUrl: null,
+      avatarVictoryUrl: null,
+      avatarDefeatUrl: null,
     })
     .where(eq(players.id, playerId));
 
+  // Capture the selfie bytes synchronously — the File reference is tied to
+  // the form-data parser's request lifetime and can't be read after this
+  // function returns. The Buffer copy survives the background job.
+  const selfieBuffer = Buffer.from(await selfie.arrayBuffer());
+  const selfieType = selfie.type || "image/jpeg";
+
+  // Background the FLUX + upload work (~90 s) so the server action returns
+  // quickly. Cloudflare's free-tier edge has a 100 s HTTP response timeout
+  // and would cut the connection mid-generation otherwise. The page polls
+  // for completion via the `wizardJobStartedAt` column going null again.
+  void (async () => {
+    try {
+      const reconstituted = new File(
+        [new Uint8Array(selfieBuffer)],
+        "selfie",
+        { type: selfieType }
+      );
+      const {
+        selfiePath,
+        freshPath,
+        woundedPath,
+        criticalPath,
+        victoryPath,
+        defeatPath,
+      } = await generateWizardVariantsFromSelfie({
+        playerId,
+        selfie: reconstituted,
+        archetype,
+        freeform,
+      });
+      await db
+        .update(players)
+        .set({
+          avatarUrl: freshPath,
+          avatarWoundedUrl: woundedPath,
+          avatarCriticalUrl: criticalPath,
+          avatarVictoryUrl: victoryPath,
+          avatarDefeatUrl: defeatPath,
+          selfieUrl: selfiePath,
+          wizardArchetype: archetype,
+          wizardJobStartedAt: null,
+        })
+        .where(eq(players.id, playerId));
+    } catch (err) {
+      console.error("[wizardize] background job failed:", err);
+      // Clear the in-progress flag so the UI doesn't hang forever. The
+      // user can retry from the same page.
+      await db
+        .update(players)
+        .set({ wizardJobStartedAt: null })
+        .where(eq(players.id, playerId));
+    }
+  })();
+
   revalidatePath(`/players/${playerId}`);
-  revalidatePath(`/players`);
-  revalidatePath(`/`);
 }
 
 export async function startNextRoundAction(eventId: string) {
@@ -511,9 +648,9 @@ export async function setMatchResultAction(formData: FormData) {
 
 /**
  * Claim a player identity for an event by tapping a wizard portrait on
- * `/events/[id]/claim`. Reuses the existing per-player joinToken cookie scheme
- * (`setPlayerCookie`) so the rest of the app — `/play`, the join-link route,
- * `getCurrentPlayer` — keeps working unchanged. Last-claim-wins by design.
+ * `/events/[id]/claim`. Sets both the per-event cookie (used by /play and the
+ * realtime views) and the league cookie (durable identity across events in
+ * the same league). Last-claim-wins by design.
  */
 export async function claimIdentityAction(formData: FormData) {
   const eventId = String(formData.get("eventId") ?? "");
@@ -533,6 +670,14 @@ export async function claimIdentityAction(formData: FormData) {
     .limit(1);
   if (!ep) throw new Error("Player is not on this event's roster");
 
+  const [player] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, playerId));
+
   await setPlayerCookie(eventId, ep.joinToken);
+  if (player) {
+    await setLeagueCookie(player.leagueId, player.leagueToken);
+  }
   redirect(`/events/${eventId}/play`);
 }

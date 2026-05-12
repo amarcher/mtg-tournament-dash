@@ -1,10 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { pickAvatarUrl, tierForLife } from "./avatar-tier";
+import {
+  pickAvatarUrl,
+  pickMatchOutcomeAvatar,
+  tierForLife,
+  type AvatarTiers,
+} from "./avatar-tier";
 
-const all = { fresh: "F", wounded: "W", critical: "C" };
-const onlyFresh = { fresh: "F", wounded: null, critical: null };
-const noWounded = { fresh: "F", wounded: null, critical: "C" };
-const empty = { fresh: null, wounded: null, critical: null };
+const all: AvatarTiers = {
+  fresh: "F",
+  wounded: "W",
+  critical: "C",
+  victory: "V",
+  defeat: "D",
+};
+const onlyFresh: AvatarTiers = {
+  fresh: "F",
+  wounded: null,
+  critical: null,
+  victory: null,
+  defeat: null,
+};
+const noWounded: AvatarTiers = {
+  fresh: "F",
+  wounded: null,
+  critical: "C",
+  victory: null,
+  defeat: null,
+};
+const empty: AvatarTiers = {
+  fresh: null,
+  wounded: null,
+  critical: null,
+  victory: null,
+  defeat: null,
+};
 
 describe("tierForLife", () => {
   it("full life → fresh", () => {
@@ -71,5 +100,25 @@ describe("pickAvatarUrl — fallback chain", () => {
     expect(pickAvatarUrl(20, 20, empty)).toBeNull();
     expect(pickAvatarUrl(10, 20, empty)).toBeNull();
     expect(pickAvatarUrl(2, 20, empty)).toBeNull();
+  });
+});
+
+describe("pickMatchOutcomeAvatar", () => {
+  it("won picks victory", () => {
+    expect(pickMatchOutcomeAvatar("won", all)).toBe("V");
+  });
+  it("lost picks defeat", () => {
+    expect(pickMatchOutcomeAvatar("lost", all)).toBe("D");
+  });
+  it("won without victory falls back to fresh", () => {
+    expect(pickMatchOutcomeAvatar("won", noWounded)).toBe("F");
+  });
+  it("lost without defeat falls back through critical → wounded → fresh", () => {
+    expect(pickMatchOutcomeAvatar("lost", noWounded)).toBe("C");
+    expect(pickMatchOutcomeAvatar("lost", onlyFresh)).toBe("F");
+  });
+  it("empty → null", () => {
+    expect(pickMatchOutcomeAvatar("won", empty)).toBeNull();
+    expect(pickMatchOutcomeAvatar("lost", empty)).toBeNull();
   });
 });

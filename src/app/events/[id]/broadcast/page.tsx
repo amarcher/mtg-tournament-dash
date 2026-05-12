@@ -60,6 +60,8 @@ export default async function BroadcastPage({
               fresh: playerA.avatarUrl,
               wounded: playerA.avatarWoundedUrl,
               critical: playerA.avatarCriticalUrl,
+              victory: playerA.avatarVictoryUrl,
+              defeat: playerA.avatarDefeatUrl,
             },
           },
           playerB: playerB
@@ -72,6 +74,8 @@ export default async function BroadcastPage({
                   fresh: playerB.avatarUrl,
                   wounded: playerB.avatarWoundedUrl,
                   critical: playerB.avatarCriticalUrl,
+                  victory: playerB.avatarVictoryUrl,
+                  defeat: playerB.avatarDefeatUrl,
                 },
               }
             : null,

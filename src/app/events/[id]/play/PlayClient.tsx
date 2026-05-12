@@ -25,6 +25,8 @@ function avatarsFor(p: Player | null): AvatarTiers {
     fresh: p?.avatarUrl ?? null,
     wounded: p?.avatarWoundedUrl ?? null,
     critical: p?.avatarCriticalUrl ?? null,
+    victory: p?.avatarVictoryUrl ?? null,
+    defeat: p?.avatarDefeatUrl ?? null,
   };
 }
 
@@ -285,9 +287,10 @@ function LifeButton({
 }
 
 function GamePips({ wins }: { wins: number }) {
+  // Best-of-3 → first to 2 wins, so two pips.
   return (
     <span className="flex gap-1">
-      {[0, 1, 2].map((i) => (
+      {[0, 1].map((i) => (
         <span
           key={i}
           className={
