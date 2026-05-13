@@ -20,11 +20,15 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed.ts",
     "migrate:files": "tsx scripts/migrate-files-to-imagegen.ts",
+    "migrate:blob": "tsx scripts/migrate-files-to-blob.ts",
     "cf:skip-waf": "tsx scripts/cf-skip-waf-uploads.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "@next/third-parties": "^16.2.6",
+    "@upstash/realtime": "^1.0.3",
+    "@upstash/redis": "^1.38.0",
+    "@vercel/blob": "^2.3.3",
     "drizzle-orm": "^0.45.2",
     "heic-convert": "^2.1.0",
     "motion": "^12.38.0",

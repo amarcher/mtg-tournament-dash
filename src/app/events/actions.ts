@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath as _revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -208,11 +209,13 @@ export async function generateWizardAction(formData: FormData) {
   const selfieBuffer = Buffer.from(await selfie.arrayBuffer());
   const selfieType = selfie.type || "image/jpeg";
 
-  // Background the FLUX + upload work (~90 s) so the server action returns
-  // quickly. Cloudflare's free-tier edge has a 100 s HTTP response timeout
-  // and would cut the connection mid-generation otherwise. The page polls
-  // for completion via the `wizardJobStartedAt` column going null again.
-  void (async () => {
+  // Background the FLUX + upload work (~2.5 min) past the response. `after()`
+  // keeps the function instance alive until this resolves or until Vercel's
+  // function-duration ceiling (300s on Hobby) kills it. The inner signal
+  // gives the pipeline a chance to bail cleanly at 240s — before the cold
+  // kill — so the catch block can clear the in-progress flag.
+  after(async () => {
+    const signal = AbortSignal.timeout(240_000);
     try {
       const reconstituted = new File(
         [new Uint8Array(selfieBuffer)],
@@ -231,6 +234,7 @@ export async function generateWizardAction(formData: FormData) {
         selfie: reconstituted,
         archetype,
         freeform,
+        signal,
       });
       await db
         .update(players)
@@ -254,7 +258,7 @@ export async function generateWizardAction(formData: FormData) {
         .set({ wizardJobStartedAt: null })
         .where(eq(players.id, playerId));
     }
-  })();
+  });
 
   revalidatePath(`/players/${playerId}`);
 }
@@ -408,7 +412,10 @@ export async function confirmRoundAction(eventId: string) {
     );
   }
 
-  publish(eventId, { type: "round_started", roundNumber: pending.roundNumber });
+  await publish(eventId, {
+    type: "round_started",
+    roundNumber: pending.roundNumber,
+  });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);
@@ -639,7 +646,10 @@ export async function completeRoundAction(eventId: string) {
       .where(eq(events.id, eventId));
   }
 
-  publish(eventId, { type: "round_completed", roundNumber: round.roundNumber });
+  await publish(eventId, {
+    type: "round_completed",
+    roundNumber: round.roundNumber,
+  });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
 }
@@ -678,7 +688,7 @@ export async function adjustLifeAction(args: {
     .select()
     .from(rounds)
     .where(eq(rounds.id, match.roundId));
-  publish(round.eventId, {
+  await publish(round.eventId, {
     type: "life_changed",
     matchId: args.matchId,
     gameId: game.id,
@@ -781,7 +791,7 @@ export async function reportGameWinnerAction(args: {
         .set({ currentElo: elo.playerB.after })
         .where(eq(players.id, b.id));
     }
-    publish(event.id, {
+    await publish(event.id, {
       type: "match_complete",
       matchId: match.id,
       winnerId,
@@ -794,7 +804,7 @@ export async function reportGameWinnerAction(args: {
       playerALife: event.startingLife,
       playerBLife: event.startingLife,
     });
-    publish(event.id, {
+    await publish(event.id, {
       type: "game_complete",
       matchId: match.id,
       winnerId: args.winnerId,
@@ -972,7 +982,7 @@ async function finalizeMatchOutcome(args: {
       .where(eq(players.id, b.id));
   }
 
-  publish(round.eventId, {
+  await publish(round.eventId, {
     type: "match_complete",
     matchId: match.id,
     winnerId: winnerId ?? "",

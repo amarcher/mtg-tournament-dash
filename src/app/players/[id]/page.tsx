@@ -7,6 +7,7 @@ import {
   getLeague,
   getPlayer,
   listOpenEventsForPlayer,
+  sweepStaleWizardJobs,
 } from "@/db/queries";
 import { WizardForm } from "./WizardForm";
 import { WizardGallery } from "./WizardGallery";
@@ -19,6 +20,10 @@ export default async function PlayerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // Clear any stale `wizardJobStartedAt` flags before reading so a job that
+  // died inside Vercel's function-duration window doesn't leave the spinner
+  // visible forever. Cheap single UPDATE; runs on every player-page render.
+  await sweepStaleWizardJobs();
   const player = await getPlayer(id);
   if (!player) notFound();
   const league = await getLeague(player.leagueId);

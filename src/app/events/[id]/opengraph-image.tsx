@@ -1,9 +1,13 @@
 import { ImageResponse } from "next/og";
+import sharp from "sharp";
 import { getEvent, getEventStandings, getLeague } from "@/db/queries";
 
 export const alt = "MTG Dash tournament results";
 export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
+// `next/og` only emits PNG, and at 1200×630 with photographic content the
+// PNG runs ~1 MB — Slack's inline-render cutoff. We post-process to JPEG
+// (see jpegFromImageResponse below), so advertise that in the meta tag.
+export const contentType = "image/jpeg";
 
 // Re-revalidate hourly so re-shares pick up post-event patches (e.g. the
 // May 12 manual outcome fix) without the original Slack/iMessage unfurl
@@ -68,6 +72,45 @@ function absolutize(baseUrl: string, path: string | null): string | null {
   if (!path) return null;
   if (path.startsWith("http")) return path;
   return `${baseUrl}${path}`;
+}
+
+// `next/og` only emits PNG. At 1200×630 with photographic content the PNG
+// is ~1 MB, which Slack refuses to inline-render (showing the URL + file
+// size instead of a preview). Re-encode the final canvas as JPEG with sharp
+// so the output lands ~150-250KB and unfurls cleanly.
+async function jpegFromImageResponse(
+  response: ImageResponse
+): Promise<Response> {
+  const png = Buffer.from(await response.arrayBuffer());
+  const jpeg = await sharp(png)
+    .jpeg({ quality: 82, mozjpeg: true })
+    .toBuffer();
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "image/jpeg");
+  headers.set("content-length", String(jpeg.byteLength));
+  return new Response(new Uint8Array(jpeg), {
+    status: response.status,
+    headers,
+  });
+}
+
+// Pre-resize avatars before embedding so the intermediate PNG buffer
+// (which we have to allocate before JPEG-compressing) stays small.
+async function inlineAvatarDataUri(url: string | null): Promise<string | null> {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { cache: "force-cache" });
+    if (!res.ok) return null;
+    const input = Buffer.from(await res.arrayBuffer());
+    const jpeg = await sharp(input)
+      .rotate()
+      .resize({ width: 500, height: 850, fit: "cover" })
+      .jpeg({ quality: 75 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 export default async function Image({
@@ -152,7 +195,13 @@ export default async function Image({
     });
   }
 
-  return new ImageResponse(
+  await Promise.all(
+    podium.map(async (p) => {
+      p.avatar = await inlineAvatarDataUri(p.avatar);
+    })
+  );
+
+  return jpegFromImageResponse(new ImageResponse(
     (
       <div
         style={{
@@ -230,7 +279,7 @@ export default async function Image({
       </div>
     ),
     size
-  );
+  ));
 }
 
 function PodiumCard({
@@ -405,7 +454,7 @@ function PodiumCard({
 }
 
 function renderBranded(message: string) {
-  return new ImageResponse(
+  return jpegFromImageResponse(new ImageResponse(
     (
       <div
         style={{
@@ -437,7 +486,7 @@ function renderBranded(message: string) {
       </div>
     ),
     size
-  );
+  ));
 }
 
 function renderStatusCard({
@@ -449,7 +498,7 @@ function renderStatusCard({
   subtitle: string;
   statusLabel: string;
 }) {
-  return new ImageResponse(
+  return jpegFromImageResponse(new ImageResponse(
     (
       <div
         style={{
@@ -500,5 +549,5 @@ function renderStatusCard({
       </div>
     ),
     size
-  );
+  ));
 }

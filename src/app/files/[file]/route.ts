@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-const IMAGEGEN_URL = process.env.IMAGEGEN_URL ?? "http://127.0.0.1:8000";
+const IMAGE_GEN_URL =
+  process.env.IMAGE_GEN_URL ??
+  process.env.IMAGEGEN_URL ??
+  "http://127.0.0.1:8000";
 
 // Proxy /files/<name> through to the image-gen server. Lets us store
 // generated images outside Next.js's `/public` (which is baked into the
@@ -14,7 +17,7 @@ export async function GET(
   ctx: { params: Promise<{ file: string }> }
 ) {
   const { file } = await ctx.params;
-  const upstream = await fetch(`${IMAGEGEN_URL}/files/${encodeURIComponent(file)}`, {
+  const upstream = await fetch(`${IMAGE_GEN_URL}/files/${encodeURIComponent(file)}`, {
     cache: "no-store",
     // Forward range requests so video/audio playback works if added later.
     headers: req.headers.get("range") ? { range: req.headers.get("range")! } : {},

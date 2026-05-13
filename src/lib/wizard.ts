@@ -1,3 +1,4 @@
+import { put } from "@vercel/blob";
 import sharp from "sharp";
 // heic-convert ships no types; declare a minimal ambient signature inline.
 // Sharp's bundled libheif on macOS Apple Silicon does NOT ship the HEVC
@@ -15,8 +16,10 @@ import { WIZARD_ARCHETYPES, type WizardArchetype } from "./wizard-types";
 
 export { WIZARD_ARCHETYPES, type WizardArchetype };
 
-const IMAGEGEN_URL =
-  process.env.IMAGEGEN_URL ?? "http://127.0.0.1:8000";
+const IMAGE_GEN_URL =
+  process.env.IMAGE_GEN_URL ??
+  process.env.IMAGEGEN_URL ??
+  "http://127.0.0.1:8000";
 const IMAGEGEN_FILES_TOKEN = process.env.IMAGEGEN_FILES_TOKEN;
 
 /**
@@ -137,14 +140,21 @@ export type WizardVariantResult = {
 };
 
 /**
- * POST a single FLUX `/edit` request against an already-normalized selfie
- * buffer and return the generated image bytes. The buffer is reused across
- * tiers so we don't re-encode the JPEG three times.
+ * Single-shot identity-preserving image edit: take a normalized selfie and a
+ * prompt, return the generated JPEG bytes. The wizard pipeline calls this
+ * once per tier with the same selfie buffer, so re-encoding is avoided.
+ *
+ * Lifted behind a type so the FLUX-on-Mac implementation can be swapped for
+ * a hosted provider (e.g. fal.ai's FLUX.2 Klein edit) by setting
+ * IMAGE_GEN_PROVIDER. Today only "local" exists.
  */
-async function editOnce(
-  selfieBuf: Buffer,
-  prompt: string
-): Promise<Buffer> {
+export type ImageEditor = (
+  selfie: Buffer,
+  prompt: string,
+  signal?: AbortSignal
+) => Promise<Buffer>;
+
+const localFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
   const fd = new FormData();
   fd.set("prompt", prompt);
   fd.set("width", "1024");
@@ -157,9 +167,10 @@ async function editOnce(
     "selfie.jpg"
   );
 
-  const res = await fetch(`${IMAGEGEN_URL}/edit`, {
+  const res = await fetch(`${IMAGE_GEN_URL}/edit`, {
     method: "POST",
     body: fd,
+    signal,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -172,28 +183,73 @@ async function editOnce(
     );
   }
   return out;
+};
+
+function getImageEditor(): ImageEditor {
+  const provider = process.env.IMAGE_GEN_PROVIDER ?? "local";
+  switch (provider) {
+    case "local":
+      return localFluxEditor;
+    default:
+      throw new Error(
+        `Unknown IMAGE_GEN_PROVIDER: ${provider} (expected "local")`
+      );
+  }
 }
 
-async function uploadToFilesEndpoint(name: string, buf: Buffer): Promise<void> {
+/**
+ * Persist a generated JPEG and return the URL the DB should reference.
+ *
+ * When `BLOB_READ_WRITE_TOKEN` is set, writes to Vercel Blob with a stable
+ * key (`avatars/<playerId>/<tier>.jpg`) under `allowOverwrite: true`, so a
+ * regenerate hits the same object and `players.avatar*Url` rows never go
+ * stale. A query-string cache buster forces browsers to drop their old copy
+ * on regen.
+ *
+ * When the token is unset (e.g. `npm run lan` without cloud creds), falls
+ * back to the legacy image-gen `/files/<name>` endpoint and returns a
+ * relative `/files/...` path — the Next.js proxy at /files/[file] serves
+ * those.
+ */
+async function uploadPortrait(
+  blobKey: string,
+  legacyFileName: string,
+  buf: Buffer,
+  signal?: AbortSignal
+): Promise<string> {
+  const cacheBuster = Date.now();
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const result = await put(blobKey, buf, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "image/jpeg",
+    });
+    return `${result.url}?v=${cacheBuster}`;
+  }
+
   if (!IMAGEGEN_FILES_TOKEN) {
     throw new Error(
-      "IMAGEGEN_FILES_TOKEN not set in .env.local — wizard storage requires it"
+      "Neither BLOB_READ_WRITE_TOKEN nor IMAGEGEN_FILES_TOKEN is set — " +
+        "wizard storage requires one of them"
     );
   }
-  const res = await fetch(`${IMAGEGEN_URL}/files/${name}`, {
+  const res = await fetch(`${IMAGE_GEN_URL}/files/${legacyFileName}`, {
     method: "PUT",
     headers: {
       "X-Files-Token": IMAGEGEN_FILES_TOKEN,
       "Content-Type": "application/octet-stream",
     },
     body: new Uint8Array(buf),
+    signal,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `PUT /files/${name} returned ${res.status}: ${text.slice(0, 300)}`
+      `PUT /files/${legacyFileName} returned ${res.status}: ${text.slice(0, 300)}`
     );
   }
+  return `/files/${legacyFileName}?v=${cacheBuster}`;
 }
 
 /**
@@ -212,8 +268,9 @@ export async function generateWizardVariantsFromSelfie(args: {
   selfie: File;
   archetype: WizardArchetype;
   freeform?: string;
+  signal?: AbortSignal;
 }): Promise<WizardVariantResult> {
-  const { playerId, selfie, archetype, freeform } = args;
+  const { playerId, selfie, archetype, freeform, signal } = args;
 
   // Normalize whatever the phone uploaded (HEIC, JPEG, PNG, WebP, …) into a
   // 1024² JPEG. We persist this normalized copy and feed it to FLUX as-is
@@ -224,13 +281,14 @@ export async function generateWizardVariantsFromSelfie(args: {
   // Probe the server first so we can return a friendly error before we
   // commit to three sequential ~30s requests.
   try {
-    const health = await fetch(`${IMAGEGEN_URL}/health`, {
+    const health = await fetch(`${IMAGE_GEN_URL}/health`, {
       cache: "no-store",
+      signal,
     });
     if (!health.ok) throw new Error(`status ${health.status}`);
   } catch (err) {
     throw new Error(
-      `Local image-gen server not reachable at ${IMAGEGEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
+      `Local image-gen server not reachable at ${IMAGE_GEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
     );
   }
 
@@ -244,13 +302,17 @@ export async function generateWizardVariantsFromSelfie(args: {
     "defeat",
   ];
   const buffers: Record<WizardTier, Buffer> = {} as Record<WizardTier, Buffer>;
+  const edit = getImageEditor();
   for (const tier of tiers) {
     const prompt = buildVariantPrompt(archetype, freeform, tier);
-    buffers[tier] = await editOnce(selfieBuf, prompt);
+    buffers[tier] = await edit(selfieBuf, prompt, signal);
   }
 
-  const selfieName = `selfie-${playerId}.jpg`;
-  const tierNames: Record<WizardTier, string> = {
+  // Stable keys per (player, tier). Blob writes with allowOverwrite so the
+  // URL prefix never changes — only the cache-buster suffix does. Legacy
+  // filename kept identical to the pre-Blob scheme so existing /files/ rows
+  // and the proxy route keep working.
+  const tierLegacy: Record<WizardTier, string> = {
     fresh: `wizard-${playerId}-fresh.jpg`,
     wounded: `wizard-${playerId}-wounded.jpg`,
     critical: `wizard-${playerId}-critical.jpg`,
@@ -258,18 +320,31 @@ export async function generateWizardVariantsFromSelfie(args: {
     defeat: `wizard-${playerId}-defeat.jpg`,
   };
 
-  await uploadToFilesEndpoint(selfieName, selfieBuf);
-  await Promise.all(
-    tiers.map((tier) => uploadToFilesEndpoint(tierNames[tier], buffers[tier]))
+  const selfiePath = await uploadPortrait(
+    `avatars/${playerId}/selfie.jpg`,
+    `selfie-${playerId}.jpg`,
+    selfieBuf,
+    signal
   );
+  const tierPaths = await Promise.all(
+    tiers.map(async (tier) => [
+      tier,
+      await uploadPortrait(
+        `avatars/${playerId}/${tier}.jpg`,
+        tierLegacy[tier],
+        buffers[tier],
+        signal
+      ),
+    ] as const)
+  );
+  const byTier = Object.fromEntries(tierPaths) as Record<WizardTier, string>;
 
-  const v = Date.now();
   return {
-    selfiePath: `/files/${selfieName}?v=${v}`,
-    freshPath: `/files/${tierNames.fresh}?v=${v}`,
-    woundedPath: `/files/${tierNames.wounded}?v=${v}`,
-    criticalPath: `/files/${tierNames.critical}?v=${v}`,
-    victoryPath: `/files/${tierNames.victory}?v=${v}`,
-    defeatPath: `/files/${tierNames.defeat}?v=${v}`,
+    selfiePath,
+    freshPath: byTier.fresh,
+    woundedPath: byTier.wounded,
+    criticalPath: byTier.critical,
+    victoryPath: byTier.victory,
+    defeatPath: byTier.defeat,
   };
 }

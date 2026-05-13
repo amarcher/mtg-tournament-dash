@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   eloChanges,
@@ -57,6 +57,31 @@ export async function listLeagueEvents(leagueId: string) {
     .from(events)
     .where(eq(events.leagueId, leagueId))
     .orderBy(desc(events.createdAt));
+}
+
+/**
+ * Clear `wizard_job_started_at` on any row whose job started more than 6
+ * minutes ago AND still has no avatar URL. A successful generation always
+ * sets `avatar_url` before clearing the flag, so the combined predicate
+ * leaves healthy in-progress jobs alone — even slow ones — while reaping
+ * jobs that died mid-flight (Vercel function-duration kill, container
+ * crash, FLUX hang past the per-fetch timeout). Returns the number of
+ * rows cleared so callers can surface a "generation failed — try again"
+ * banner if they care.
+ */
+export async function sweepStaleWizardJobs(): Promise<number> {
+  const cutoff = new Date(Date.now() - 6 * 60_000);
+  const cleared = await db
+    .update(players)
+    .set({ wizardJobStartedAt: null })
+    .where(
+      and(
+        lt(players.wizardJobStartedAt, cutoff),
+        isNull(players.avatarUrl)
+      )
+    )
+    .returning({ id: players.id });
+  return cleared.length;
 }
 
 export async function getPlayerByLeagueToken(token: string) {

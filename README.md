@@ -59,13 +59,19 @@ Required env vars (`.env.local`):
 ```env
 DATABASE_URL=postgresql://...        # Neon connection string from Vercel
 COOKIE_SECRET=...                    # 64 hex chars from openssl rand -hex 32
-IMAGEGEN_URL=http://127.0.0.1:8000   # optional, default shown
-IMAGEGEN_FILES_TOKEN=...             # shared secret with the image-gen server
-                                     # (same value as FLUX server's FILES_TOKEN)
+IMAGE_GEN_URL=http://127.0.0.1:8000  # optional, default shown
+IMAGEGEN_FILES_TOKEN=...             # only needed when BLOB_READ_WRITE_TOKEN is
+                                     # unset (legacy /files upload fallback)
+BLOB_READ_WRITE_TOKEN=...            # set by `vercel env pull` after running
+                                     # `vercel blob create-store --yes`
+KV_REST_API_URL=...                  # set by `vercel env pull` after running
+KV_REST_API_TOKEN=...                # `vercel install upstash/upstash-kv`
 TUNNEL_HOSTNAME=mtg.yourdomain.com   # optional, only for `npm run tunnel:named`
 CLOUDFLARE_API_TOKEN=...             # optional, only for `npm run cf:skip-waf`
 NEXT_PUBLIC_GA4_MEASUREMENT_ID=G-... # optional, enables Google Analytics 4
 ```
+
+`BLOB_READ_WRITE_TOKEN` switches wizard portrait storage to Vercel Blob (Mac-independent). When unset, the legacy `/files/<name>` proxy + image-gen PUT path keeps working — fine for purely-local dev. `KV_REST_API_URL` / `KV_REST_API_TOKEN` enable cross-instance SSE pub/sub via `@upstash/realtime`; when unset, an in-process `Map` covers single-host dev.
 
 When `NEXT_PUBLIC_GA4_MEASUREMENT_ID` is set, the root layout embeds gtag.js via `@next/third-parties/google`'s `<GoogleAnalytics>` component — pageviews land in the [app-traffic dashboard](https://app-traffic.vercel.app/?project=mtg-dash). Unset means analytics is silently disabled (no gtag round-trip). Build-time inlined, so changing it requires a rebuild.
 
