@@ -1,3 +1,4 @@
+import { fal } from "@fal-ai/client";
 import { put } from "@vercel/blob";
 import sharp from "sharp";
 // heic-convert ships no types; declare a minimal ambient signature inline.
@@ -182,14 +183,54 @@ const localFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
   return out;
 };
 
+// Hosted alternative — fal.ai's FLUX.2 Klein /edit. Same model checkpoint as
+// the Mac runs, so prompts port without re-tuning. The flow is:
+//   1. Upload the normalized selfie buffer to fal.storage → get a URL
+//   2. POST { prompt, image_urls } to the model endpoint
+//   3. Download the result image bytes from the URL fal returns
+// The `signal` is honored on the result download so a `after()` budget kill
+// cancels the in-flight bytes; the subscribe poll itself runs sub-second on
+// Klein in practice so isn't worth threading.
+const falFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
+  if (!process.env.FAL_KEY) {
+    throw new Error("IMAGE_GEN_PROVIDER=fal but FAL_KEY is not set");
+  }
+  const selfieBlob = new File(
+    [new Uint8Array(selfieBuf)],
+    "selfie.jpg",
+    { type: "image/jpeg" }
+  );
+  const imageUrl = await fal.storage.upload(selfieBlob);
+  const result = await fal.subscribe("fal-ai/flux-2/klein/4b/edit", {
+    input: {
+      prompt,
+      image_urls: [imageUrl],
+    },
+    logs: false,
+  });
+  const outUrl = (
+    result.data as { images?: Array<{ url: string }> } | undefined
+  )?.images?.[0]?.url;
+  if (!outUrl) {
+    throw new Error("fal.ai returned no image URL");
+  }
+  const res = await fetch(outUrl, { signal });
+  if (!res.ok) {
+    throw new Error(`fetching fal output failed: ${res.status}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+};
+
 function getImageEditor(): ImageEditor {
   const provider = process.env.IMAGE_GEN_PROVIDER ?? "local";
   switch (provider) {
     case "local":
       return localFluxEditor;
+    case "fal":
+      return falFluxEditor;
     default:
       throw new Error(
-        `Unknown IMAGE_GEN_PROVIDER: ${provider} (expected "local")`
+        `Unknown IMAGE_GEN_PROVIDER: ${provider} (expected "local" or "fal")`
       );
   }
 }
@@ -244,22 +285,27 @@ export async function generateWizardVariantsFromSelfie(args: {
   const rawBuf = Buffer.from(await selfie.arrayBuffer());
   const selfieBuf = await selfieToSquareJpeg(rawBuf);
 
-  // Probe the server first so we can return a friendly error before we
-  // commit to three sequential ~30s requests.
-  try {
-    const health = await fetch(`${IMAGE_GEN_URL}/health`, {
-      cache: "no-store",
-      signal,
-    });
-    if (!health.ok) throw new Error(`status ${health.status}`);
-  } catch (err) {
-    throw new Error(
-      `Local image-gen server not reachable at ${IMAGE_GEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
-    );
+  // Probe the local FLUX server so we fail with a friendly "start the Mac"
+  // message before committing to five sequential ~30s requests. Skipped on
+  // hosted providers (fal.ai) since their /health surface isn't ours and a
+  // failed call there will surface its own error anyway.
+  if ((process.env.IMAGE_GEN_PROVIDER ?? "local") === "local") {
+    try {
+      const health = await fetch(`${IMAGE_GEN_URL}/health`, {
+        cache: "no-store",
+        signal,
+      });
+      if (!health.ok) throw new Error(`status ${health.status}`);
+    } catch (err) {
+      throw new Error(
+        `Local image-gen server not reachable at ${IMAGE_GEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
+      );
+    }
   }
 
   // Five sequential /edit calls, same input buffer, five tier-specific
-  // prompts. ~30 s each on the local FLUX server (~2.5 min total).
+  // prompts. ~30 s each on the local FLUX server (~2.5 min total) or
+  // sub-second each on fal.ai (~5 s total).
   const tiers: WizardTier[] = [
     "fresh",
     "wounded",

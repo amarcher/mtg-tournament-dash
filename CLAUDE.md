@@ -74,7 +74,9 @@ The Mac at home still runs **one** thing the prod site depends on: the FLUX imag
 Pull with `vercel env pull .env.local` after linking the project.
 
 - `DATABASE_URL` — Neon Postgres connection string. Set in Vercel for all envs via the Neon marketplace integration.
-- `IMAGE_GEN_URL` — defaults to `http://127.0.0.1:8000` for local dev. In Vercel set to `https://imagegen.mised.tech` so cloud functions can reach the home Mac.
+- `IMAGE_GEN_URL` — defaults to `http://127.0.0.1:8000` for local dev. In Vercel set to `https://imagegen.mised.tech` so cloud functions can reach the home Mac. Only consulted when `IMAGE_GEN_PROVIDER=local` (the default).
+- `IMAGE_GEN_PROVIDER` — `"local"` (default, talks to FLUX over `IMAGE_GEN_URL`) or `"fal"` (talks to fal.ai's hosted FLUX.2 Klein at `fal-ai/flux-2/klein/4b/edit`, ~$0.01/portrait). Set to `"fal"` in Vercel prod if you want Mac-independent generation.
+- `FAL_KEY` — required when `IMAGE_GEN_PROVIDER=fal`. From [fal.ai dashboard](https://fal.ai/dashboard/keys). The SDK reads it directly; no `fal.config()` needed.
 - `BLOB_READ_WRITE_TOKEN` — set by the Vercel Blob marketplace integration. Required wherever the wizard action runs: `uploadPortrait` throws on missing token.
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` — set by the Upstash for Redis marketplace integration. Required in prod for cross-instance pub/sub via `@upstash/realtime`. When unset, `src/lib/pubsub.ts` falls back to an in-process `Map` (fine for `npm run dev` / `lan` / `verify`).
 - `NEXT_PUBLIC_GA4_MEASUREMENT_ID` — optional. `G-XXXXXXXXXX` from analytics.google.com. When set, the root layout embeds `@next/third-parties/google`'s `<GoogleAnalytics>` so pageviews show up in the [app-traffic dashboard](https://app-traffic.vercel.app/?project=mtg-dash). **Scoped to Production on Vercel** so preview pageviews don't pollute the prod GA4 stream. **Build-time inlined** (the `NEXT_PUBLIC_` prefix), so you have to rebuild after changing it. The matching numeric Property ID lives in the app-traffic project's Vercel env as `GA4_PROPERTY_ID_MTG_DASH`.
