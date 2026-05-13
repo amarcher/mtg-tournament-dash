@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
@@ -29,6 +29,11 @@ export const metadata: Metadata = {
   description:
     "House tournament tracker — Swiss pairings, live life totals on a TV, AI-generated wizard portraits that take damage as you lose life, and ELO history across events.",
   applicationName: "MTG Dash",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "MTG",
+  },
   openGraph: {
     type: "website",
     siteName: "MTG Dash",
@@ -42,6 +47,11 @@ export const metadata: Metadata = {
     description:
       "House MTG tournaments with live broadcast, phone scorekeeping, and wizard portraits.",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#09090b",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({

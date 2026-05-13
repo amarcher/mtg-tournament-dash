@@ -130,6 +130,31 @@ export function PlayClient({
     };
   }, [eventId, matchId]);
 
+  // Keep the phone awake during the match. Releases on unmount and re-acquires
+  // when the page returns to the foreground (the OS auto-releases when the tab
+  // is hidden). Silently no-ops on browsers without the API.
+  useEffect(() => {
+    let sentinel: WakeLockSentinel | null = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        sentinel = await navigator.wakeLock?.request("screen");
+      } catch {
+        /* user gesture missing, permission denied, or unsupported */
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && !cancelled) void acquire();
+    };
+    void acquire();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      void sentinel?.release().catch(() => {});
+    };
+  }, []);
+
   const myLife = mySide === "a" ? aLife : bLife;
   const oppLife = mySide === "a" ? bLife : aLife;
   const myPlayerId = mySide === "a" ? players.a.id : players.b?.id;
