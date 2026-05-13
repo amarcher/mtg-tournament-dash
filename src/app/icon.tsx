@@ -1,47 +1,37 @@
-import { ImageResponse } from "next/og";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import sharp from "sharp";
 
-// Two PNG icons referenced by manifest.ts: 192 (Android home-screen / install
-// prompt) and 512 (Android splash / store-grade hero, also the maskable
-// variant Chrome uses for adaptive masks). apple-icon.tsx handles iOS at 180.
+// Source portrait is the winning wizard from the May 12 tournament (Andrew
+// Archer's "victory" tier). Stored in /public so the deploy bundle includes
+// it; consumed here at SSG time to produce the manifest's 192/512 PNGs.
+const SOURCE = readFileSync(
+  join(process.cwd(), "public/icons/winner-victory.jpg")
+);
+
 export function generateImageMetadata() {
   return [
-    { id: "icon-192", size: { width: 192, height: 192 }, contentType: "image/png" },
-    { id: "icon-512", size: { width: 512, height: 512 }, contentType: "image/png" },
+    {
+      id: "icon-192",
+      size: { width: 192, height: 192 },
+      contentType: "image/png",
+    },
+    {
+      id: "icon-512",
+      size: { width: 512, height: 512 },
+      contentType: "image/png",
+    },
   ];
 }
 
 export default async function Icon({ id }: { id: Promise<string | number> }) {
   const resolvedId = await id;
   const size = resolvedId === "icon-512" ? 512 : 192;
-  // The maskable safe zone is the inner 80%. We bias the letterforms slightly
-  // smaller than apple-icon.tsx so adaptive masks (Android circle / squircle
-  // / teardrop) never crop the letters at the corners.
-  const fontSize = Math.round(size * 0.42);
-
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#09090b",
-          backgroundImage:
-            "radial-gradient(circle at 50% 35%, rgba(245, 158, 11, 0.35), transparent 65%)",
-          fontFamily:
-            "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-          color: "#fcd34d",
-          fontSize,
-          fontWeight: 800,
-          letterSpacing: "-0.04em",
-          lineHeight: 1,
-        }}
-      >
-        MTG
-      </div>
-    ),
-    { width: size, height: size }
-  );
+  const png = await sharp(SOURCE)
+    .resize(size, size, { fit: "cover" })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+  return new Response(new Uint8Array(png), {
+    headers: { "content-type": "image/png" },
+  });
 }
