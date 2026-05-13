@@ -5,12 +5,15 @@ import { games, players } from "@/db/schema";
 import {
   getCurrentRound,
   getEvent,
+  getEventMatchHistory,
+  getEventRoster,
   getEventStandings,
   getRoundMatches,
 } from "@/db/queries";
 import { qrDataUrl } from "@/lib/qr";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { BroadcastClient, type BroadcastMatch } from "./BroadcastClient";
+import type { FinalRankingPlayer } from "../FinalRanking";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +28,44 @@ export default async function BroadcastPage({
 
   const standings = await getEventStandings(id);
   const round = await getCurrentRound(id);
+  const matchHistory =
+    event.status === "complete" ? await getEventMatchHistory(id) : {};
+  const roster =
+    event.status === "complete" ? await getEventRoster(id) : [];
+  const startingEloById = new Map(
+    roster.map((r) => [r.playerId, r.startingElo])
+  );
+
+  const finalRanking: FinalRankingPlayer[] =
+    event.status === "complete"
+      ? standings.map((s) => {
+          const history = matchHistory[s.playerId] ?? [];
+          const eventDelta = history.reduce(
+            (acc, h) => acc + (h.eloDelta ?? 0),
+            0
+          );
+          const startingElo = startingEloById.get(s.playerId) ?? s.currentElo;
+          return {
+            playerId: s.playerId,
+            displayName: s.displayName,
+            wins: s.wins,
+            losses: s.losses,
+            draws: s.draws,
+            matchPoints: s.matchPoints,
+            startingElo,
+            endingElo: startingElo + eventDelta,
+            eventEloDelta: eventDelta,
+            avatars: {
+              fresh: s.avatarUrl,
+              wounded: s.avatarWoundedUrl,
+              critical: s.avatarCriticalUrl,
+              victory: s.avatarVictoryUrl,
+              defeat: s.avatarDefeatUrl,
+            },
+            history,
+          };
+        })
+      : [];
 
   let matchData: BroadcastMatch[] = [];
   if (round) {
@@ -104,6 +145,8 @@ export default async function BroadcastPage({
         startingLife: event.startingLife,
         roundDurationSec: event.roundDurationSec,
       }}
+      eventStatus={event.status}
+      finalRanking={finalRanking}
       currentRoundNumber={round?.roundNumber ?? null}
       roundStartedAtIso={round?.startedAt?.toISOString() ?? null}
       initialMatches={matchData}

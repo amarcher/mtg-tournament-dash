@@ -8,6 +8,7 @@ import {
   pickMatchOutcomeAvatar,
   type AvatarTiers,
 } from "@/lib/avatar-tier";
+import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 
 export type { AvatarTiers };
 
@@ -52,6 +53,8 @@ type Props = {
     startingLife: number;
     roundDurationSec: number;
   };
+  eventStatus: "draft" | "active" | "complete";
+  finalRanking: FinalRankingPlayer[];
   currentRoundNumber: number | null;
   roundStartedAtIso: string | null;
   initialMatches: BroadcastMatch[];
@@ -64,6 +67,8 @@ type Props = {
 export function BroadcastClient({
   eventId,
   event,
+  eventStatus,
+  finalRanking,
   currentRoundNumber,
   roundStartedAtIso,
   initialMatches,
@@ -72,6 +77,7 @@ export function BroadcastClient({
   claimQrDataUrl,
   claimHostLabel,
 }: Props) {
+  const isEventComplete = eventStatus === "complete";
   const [matches, setMatches] = useState(initialMatches);
   const [standings] = useState(initialStandings);
   const [pulses, setPulses] = useState<
@@ -171,9 +177,11 @@ export function BroadcastClient({
             {event.name}
           </h1>
           <div className="mt-0.5 text-xs uppercase tracking-[0.2em] text-zinc-500">
-            {currentRoundNumber
-              ? `Round ${currentRoundNumber} of ${event.totalRounds}`
-              : "Awaiting round start"}
+            {isEventComplete
+              ? "Final results"
+              : currentRoundNumber
+                ? `Round ${currentRoundNumber} of ${event.totalRounds}`
+                : "Awaiting round start"}
           </div>
         </div>
         <div className="flex items-center gap-6">
@@ -207,58 +215,64 @@ export function BroadcastClient({
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col gap-4 px-8 py-6">
-        <section
-          className="grid min-h-0 flex-1 gap-4"
-          style={matchGridStyle}
-        >
-          {matchCount === 0 && (
-            <div className="flex items-center justify-center text-zinc-600">
-              No active round.
-            </div>
-          )}
-          {matches.map((m) => (
-            <MatchCard
-              key={m.matchId}
-              match={m}
-              pulses={pulses}
-              startingLife={event.startingLife}
-            />
-          ))}
-        </section>
+        {isEventComplete ? (
+          <FinalRanking players={finalRanking} variant="tv" />
+        ) : (
+          <>
+            <section
+              className="grid min-h-0 flex-1 gap-4"
+              style={matchGridStyle}
+            >
+              {matchCount === 0 && (
+                <div className="flex items-center justify-center text-zinc-600">
+                  No active round.
+                </div>
+              )}
+              {matches.map((m) => (
+                <MatchCard
+                  key={m.matchId}
+                  match={m}
+                  pulses={pulses}
+                  startingLife={event.startingLife}
+                />
+              ))}
+            </section>
 
-        <section className="shrink-0">
-          <div className="mb-1 text-[0.65rem] uppercase tracking-[0.25em] text-zinc-500">
-            Standings
-          </div>
-          <div className="grid gap-2" style={standingsStyle}>
-            {standings.map((s, i) => (
-              <div
-                key={s.playerId}
-                className="flex items-center gap-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5"
-              >
-                {s.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={s.avatarUrl}
-                    alt=""
-                    className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-zinc-700"
-                  />
-                ) : (
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-zinc-800 font-mono text-[0.65rem] text-zinc-500">
-                    {i + 1}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {s.displayName}
-                </span>
-                <span className="shrink-0 font-mono text-xs text-zinc-400">
-                  {s.wins}-{s.losses}
-                  {s.draws > 0 ? `-${s.draws}` : ""} · {s.currentElo}
-                </span>
+            <section className="shrink-0">
+              <div className="mb-1 text-[0.65rem] uppercase tracking-[0.25em] text-zinc-500">
+                Standings
               </div>
-            ))}
-          </div>
-        </section>
+              <div className="grid gap-2" style={standingsStyle}>
+                {standings.map((s, i) => (
+                  <div
+                    key={s.playerId}
+                    className="flex items-center gap-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5"
+                  >
+                    {s.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={s.avatarUrl}
+                        alt=""
+                        className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-zinc-700"
+                      />
+                    ) : (
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-zinc-800 font-mono text-[0.65rem] text-zinc-500">
+                        {i + 1}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {s.displayName}
+                    </span>
+                    <span className="shrink-0 font-mono text-xs text-zinc-400">
+                      {s.wins}-{s.losses}
+                      {s.draws > 0 ? `-${s.draws}` : ""} · {s.currentElo}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </>
+        )}
       </main>
     </div>
   );

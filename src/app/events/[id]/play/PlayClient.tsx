@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   adjustLifeAction,
   reportGameWinnerAction,
+  reportMatchDrawAction,
 } from "@/app/events/actions";
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
@@ -43,36 +44,91 @@ export function PlayClient({
   const [bLife, setBLife] = useState(initialGame.playerBLife);
   const [wins, setWins] = useState(initialWins);
   const [pending, startTransition] = useTransition();
+  // Count outstanding adjust requests per side. While >0, neither the SSE
+  // listener nor the polling tick are allowed to overwrite local life — those
+  // arrive with stale server snapshots and would visually rubber-band the
+  // counter back. Cleared once every in-flight write resolves.
+  const inFlight = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
 
-  // Subscribe to live updates so the opponent's life and game wins refresh.
+  // Subscribe to live updates for the opponent's edits. SSE is fast but
+  // best-effort — the polling loop below is the source of truth.
   useEffect(() => {
     const es = new EventSource(`/api/events/${eventId}/stream`);
     es.addEventListener("message", (e) => {
       const msg = JSON.parse(e.data) as EventMessage;
       if (msg.type === "life_changed" && msg.matchId === matchId) {
-        if (msg.side === "a") setALife(msg.life);
-        else setBLife(msg.life);
+        if (msg.side === "a") {
+          if (inFlight.current.a === 0) setALife(msg.life);
+        } else {
+          if (inFlight.current.b === 0) setBLife(msg.life);
+        }
       }
       if (msg.type === "game_complete" && msg.matchId === matchId) {
-        // Optimistic refresh — server will revalidate too.
         if (msg.winnerId === players.a.id)
           setWins((w) => ({ ...w, a: w.a + 1 }));
         else if (players.b && msg.winnerId === players.b.id)
           setWins((w) => ({ ...w, b: w.b + 1 }));
-        // Reset life for the next game.
-        setALife(initialGame.playerALife);
-        setBLife(initialGame.playerALife);
+        setALife(startingLife);
+        setBLife(startingLife);
+        inFlight.current = { a: 0, b: 0 };
       }
       if (msg.type === "match_complete" && msg.matchId === matchId) {
-        // Hard refresh to render the "match over" state.
+        window.location.reload();
+      }
+      // When the organizer advances rounds, the page that decides which match
+      // is "yours" lives on the server — reload to re-fetch.
+      if (msg.type === "round_started" || msg.type === "round_completed") {
         window.location.reload();
       }
     });
     return () => es.close();
-    // players.b is intentionally referenced via .id only; including the whole
-    // object would re-subscribe on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId, matchId, players.a.id, players.b?.id, initialGame.playerALife]);
+  }, [eventId, matchId, players.a.id, players.b?.id, startingLife]);
+
+  // Belt-and-suspenders polling: every 3s, pull authoritative state from the
+  // server and reconcile. Covers the case where SSE delivery silently fails
+  // (cross-instance pubsub, dropped connection on the other phone, etc.).
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(
+          `/api/events/${eventId}/match/${matchId}/state`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) return;
+        const s = (await res.json()) as {
+          status: "pending" | "in_progress" | "complete";
+          life: { a: number | null; b: number | null };
+          wins: { a: number; b: number };
+        };
+        if (stopped) return;
+        if (s.status === "complete") {
+          window.location.reload();
+          return;
+        }
+        if (s.life.a !== null && inFlight.current.a === 0) {
+          setALife((cur) => (cur !== s.life.a ? (s.life.a as number) : cur));
+        }
+        if (s.life.b !== null && inFlight.current.b === 0) {
+          setBLife((cur) => (cur !== s.life.b ? (s.life.b as number) : cur));
+        }
+        setWins((w) =>
+          w.a === s.wins.a && w.b === s.wins.b ? w : s.wins
+        );
+      } catch {
+        /* network blip — next tick retries */
+      }
+    };
+    const id = setInterval(tick, 3000);
+    // Kick once immediately so a freshly-loaded page reflects whatever happened
+    // while we were away.
+    void tick();
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [eventId, matchId]);
 
   const myLife = mySide === "a" ? aLife : bLife;
   const oppLife = mySide === "a" ? bLife : aLife;
@@ -80,14 +136,16 @@ export function PlayClient({
   const myName = mySide === "a" ? players.a.displayName : players.b?.displayName;
   const oppName = mySide === "a" ? players.b?.displayName : players.a.displayName;
 
-  // Either player can edit either side's life. SSE fan-out gives us
-  // last-write-wins automatically — every adjust hits the DB with the new
-  // total, then publishes a `life_changed` event everyone else applies.
   const adjust = (side: "a" | "b", delta: number) => {
     if (side === "a") setALife((v) => v + delta);
     else setBLife((v) => v + delta);
+    inFlight.current[side] += 1;
     startTransition(async () => {
-      await adjustLifeAction({ matchId, side, delta });
+      try {
+        await adjustLifeAction({ matchId, side, delta });
+      } finally {
+        inFlight.current[side] = Math.max(0, inFlight.current[side] - 1);
+      }
     });
   };
   const oppSide = mySide === "a" ? "b" : "a";
@@ -103,6 +161,20 @@ export function PlayClient({
           : players.a.id;
     startTransition(async () => {
       await reportGameWinnerAction({ matchId, winnerId });
+    });
+  };
+
+  const reportDraw = () => {
+    if (!players.b) return;
+    if (
+      !window.confirm(
+        "Call this match a draw? This finalizes it and ends the round for both of you."
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      await reportMatchDrawAction({ matchId });
     });
   };
 
@@ -182,6 +254,16 @@ export function PlayClient({
           They won
         </button>
       </div>
+
+      {players.b && (
+        <button
+          onClick={reportDraw}
+          disabled={pending}
+          className="rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+        >
+          Call this match a draw
+        </button>
+      )}
     </main>
   );
 }
@@ -203,9 +285,6 @@ function LifePanel({
   pending: boolean;
   emphasized?: boolean;
 }) {
-  // Same tier-aware portrait that the broadcast view uses, so the wizard on
-  // your phone looks the same as on the TV and visibly takes damage as life
-  // drops.
   const bgUrl = pickAvatarUrl(life, startingLife, avatars);
   return (
     <div
@@ -223,8 +302,6 @@ function LifePanel({
           className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-90"
         />
       )}
-      {/* Readability scrim: clear at the top so the face is visible, dark at
-          the bottom where the buttons sit. */}
       {bgUrl && (
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/15 via-black/55 to-black/90" />
       )}
@@ -287,7 +364,6 @@ function LifeButton({
 }
 
 function GamePips({ wins }: { wins: number }) {
-  // Best-of-3 → first to 2 wins, so two pips.
   return (
     <span className="flex gap-1">
       {[0, 1].map((i) => (

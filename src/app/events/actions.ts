@@ -259,7 +259,19 @@ export async function generateWizardAction(formData: FormData) {
   revalidatePath(`/players/${playerId}`);
 }
 
-export async function startNextRoundAction(eventId: string) {
+/**
+ * Stage the next round's pairings without making them visible to players.
+ *
+ * Inserts a round with status='pending' plus a set of pending matches that the
+ * organizer can revise on the manage page (swap players, drop pairs that don't
+ * want to play, re-roll, add manual pairings). Players don't see anything
+ * until `confirmRoundAction` flips the pending round → active.
+ *
+ * Idempotent at the pending-round level: if a pending round already exists,
+ * returns its id without regenerating pairings. Use
+ * `regeneratePendingPairingsAction` to refresh.
+ */
+export async function previewNextRoundAction(eventId: string) {
   const [event] = await db.select().from(events).where(eq(events.id, eventId));
   if (!event) throw new Error("Event not found");
 
@@ -268,10 +280,13 @@ export async function startNextRoundAction(eventId: string) {
     .from(rounds)
     .where(eq(rounds.eventId, eventId));
 
-  if (existingRounds.some((r) => r.status === "active")) {
-    throw new Error("There's already an active round");
-  }
-  if (existingRounds.length >= event.totalRounds) {
+  const pending = existingRounds.find((r) => r.status === "pending");
+  if (pending) return { roundId: pending.id, alreadyPending: true };
+
+  const completedOrActiveCount = existingRounds.filter(
+    (r) => r.status === "complete" || r.status === "active"
+  ).length;
+  if (completedOrActiveCount >= event.totalRounds) {
     throw new Error("All rounds have been played");
   }
 
@@ -285,16 +300,95 @@ export async function startNextRoundAction(eventId: string) {
     }))
   );
 
-  const roundNumber = existingRounds.length + 1;
+  const roundNumber = completedOrActiveCount + 1;
   const [newRound] = await db
     .insert(rounds)
     .values({
       eventId,
       roundNumber,
-      status: "active",
-      startedAt: new Date(),
+      status: "pending",
     })
     .returning();
+
+  await db.insert(matches).values(
+    pairings.map((p) => ({
+      roundId: newRound.id,
+      tableNumber: p.tableNumber,
+      playerAId: p.playerAId,
+      playerBId: p.playerBId,
+      status: "pending" as const,
+    }))
+  );
+
+  revalidatePath(`/events/${eventId}/manage`);
+  return { roundId: newRound.id, alreadyPending: false };
+}
+
+/**
+ * Commit a pending round: mark previous active rounds complete (leaving any
+ * in_progress matches alone, so excused pairs keep playing through the
+ * transition), then flip pending → active, write game 1 rows for real matches,
+ * auto-resolve byes, and publish `round_started` so every phone advances.
+ */
+export async function confirmRoundAction(eventId: string) {
+  const [event] = await db.select().from(events).where(eq(events.id, eventId));
+  if (!event) throw new Error("Event not found");
+
+  const [pending] = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
+  if (!pending) throw new Error("No pending round to confirm");
+
+  const pendingMatches = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.roundId, pending.id));
+  if (pendingMatches.length === 0)
+    throw new Error("Pending round has no matches — drop the round or pair players first");
+
+  // Soft-close any still-active rounds: their fully-resolved matches stay
+  // complete; any match still flagged in_progress remains so on purpose (the
+  // pair was excused and is still playing). The round row going `complete`
+  // is what lets standings move on and lets the new round be the canonical
+  // "active" one for `getCurrentRound`.
+  const stillActive = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "active")));
+  for (const r of stillActive) {
+    await db
+      .update(rounds)
+      .set({ status: "complete", completedAt: new Date() })
+      .where(eq(rounds.id, r.id));
+  }
+
+  // Resolve byes and flip in-progress on real matches as a single sweep.
+  const realMatches = pendingMatches.filter((m) => m.playerBId !== null);
+  const byes = pendingMatches.filter((m) => m.playerBId === null);
+
+  for (const bye of byes) {
+    await db
+      .update(matches)
+      .set({
+        status: "complete",
+        winnerId: bye.playerAId,
+        completedAt: new Date(),
+      })
+      .where(eq(matches.id, bye.id));
+  }
+
+  for (const m of realMatches) {
+    await db
+      .update(matches)
+      .set({ status: "in_progress" })
+      .where(eq(matches.id, m.id));
+  }
+
+  await db
+    .update(rounds)
+    .set({ status: "active", startedAt: new Date() })
+    .where(eq(rounds.id, pending.id));
 
   if (event.status === "draft") {
     await db
@@ -303,25 +397,6 @@ export async function startNextRoundAction(eventId: string) {
       .where(eq(events.id, eventId));
   }
 
-  const newMatches = await db
-    .insert(matches)
-    .values(
-      pairings.map((p) => ({
-        roundId: newRound.id,
-        tableNumber: p.tableNumber,
-        playerAId: p.playerAId,
-        playerBId: p.playerBId,
-        status:
-          p.playerBId === null
-            ? ("complete" as const)
-            : ("in_progress" as const),
-        winnerId: p.playerBId === null ? p.playerAId : null,
-        completedAt: p.playerBId === null ? new Date() : null,
-      }))
-    )
-    .returning();
-
-  const realMatches = newMatches.filter((m) => m.playerBId !== null);
   if (realMatches.length > 0) {
     await db.insert(games).values(
       realMatches.map((m) => ({
@@ -333,10 +408,196 @@ export async function startNextRoundAction(eventId: string) {
     );
   }
 
-  publish(eventId, { type: "round_started", roundNumber });
+  publish(eventId, { type: "round_started", roundNumber: pending.roundNumber });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);
+}
+
+/**
+ * Old single-shot helper — preview + immediately confirm. Kept for the verify
+ * harness and any caller that doesn't want to step through the review UI.
+ */
+export async function startNextRoundAction(eventId: string) {
+  await previewNextRoundAction(eventId);
+  await confirmRoundAction(eventId);
+}
+
+/**
+ * Throw out the current pending pairings and re-roll them via Swiss. Useful
+ * when the organizer doesn't like the auto result and wants another draw.
+ */
+export async function regeneratePendingPairingsAction(eventId: string) {
+  const [pending] = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
+  if (!pending) throw new Error("No pending round to regenerate");
+
+  await db.delete(matches).where(eq(matches.roundId, pending.id));
+
+  const standings = await getEventStandings(eventId);
+  const pairings = generateSwissPairings(
+    standings.map((s) => ({
+      playerId: s.playerId,
+      matchPoints: s.matchPoints,
+      opponentsFaced: s.opponentsFaced,
+      hasHadBye: s.hasHadBye,
+    }))
+  );
+  await db.insert(matches).values(
+    pairings.map((p) => ({
+      roundId: pending.id,
+      tableNumber: p.tableNumber,
+      playerAId: p.playerAId,
+      playerBId: p.playerBId,
+      status: "pending" as const,
+    }))
+  );
+  revalidatePath(`/events/${eventId}/manage`);
+}
+
+/**
+ * Swap two players between two pending matches (or within the same pending
+ * match — useful for flipping who's A vs B). Only works on pending rounds; an
+ * active or completed match isn't editable through this path.
+ */
+export async function swapMatchPlayersAction(args: {
+  matchAId: string;
+  sideA: "a" | "b";
+  matchBId: string;
+  sideB: "a" | "b";
+}) {
+  const [mA] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchAId));
+  const [mB] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchBId));
+  if (!mA || !mB) throw new Error("Match not found");
+  if (mA.status !== "pending" || mB.status !== "pending")
+    throw new Error("Can only revise pending pairings");
+  if (mA.roundId !== mB.roundId)
+    throw new Error("Matches must be in the same round");
+
+  const aHas = args.sideA === "a" ? mA.playerAId : mA.playerBId;
+  const bHas = args.sideB === "a" ? mB.playerAId : mB.playerBId;
+  if (aHas === null || bHas === null)
+    throw new Error("Cannot swap an empty bye slot");
+
+  await db
+    .update(matches)
+    .set(args.sideA === "a" ? { playerAId: bHas } : { playerBId: bHas })
+    .where(eq(matches.id, mA.id));
+  await db
+    .update(matches)
+    .set(args.sideB === "a" ? { playerAId: aHas } : { playerBId: aHas })
+    .where(eq(matches.id, mB.id));
+
+  const [round] = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.id, mA.roundId));
+  if (round) revalidatePath(`/events/${round.eventId}/manage`);
+}
+
+/**
+ * Excuse a pair from the upcoming round by deleting their pending match. The
+ * two players will have no scheduled match this round; if either of them is
+ * still in an in_progress match from the previous round, they keep playing it
+ * on their phones (see `getActiveMatchForPlayer` for the lookup rule).
+ */
+export async function dropPendingMatchAction(args: { matchId: string }) {
+  const [m] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchId));
+  if (!m) throw new Error("Match not found");
+  if (m.status !== "pending")
+    throw new Error("Can only drop pending pairings");
+
+  await db.delete(matches).where(eq(matches.id, m.id));
+
+  const [round] = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.id, m.roundId));
+  if (round) revalidatePath(`/events/${round.eventId}/manage`);
+}
+
+/**
+ * Manually create a new pairing in the pending round. Both players must be on
+ * the event roster; neither can already be in another pending match in this
+ * round (otherwise standings double-count and standings views collapse).
+ */
+export async function addManualPairingAction(args: {
+  roundId: string;
+  playerAId: string;
+  playerBId: string | null;
+}) {
+  if (args.playerAId === args.playerBId)
+    throw new Error("Player can't be paired with themselves");
+
+  const [round] = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.id, args.roundId));
+  if (!round) throw new Error("Round not found");
+  if (round.status !== "pending")
+    throw new Error("Can only edit pending rounds");
+
+  const roster = await db
+    .select()
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, round.eventId));
+  const rosterIds = new Set(roster.map((r) => r.playerId));
+  if (!rosterIds.has(args.playerAId))
+    throw new Error("Player A is not on the event roster");
+  if (args.playerBId && !rosterIds.has(args.playerBId))
+    throw new Error("Player B is not on the event roster");
+
+  const existing = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.roundId, round.id));
+  const inUse = new Set<string>();
+  for (const m of existing) {
+    inUse.add(m.playerAId);
+    if (m.playerBId) inUse.add(m.playerBId);
+  }
+  if (inUse.has(args.playerAId))
+    throw new Error("Player A is already paired this round");
+  if (args.playerBId && inUse.has(args.playerBId))
+    throw new Error("Player B is already paired this round");
+
+  const nextTable =
+    Math.max(0, ...existing.map((m) => m.tableNumber)) + 1;
+  await db.insert(matches).values({
+    roundId: round.id,
+    tableNumber: nextTable,
+    playerAId: args.playerAId,
+    playerBId: args.playerBId,
+    status: "pending",
+  });
+
+  revalidatePath(`/events/${round.eventId}/manage`);
+}
+
+/**
+ * Tear down the whole pending round. Useful when the organizer wants to roll
+ * back the "preview next round" step entirely.
+ */
+export async function cancelPendingRoundAction(eventId: string) {
+  const [pending] = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
+  if (!pending) return;
+  await db.delete(matches).where(eq(matches.roundId, pending.id));
+  await db.delete(rounds).where(eq(rounds.id, pending.id));
+  revalidatePath(`/events/${eventId}/manage`);
 }
 
 export async function completeRoundAction(eventId: string) {
@@ -555,7 +816,23 @@ export async function reportGameWinnerAction(args: {
 export async function setMatchResultAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const outcome = String(formData.get("outcome") ?? ""); // "a" | "b" | "draw"
+  await finalizeMatchOutcome({ matchId, outcome });
+}
 
+/**
+ * Programmatic version of the above for the phone view's "Match draw" button.
+ * Kept as a separate export so PlayClient can call it without building a
+ * FormData payload.
+ */
+export async function reportMatchDrawAction(args: { matchId: string }) {
+  await finalizeMatchOutcome({ matchId: args.matchId, outcome: "draw" });
+}
+
+async function finalizeMatchOutcome(args: {
+  matchId: string;
+  outcome: string;
+}) {
+  const { matchId, outcome } = args;
   if (!matchId) throw new Error("matchId required");
   if (outcome !== "a" && outcome !== "b" && outcome !== "draw") {
     throw new Error("Invalid outcome");

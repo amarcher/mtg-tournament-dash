@@ -63,10 +63,11 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 ## Running behind a Cloudflare tunnel
 
-`npm run tunnel:named` fronts the production build with a stable `mtg.<your-domain>.com` URL via cloudflared. Two things to know:
+`npm run tunnel:named` fronts the production build with a stable `mtg.<your-domain>.com` URL via cloudflared. Three things to know:
 
 1. **The image-gen server is also tunnelled** (`imagegen.mised.tech` in `~/.cloudflared/config.yml`) so phones loading `/files/<name>` through `mtg.capxun.com` resolve via the Next.js proxy route, which then hits the image-gen `127.0.0.1:8000/files/<name>`. Both surfaces work.
 2. **Cloudflare's WAF will block multipart selfie uploads by default** (managed OWASP ruleset flags binary POST bodies). Run `npm run cf:skip-waf` once (requires `CLOUDFLARE_API_TOKEN` with `Zone WAF Edit` scope) to install a "Skip managed rules for POST to mtg.&lt;host&gt;" custom rule. Without this, the wizard action's first run returns a Cloudflare block page instead of reaching Next.js.
+3. **Only one mtg-dash cloudflared should be running at a time.** If multiple instances claim the same tunnel name, Cloudflare load-balances across them — a stale leftover from an ungraceful previous shutdown will silently serve half the traffic from an older build (debug symptom: page "flashes" the correct UI then reverts on the next refresh). The script now auto-kills survivors at startup, but if you ever see drift run `npm run tunnel:stop` to nuke every mtg-dash cloudflared + the Next.js server on :3002 in one shot (the system cloudflared at `~/.cloudflared/config.yml`, which handles `imagegen.mised.tech`, is left alone).
 
 ## Required env vars
 

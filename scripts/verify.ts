@@ -21,20 +21,40 @@ import { eq, like } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { db } from "../src/db/client";
-import { events, eventPlayers, leagues, players } from "../src/db/schema";
 import {
-  startNextRoundAction,
-  reportGameWinnerAction,
-  completeRoundAction,
-  setMatchResultAction,
+  events,
+  eventPlayers,
+  games,
+  leagues,
+  matches,
+  players,
+  rounds,
+} from "../src/db/schema";
+import {
+  addManualPairingAction,
   adjustLifeAction,
+  cancelPendingRoundAction,
+  completeRoundAction,
+  confirmRoundAction,
+  dropPendingMatchAction,
   generateWizardAction,
+  previewNextRoundAction,
+  regeneratePendingPairingsAction,
+  reportGameWinnerAction,
+  reportMatchDrawAction,
+  setMatchResultAction,
+  startNextRoundAction,
+  swapMatchPlayersAction,
 } from "../src/app/events/actions";
 import { generateJoinToken } from "../src/lib/auth";
 import {
+  getActiveMatchForPlayer,
   getCurrentRound,
+  getEventMatchHistory,
+  getEventRoster,
   getEventRounds,
   getEventStandings,
+  getPendingRound,
   getRoundMatches,
 } from "../src/db/queries";
 
@@ -566,8 +586,263 @@ async function runSixPlayerSwissPass() {
   console.log("");
 
   ok("6-player Swiss: clean leaderboard after 3 rounds");
+
+  // === Final-ranking data shape ===
+  const history = await getEventMatchHistory(event.id);
+  const roster6 = await getEventRoster(event.id);
+  const startingEloById6 = new Map(
+    roster6.map((r) => [r.playerId, r.startingElo])
+  );
+  for (const s of finalStandings) {
+    const rows = history[s.playerId] ?? [];
+    assert(rows.length === 3, `${s.displayName}: 3 rounds in match history`);
+    assert(
+      rows.every((r, i) => r.roundNumber === i + 1),
+      `${s.displayName}: history rounds are 1..3 in order`
+    );
+    assert(
+      rows.every((r) => r.outcome === "W" || r.outcome === "L" || r.outcome === "BYE"),
+      `${s.displayName}: every row has a sane outcome`
+    );
+    // Each decisive match writes an eloChanges row → eloDelta should be set.
+    assert(
+      rows.every((r) => r.outcome === "BYE" || typeof r.eloDelta === "number"),
+      `${s.displayName}: decisive history rows carry an ELO delta`
+    );
+
+    const eventDelta = rows.reduce((acc, r) => acc + (r.eloDelta ?? 0), 0);
+    const startingElo = startingEloById6.get(s.playerId)!;
+    assert(
+      startingElo + eventDelta === s.currentElo,
+      `${s.displayName}: startingElo + Σ deltas == currentElo`
+    );
+  }
+  // Round-1 sweep winner should show three Ws; sweep loser should show three Ls.
+  const topHistory = history[finalStandings[0].playerId] ?? [];
+  const botHistory =
+    history[finalStandings[finalStandings.length - 1].playerId] ?? [];
+  assert(
+    topHistory.every((r) => r.outcome === "W"),
+    "top player history is all W"
+  );
+  assert(
+    botHistory.every((r) => r.outcome === "L"),
+    "bottom player history is all L"
+  );
+
   await cleanup();
   ok("post-clean 6-player rows");
+}
+
+/**
+ * Exercise the new manage-page flows: preview-then-confirm with a manual swap,
+ * a "drop pair" excuse that carries an in-progress match into the next round,
+ * a phone-side `reportMatchDrawAction`, and the `getActiveMatchForPlayer`
+ * fallback that finds an in_progress match even after its round closed.
+ */
+async function runReviewFlowPass() {
+  console.log("\n--- pairing review + excused pair pass ---");
+  await cleanup();
+
+  const { event } = await setupEvent(6);
+  ok(`set up 6-player event ${event.id.slice(0, 8)} for review-flow pass`);
+
+  // --- R1: drive via reportMatchDrawAction on one match, decisive on others
+  await previewNextRoundAction(event.id);
+  const r1Pending = await getPendingRound(event.id);
+  assert(r1Pending !== null, "previewNextRoundAction creates a pending round");
+
+  let r1Matches = await getRoundMatches(r1Pending!.id);
+  assert(
+    r1Matches.length === 3 && r1Matches.every((m) => m.match.status === "pending"),
+    "pending round has 3 pending matches"
+  );
+
+  // Swap a player from T1 with a player from T2 and confirm both matches stay
+  // well-formed.
+  const t1 = r1Matches[0];
+  const t2 = r1Matches[1];
+  const beforeAId = t1.match.playerAId;
+  const beforeBId = t2.match.playerBId!;
+  await swapMatchPlayersAction({
+    matchAId: t1.match.id,
+    sideA: "a",
+    matchBId: t2.match.id,
+    sideB: "b",
+  });
+  r1Matches = await getRoundMatches(r1Pending!.id);
+  assert(
+    r1Matches.find((m) => m.match.id === t1.match.id)!.match.playerAId ===
+      beforeBId,
+    "swap moved player to T1 side A"
+  );
+  assert(
+    r1Matches.find((m) => m.match.id === t2.match.id)!.match.playerBId ===
+      beforeAId,
+    "swap moved player to T2 side B"
+  );
+
+  await confirmRoundAction(event.id);
+  const round = await getCurrentRound(event.id);
+  assert(round?.roundNumber === 1, "confirmed round is now active R1");
+
+  const r1Active = await getRoundMatches(round!.id);
+  // Pick one match to end as a phone-reported draw; others decisive.
+  await reportMatchDrawAction({ matchId: r1Active[0].match.id });
+  const [drawn] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, r1Active[0].match.id));
+  assert(drawn.status === "complete" && drawn.isDraw === true,
+    "reportMatchDrawAction marks the match complete + isDraw");
+
+  for (const { match, playerA, playerB } of r1Active.slice(1)) {
+    if (!playerB) continue;
+    const winner = playerA.displayName < playerB.displayName ? playerA : playerB;
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+  }
+  await completeRoundAction(event.id);
+  ok("R1 — drove a phone-side match draw alongside decisive results");
+
+  // --- R2: pending preview, re-roll, then drop a pair (they keep playing R1)
+  // First: stage an in-progress R1 match that we'll carry past the round.
+  // We need to mimic an excused pair, so leave one match unfinished. Restart:
+  // simpler — preview R2, then forcibly create an in_progress carryover match
+  // in R1 by inserting a fresh game row.
+  await previewNextRoundAction(event.id);
+  let r2Pending = await getPendingRound(event.id);
+  assert(r2Pending !== null, "R2 pending round created");
+
+  await regeneratePendingPairingsAction(event.id);
+  r2Pending = await getPendingRound(event.id);
+  let r2Matches = await getRoundMatches(r2Pending!.id);
+  assert(
+    r2Matches.length === 3,
+    "regenerate kept the pending round with 3 matches"
+  );
+
+  // Excuse the first pair from R2 — they're going to keep playing.
+  const excusedPair = r2Matches[0];
+  const excusedAId = excusedPair.match.playerAId;
+  const excusedBId = excusedPair.match.playerBId!;
+  await dropPendingMatchAction({ matchId: excusedPair.match.id });
+  r2Matches = await getRoundMatches(r2Pending!.id);
+  assert(r2Matches.length === 2, "drop pair removed the match");
+
+  // Open a fresh R1 in_progress match for the excused pair so we can verify
+  // getActiveMatchForPlayer picks it up after R2 starts. (In real life this
+  // would be a leftover match the round closed prematurely; here we synthesize
+  // the equivalent state.)
+  const [carryRound] = await db
+    .insert(rounds)
+    .values({
+      eventId: event.id,
+      roundNumber: 99, // sentinel — not a real round, just an in-progress holder
+      status: "complete",
+      startedAt: new Date(),
+      completedAt: new Date(),
+    })
+    .returning();
+  const [carryMatch] = await db
+    .insert(matches)
+    .values({
+      roundId: carryRound.id,
+      tableNumber: 99,
+      playerAId: excusedAId,
+      playerBId: excusedBId,
+      status: "in_progress",
+    })
+    .returning();
+  await db.insert(games).values({
+    matchId: carryMatch.id,
+    gameNumber: 1,
+    playerALife: 20,
+    playerBLife: 20,
+  });
+
+  await confirmRoundAction(event.id);
+  ok("R2 confirmed with one pair excused (drop pair)");
+
+  // Excused players' active match should be the carryover, not anything in R2.
+  const aActive = await getActiveMatchForPlayer(event.id, excusedAId);
+  assert(
+    aActive?.id === carryMatch.id,
+    "excused player A still points at the carried in_progress match"
+  );
+  const bActive = await getActiveMatchForPlayer(event.id, excusedBId);
+  assert(
+    bActive?.id === carryMatch.id,
+    "excused player B still points at the carried in_progress match"
+  );
+
+  // Done verifying the carry semantics — tear down the synthetic round so the
+  // rest of the pass operates on the natural R1+R2 history and isn't polluted
+  // by an extra "complete" round inflating event.totalRounds bookkeeping.
+  await db.delete(games).where(eq(games.matchId, carryMatch.id));
+  await db.delete(matches).where(eq(matches.id, carryMatch.id));
+  await db.delete(rounds).where(eq(rounds.id, carryRound.id));
+
+  // Finish R2's pending matches so the round is closeable.
+  const r2Live = await getRoundMatches((await getCurrentRound(event.id))!.id);
+  for (const { match, playerA, playerB } of r2Live) {
+    if (!playerB) continue;
+    const winner = playerA.displayName < playerB.displayName ? playerA : playerB;
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+  }
+  await completeRoundAction(event.id);
+
+  await previewNextRoundAction(event.id);
+  const r3Pending = await getPendingRound(event.id);
+  assert(r3Pending !== null, "R3 preview created");
+  await cancelPendingRoundAction(event.id);
+  const r3PendingAfterCancel = await getPendingRound(event.id);
+  assert(
+    r3PendingAfterCancel === null,
+    "cancelPendingRoundAction tears down the pending round"
+  );
+
+  // Re-preview and add a manual pairing on top of auto-generated ones to
+  // exercise addManualPairingAction's roster + duplicate-pair checks.
+  await previewNextRoundAction(event.id);
+  const r3FreshPending = await getPendingRound(event.id);
+  const r3FreshMatches = await getRoundMatches(r3FreshPending!.id);
+  // Drop one match so two players are unpaired, then re-add them manually.
+  const dropMe = r3FreshMatches[0];
+  const unpairedA = dropMe.match.playerAId;
+  const unpairedB = dropMe.match.playerBId!;
+  await dropPendingMatchAction({ matchId: dropMe.match.id });
+  await addManualPairingAction({
+    roundId: r3FreshPending!.id,
+    playerAId: unpairedA,
+    playerBId: unpairedB,
+  });
+  const r3FinalMatches = await getRoundMatches(r3FreshPending!.id);
+  assert(
+    r3FinalMatches.some(
+      (m) =>
+        (m.match.playerAId === unpairedA && m.match.playerBId === unpairedB) ||
+        (m.match.playerAId === unpairedB && m.match.playerBId === unpairedA)
+    ),
+    "addManualPairingAction re-paired the dropped pair"
+  );
+
+  // Double-pair should throw.
+  let pairThrew = false;
+  try {
+    await addManualPairingAction({
+      roundId: r3FreshPending!.id,
+      playerAId: unpairedA,
+      playerBId: unpairedB,
+    });
+  } catch {
+    pairThrew = true;
+  }
+  assert(pairThrew, "addManualPairingAction rejects already-paired players");
+
+  await cleanup();
+  ok("post-clean review-flow rows");
 }
 
 async function checkRoutes(eventId: string) {
@@ -749,6 +1024,7 @@ async function main() {
   await runWizardizeIntegrationTest(testPlayers[0].id);
 
   await runSixPlayerSwissPass();
+  await runReviewFlowPass();
 
   await cleanup();
   ok("post-clean test rows");

@@ -4,8 +4,16 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, players } from "@/db/schema";
 import { getCurrentPlayer } from "@/lib/auth";
-import { getActiveMatchForPlayer, getEvent } from "@/db/queries";
+import {
+  getActiveMatchForPlayer,
+  getEvent,
+  getEventMatchHistory,
+  getEventRoster,
+  getEventStandings,
+} from "@/db/queries";
 import { PlayClient } from "./PlayClient";
+import { WaitForRound } from "./WaitForRound";
+import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 
 function HomeLink() {
   return (
@@ -48,6 +56,72 @@ export default async function PlayPage({
   }
 
   const match = await getActiveMatchForPlayer(id, me.playerId);
+
+  if (event.status === "complete") {
+    const [standings, roster, history] = await Promise.all([
+      getEventStandings(id),
+      getEventRoster(id),
+      getEventMatchHistory(id),
+    ]);
+    const startingEloById = new Map(
+      roster.map((r) => [r.playerId, r.startingElo])
+    );
+    const ranking: FinalRankingPlayer[] = standings.map((s) => {
+      const rows = history[s.playerId] ?? [];
+      const eventDelta = rows.reduce(
+        (acc, h) => acc + (h.eloDelta ?? 0),
+        0
+      );
+      const startingElo = startingEloById.get(s.playerId) ?? s.currentElo;
+      return {
+        playerId: s.playerId,
+        displayName: s.displayName,
+        wins: s.wins,
+        losses: s.losses,
+        draws: s.draws,
+        matchPoints: s.matchPoints,
+        startingElo,
+        endingElo: startingElo + eventDelta,
+        eventEloDelta: eventDelta,
+        avatars: {
+          fresh: s.avatarUrl,
+          wounded: s.avatarWoundedUrl,
+          critical: s.avatarCriticalUrl,
+          victory: s.avatarVictoryUrl,
+          defeat: s.avatarDefeatUrl,
+        },
+        history: rows,
+      };
+    });
+    const myRank =
+      ranking.findIndex((r) => r.playerId === me.playerId) + 1;
+    return (
+      <main className="mx-auto w-full max-w-md px-4 py-6">
+        <div className="mb-4">
+          <HomeLink />
+        </div>
+        <div className="mb-4 text-center">
+          <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
+            Tournament complete
+          </div>
+          <h1 className="mt-1 text-2xl font-semibold">{event.name}</h1>
+          {myRank > 0 && (
+            <p className="mt-1 text-sm text-zinc-400">
+              You finished{" "}
+              <strong className="text-amber-300">#{myRank}</strong> of{" "}
+              {ranking.length}
+            </p>
+          )}
+        </div>
+        <FinalRanking
+          players={ranking}
+          highlightPlayerId={me.playerId}
+          variant="compact"
+        />
+      </main>
+    );
+  }
+
   if (!match) {
     return (
       <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
@@ -56,8 +130,10 @@ export default async function PlayPage({
         </div>
         <h1 className="text-2xl font-semibold">Hi {me.displayName}</h1>
         <p className="mt-3 text-zinc-400">
-          No active match for you right now. Wait for the next round to start.
+          No active match for you right now. This page will jump to your seat as
+          soon as the organizer starts the next round.
         </p>
+        <WaitForRound eventId={id} />
       </main>
     );
   }
