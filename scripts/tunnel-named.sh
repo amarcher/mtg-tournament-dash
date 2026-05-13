@@ -44,6 +44,28 @@ if ! command -v cloudflared >/dev/null 2>&1; then
   exit 1
 fi
 
+# Preflight: claim exclusive ownership of the named tunnel. Cloudflare
+# load-balances across every cloudflared instance that connects to the same
+# tunnel name, so a leftover process from a prior run (terminal closed
+# ungracefully → EXIT trap didn't fire → the &-spawned cloudflared kept
+# running) will silently steal half the traffic and serve stale code. Kill
+# any survivors before we add a new one.
+STALE_PIDS="$(pgrep -f "cloudflared .* tunnel run ${TUNNEL_NAME}$" || true)"
+if [ -n "${STALE_PIDS}" ]; then
+  echo "Found ${TUNNEL_NAME} cloudflared instance(s) from a prior run — terminating:"
+  for pid in ${STALE_PIDS}; do
+    echo "  pid ${pid}"
+    kill "${pid}" 2>/dev/null || true
+  done
+  # Give them a moment to release their tunnel registration, then SIGKILL
+  # anything that refuses to go.
+  sleep 1
+  STILL_ALIVE="$(pgrep -f "cloudflared .* tunnel run ${TUNNEL_NAME}$" || true)"
+  if [ -n "${STILL_ALIVE}" ]; then
+    for pid in ${STILL_ALIVE}; do kill -9 "${pid}" 2>/dev/null || true; done
+  fi
+fi
+
 if lsof -tiTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
   echo "Port ${PORT} is in use. Free it and re-run, e.g.:"
   echo "    lsof -tiTCP:${PORT} -sTCP:LISTEN | xargs kill"

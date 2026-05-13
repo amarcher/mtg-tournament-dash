@@ -9,6 +9,7 @@
     "lan": "bash scripts/lan.sh",
     "tunnel": "bash scripts/tunnel.sh",
     "tunnel:named": "bash scripts/tunnel-named.sh",
+    "tunnel:stop": "bash scripts/tunnel-stop.sh",
     "verify": "tsx scripts/verify.ts",
     "lint": "eslint",
     "test": "vitest run",

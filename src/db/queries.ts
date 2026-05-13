@@ -337,6 +337,15 @@ export async function getCurrentRound(eventId: string) {
   return row ?? null;
 }
 
+export async function getPendingRound(eventId: string) {
+  const [row] = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function getEventPlayerByToken(token: string) {
   const [row] = await db
     .select({
@@ -351,7 +360,33 @@ export async function getEventPlayerByToken(token: string) {
   return row ?? null;
 }
 
+/**
+ * The match a player should currently be looking at on their phone.
+ *
+ * Looks across every round in the event for an `in_progress` match the player
+ * is in. If they have one, return it — this is what makes "excused pair keeps
+ * playing into the next round" work: their old match stays in_progress even
+ * after the next round starts, and `/events/[id]/play` keeps showing it.
+ *
+ * If no match is in_progress, fall back to the player's match in the current
+ * active round (e.g. a bye, or a brand-new round they're sitting out).
+ */
 export async function getActiveMatchForPlayer(eventId: string, playerId: string) {
+  const inProgress = await db
+    .select({ match: matches })
+    .from(matches)
+    .innerJoin(rounds, eq(rounds.id, matches.roundId))
+    .where(
+      and(
+        eq(rounds.eventId, eventId),
+        eq(matches.status, "in_progress"),
+        sql`(${matches.playerAId} = ${playerId} OR ${matches.playerBId} = ${playerId})`
+      )
+    )
+    .orderBy(desc(rounds.roundNumber))
+    .limit(1);
+  if (inProgress.length > 0) return inProgress[0].match;
+
   const activeRound = await getCurrentRound(eventId);
   if (!activeRound) return null;
   const [row] = await db
@@ -365,6 +400,158 @@ export async function getActiveMatchForPlayer(eventId: string, playerId: string)
     )
     .limit(1);
   return row ?? null;
+}
+
+export type MatchHistoryRow = {
+  roundNumber: number;
+  opponentId: string | null;
+  opponentName: string | null;
+  outcome: "W" | "L" | "D" | "BYE";
+  /**
+   * Per-match ELO delta for this player, if any. Null when the match didn't
+   * generate an ELO update (byes, draws, or organizer-set draws — see
+   * setMatchResultAction's "draws hold ratings constant" rule).
+   */
+  eloDelta: number | null;
+};
+
+/**
+ * Per-player round-by-round results across every completed round in the
+ * event. Drives the final-ranking screen that appears once the last round
+ * closes: each wizard card shows "R1 W vs Alice / R2 L vs Bob / R3 BYE".
+ *
+ * Returns a plain Record (not a Map) so it serializes directly across the
+ * server/client boundary.
+ */
+export async function getEventMatchHistory(eventId: string) {
+  const completedRounds = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "complete")))
+    .orderBy(asc(rounds.roundNumber));
+  if (completedRounds.length === 0) return {} as Record<string, MatchHistoryRow[]>;
+
+  const roundIds = completedRounds.map((r) => r.id);
+  const allMatches = await db
+    .select()
+    .from(matches)
+    .where(inArray(matches.roundId, roundIds));
+
+  const involvedIds = new Set<string>();
+  for (const m of allMatches) {
+    involvedIds.add(m.playerAId);
+    if (m.playerBId) involvedIds.add(m.playerBId);
+  }
+  const involved = involvedIds.size
+    ? await db
+        .select({ id: players.id, displayName: players.displayName })
+        .from(players)
+        .where(inArray(players.id, Array.from(involvedIds)))
+    : [];
+  const nameById = new Map(involved.map((p) => [p.id, p.displayName]));
+  const roundById = new Map(completedRounds.map((r) => [r.id, r]));
+
+  // Per (matchId, playerId) → ELO delta from this match. Decisive matches
+  // write one eloChanges row per side; byes and draws don't write any.
+  const matchIds = allMatches.map((m) => m.id);
+  const eloRows = matchIds.length
+    ? await db
+        .select()
+        .from(eloChanges)
+        .where(inArray(eloChanges.matchId, matchIds))
+    : [];
+  const eloByKey = new Map<string, number>();
+  for (const e of eloRows) {
+    eloByKey.set(`${e.matchId}:${e.playerId}`, e.delta);
+  }
+
+  const out: Record<string, MatchHistoryRow[]> = {};
+  const push = (pid: string, row: MatchHistoryRow) => {
+    const rows = out[pid] ?? (out[pid] = []);
+    rows.push(row);
+  };
+
+  for (const m of allMatches) {
+    const round = roundById.get(m.roundId);
+    if (!round) continue;
+    if (m.playerBId === null) {
+      push(m.playerAId, {
+        roundNumber: round.roundNumber,
+        opponentId: null,
+        opponentName: null,
+        outcome: "BYE",
+        eloDelta: null,
+      });
+      continue;
+    }
+    let aOutcome: "W" | "L" | "D";
+    let bOutcome: "W" | "L" | "D";
+    if (m.isDraw) {
+      aOutcome = "D";
+      bOutcome = "D";
+    } else if (m.winnerId === m.playerAId) {
+      aOutcome = "W";
+      bOutcome = "L";
+    } else if (m.winnerId === m.playerBId) {
+      aOutcome = "L";
+      bOutcome = "W";
+    } else {
+      aOutcome = "D";
+      bOutcome = "D";
+    }
+    push(m.playerAId, {
+      roundNumber: round.roundNumber,
+      opponentId: m.playerBId,
+      opponentName: nameById.get(m.playerBId) ?? null,
+      outcome: aOutcome,
+      eloDelta: eloByKey.get(`${m.id}:${m.playerAId}`) ?? null,
+    });
+    push(m.playerBId, {
+      roundNumber: round.roundNumber,
+      opponentId: m.playerAId,
+      opponentName: nameById.get(m.playerAId) ?? null,
+      outcome: bOutcome,
+      eloDelta: eloByKey.get(`${m.id}:${m.playerBId}`) ?? null,
+    });
+  }
+
+  for (const rows of Object.values(out)) {
+    rows.sort((a, b) => a.roundNumber - b.roundNumber);
+  }
+  return out;
+}
+
+/**
+ * Open (not-yet-complete) events in the given league that this player is
+ * rostered in, with their active match if any. Used to drive the "Open
+ * scorekeeper" CTAs surfaced from the player and league pages so a phone that
+ * just finished creating a wizard has an obvious path back to the score app.
+ */
+export async function listOpenEventsForPlayer(
+  leagueId: string,
+  playerId: string
+) {
+  const rows = await db
+    .select({
+      event: events,
+    })
+    .from(eventPlayers)
+    .innerJoin(events, eq(events.id, eventPlayers.eventId))
+    .where(
+      and(
+        eq(eventPlayers.playerId, playerId),
+        eq(events.leagueId, leagueId),
+        sql`${events.status} <> 'complete'`
+      )
+    )
+    .orderBy(desc(events.createdAt));
+
+  return Promise.all(
+    rows.map(async ({ event }) => ({
+      event,
+      activeMatch: await getActiveMatchForPlayer(event.id, playerId),
+    }))
+  );
 }
 
 export async function listEloHistory(playerId: string, limit = 50) {
