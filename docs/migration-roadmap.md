@@ -237,7 +237,11 @@ Not blocking. Not on the immediate roadmap.
 
 ---
 
-## Phase 6 — Optional, far-future: Capacitor wrap for App Store
+## Phase 6 — Optional, far-future: Capacitor wrap for App Store ✅ Groundwork shipped
+
+See [`docs/native-app.md`](native-app.md) for the build/submit path. The
+Capacitor config + npm scripts live in the repo; you scaffold `ios/` and
+`android/` when you're ready to start the App Store path.
 
 Trigger: TestFlight link unblocks a player, or you want store presence
 for a reason that materializes.

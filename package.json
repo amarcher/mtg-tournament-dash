@@ -16,9 +16,17 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed.ts",
-    "migrate:blob": "tsx scripts/migrate-files-to-blob.ts"
+    "migrate:blob": "tsx scripts/migrate-files-to-blob.ts",
+    "cap:add:ios": "cap add ios",
+    "cap:add:android": "cap add android",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android",
+    "cap:sync": "cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "@capacitor/ios": "^8.3.4",
     "@fal-ai/client": "^1.10.1",
     "@neondatabase/serverless": "^1.1.0",
     "@next/third-parties": "^16.2.6",
@@ -35,6 +43,7 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.4",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
