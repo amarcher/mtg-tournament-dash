@@ -137,14 +137,20 @@ export type WizardVariantResult = {
 };
 
 /**
- * POST a single FLUX `/edit` request against an already-normalized selfie
- * buffer and return the generated image bytes. The buffer is reused across
- * tiers so we don't re-encode the JPEG three times.
+ * Single-shot identity-preserving image edit: take a normalized selfie and a
+ * prompt, return the generated JPEG bytes. The wizard pipeline calls this
+ * once per tier with the same selfie buffer, so re-encoding is avoided.
+ *
+ * Lifted behind a type so the FLUX-on-Mac implementation can be swapped for
+ * a hosted provider (e.g. fal.ai's FLUX.2 Klein edit) by setting
+ * IMAGE_GEN_PROVIDER. Today only "local" exists.
  */
-async function editOnce(
-  selfieBuf: Buffer,
+export type ImageEditor = (
+  selfie: Buffer,
   prompt: string
-): Promise<Buffer> {
+) => Promise<Buffer>;
+
+const localFluxEditor: ImageEditor = async (selfieBuf, prompt) => {
   const fd = new FormData();
   fd.set("prompt", prompt);
   fd.set("width", "1024");
@@ -172,6 +178,18 @@ async function editOnce(
     );
   }
   return out;
+};
+
+function getImageEditor(): ImageEditor {
+  const provider = process.env.IMAGE_GEN_PROVIDER ?? "local";
+  switch (provider) {
+    case "local":
+      return localFluxEditor;
+    default:
+      throw new Error(
+        `Unknown IMAGE_GEN_PROVIDER: ${provider} (expected "local")`
+      );
+  }
 }
 
 async function uploadToFilesEndpoint(name: string, buf: Buffer): Promise<void> {
@@ -244,9 +262,10 @@ export async function generateWizardVariantsFromSelfie(args: {
     "defeat",
   ];
   const buffers: Record<WizardTier, Buffer> = {} as Record<WizardTier, Buffer>;
+  const edit = getImageEditor();
   for (const tier of tiers) {
     const prompt = buildVariantPrompt(archetype, freeform, tier);
-    buffers[tier] = await editOnce(selfieBuf, prompt);
+    buffers[tier] = await edit(selfieBuf, prompt);
   }
 
   const selfieName = `selfie-${playerId}.jpg`;
