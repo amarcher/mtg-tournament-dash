@@ -17,10 +17,7 @@ import { WIZARD_ARCHETYPES, type WizardArchetype } from "./wizard-types";
 export { WIZARD_ARCHETYPES, type WizardArchetype };
 
 const IMAGE_GEN_URL =
-  process.env.IMAGE_GEN_URL ??
-  process.env.IMAGEGEN_URL ??
-  "http://127.0.0.1:8000";
-const IMAGEGEN_FILES_TOKEN = process.env.IMAGEGEN_FILES_TOKEN;
+  process.env.IMAGE_GEN_URL ?? "http://127.0.0.1:8000";
 
 /**
  * Detect HEIC/HEIF by ISO BMFF box magic (bytes 4-7 == "ftyp" and brand 8-11
@@ -198,58 +195,27 @@ function getImageEditor(): ImageEditor {
 }
 
 /**
- * Persist a generated JPEG and return the URL the DB should reference.
+ * Persist a generated JPEG to Vercel Blob and return the DB-bound URL.
  *
- * When `BLOB_READ_WRITE_TOKEN` is set, writes to Vercel Blob with a stable
- * key (`avatars/<playerId>/<tier>.jpg`) under `allowOverwrite: true`, so a
- * regenerate hits the same object and `players.avatar*Url` rows never go
- * stale. A query-string cache buster forces browsers to drop their old copy
- * on regen.
- *
- * When the token is unset (e.g. `npm run lan` without cloud creds), falls
- * back to the legacy image-gen `/files/<name>` endpoint and returns a
- * relative `/files/...` path — the Next.js proxy at /files/[file] serves
- * those.
+ * Stable key (`avatars/<playerId>/<tier>.jpg`) + `allowOverwrite: true` →
+ * regenerating a wizard reuses the same Blob object so `players.avatar*Url`
+ * rows never go stale. A query-string cache buster forces browsers to drop
+ * their old copy on regen.
  */
-async function uploadPortrait(
-  blobKey: string,
-  legacyFileName: string,
-  buf: Buffer,
-  signal?: AbortSignal
-): Promise<string> {
-  const cacheBuster = Date.now();
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const result = await put(blobKey, buf, {
-      access: "public",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: "image/jpeg",
-    });
-    return `${result.url}?v=${cacheBuster}`;
-  }
-
-  if (!IMAGEGEN_FILES_TOKEN) {
+async function uploadPortrait(blobKey: string, buf: Buffer): Promise<string> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
     throw new Error(
-      "Neither BLOB_READ_WRITE_TOKEN nor IMAGEGEN_FILES_TOKEN is set — " +
-        "wizard storage requires one of them"
+      "BLOB_READ_WRITE_TOKEN not set — `vercel env pull` or provision " +
+        "the Blob marketplace integration first"
     );
   }
-  const res = await fetch(`${IMAGE_GEN_URL}/files/${legacyFileName}`, {
-    method: "PUT",
-    headers: {
-      "X-Files-Token": IMAGEGEN_FILES_TOKEN,
-      "Content-Type": "application/octet-stream",
-    },
-    body: new Uint8Array(buf),
-    signal,
+  const result = await put(blobKey, buf, {
+    access: "public",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "image/jpeg",
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `PUT /files/${legacyFileName} returned ${res.status}: ${text.slice(0, 300)}`
-    );
-  }
-  return `/files/${legacyFileName}?v=${cacheBuster}`;
+  return `${result.url}?v=${Date.now()}`;
 }
 
 /**
@@ -309,33 +275,19 @@ export async function generateWizardVariantsFromSelfie(args: {
   }
 
   // Stable keys per (player, tier). Blob writes with allowOverwrite so the
-  // URL prefix never changes — only the cache-buster suffix does. Legacy
-  // filename kept identical to the pre-Blob scheme so existing /files/ rows
-  // and the proxy route keep working.
-  const tierLegacy: Record<WizardTier, string> = {
-    fresh: `wizard-${playerId}-fresh.jpg`,
-    wounded: `wizard-${playerId}-wounded.jpg`,
-    critical: `wizard-${playerId}-critical.jpg`,
-    victory: `wizard-${playerId}-victory.jpg`,
-    defeat: `wizard-${playerId}-defeat.jpg`,
-  };
-
+  // URL prefix never changes — only the cache-buster suffix does.
   const selfiePath = await uploadPortrait(
     `avatars/${playerId}/selfie.jpg`,
-    `selfie-${playerId}.jpg`,
-    selfieBuf,
-    signal
+    selfieBuf
   );
   const tierPaths = await Promise.all(
-    tiers.map(async (tier) => [
-      tier,
-      await uploadPortrait(
-        `avatars/${playerId}/${tier}.jpg`,
-        tierLegacy[tier],
-        buffers[tier],
-        signal
-      ),
-    ] as const)
+    tiers.map(
+      async (tier) =>
+        [
+          tier,
+          await uploadPortrait(`avatars/${playerId}/${tier}.jpg`, buffers[tier]),
+        ] as const
+    )
   );
   const byTier = Object.fromEntries(tierPaths) as Record<WizardTier, string>;
 

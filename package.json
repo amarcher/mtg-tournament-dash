@@ -7,9 +7,6 @@
     "build": "next build",
     "start": "next start",
     "lan": "bash scripts/lan.sh",
-    "tunnel": "bash scripts/tunnel.sh",
-    "tunnel:named": "bash scripts/tunnel-named.sh",
-    "tunnel:stop": "bash scripts/tunnel-stop.sh",
     "verify": "tsx scripts/verify.ts",
     "lint": "eslint",
     "test": "vitest run",
@@ -19,9 +16,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/db/seed.ts",
-    "migrate:files": "tsx scripts/migrate-files-to-imagegen.ts",
-    "migrate:blob": "tsx scripts/migrate-files-to-blob.ts",
-    "cf:skip-waf": "tsx scripts/cf-skip-waf-uploads.ts"
+    "migrate:blob": "tsx scripts/migrate-files-to-blob.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
