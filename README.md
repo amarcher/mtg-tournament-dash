@@ -64,7 +64,10 @@ IMAGEGEN_FILES_TOKEN=...             # shared secret with the image-gen server
                                      # (same value as FLUX server's FILES_TOKEN)
 TUNNEL_HOSTNAME=mtg.yourdomain.com   # optional, only for `npm run tunnel:named`
 CLOUDFLARE_API_TOKEN=...             # optional, only for `npm run cf:skip-waf`
+NEXT_PUBLIC_GA4_MEASUREMENT_ID=G-... # optional, enables Google Analytics 4
 ```
+
+When `NEXT_PUBLIC_GA4_MEASUREMENT_ID` is set, the root layout embeds gtag.js via `@next/third-parties/google`'s `<GoogleAnalytics>` component — pageviews land in the [app-traffic dashboard](https://app-traffic.vercel.app/?project=mtg-dash). Unset means analytics is silently disabled (no gtag round-trip). Build-time inlined, so changing it requires a rebuild.
 
 `IMAGEGEN_FILES_TOKEN` authenticates wizard-image uploads to the FLUX server's `/files/<name>` endpoint. Generate with `openssl rand -hex 32` and set the same value as `FILES_TOKEN` in `~/Programs/image-gen/.env`.
 
