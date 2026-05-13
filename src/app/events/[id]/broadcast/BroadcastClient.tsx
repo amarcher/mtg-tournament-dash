@@ -125,6 +125,74 @@ export function BroadcastClient({
     return () => es.close();
   }, [eventId]);
 
+  // Belt-and-suspenders polling reconcile — fires every 10s and pulls the
+  // authoritative life totals for the current round. Catches any
+  // `life_changed` event that the SSE missed during a reconnect (Vercel's
+  // 300s function-duration cliff can drop events that fire mid-reconnect).
+  // If the active game changed, we fall through to a hard reload so the
+  // page picks up the new game's starting state. Skipped after the event
+  // completes since there's nothing to reconcile.
+  useEffect(() => {
+    if (isEventComplete) return;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/lives`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const snapshot = (await res.json()) as {
+          round: { id: string; number: number } | null;
+          matches: Array<{
+            matchId: string;
+            status: "pending" | "in_progress" | "complete";
+            winnerId: string | null;
+            activeGameId: string | null;
+            life: { a: number | null; b: number | null };
+          }>;
+        };
+        if (stopped) return;
+        // Any structural divergence (new game, completed match) → hard
+        // reload. Lives-only divergence patches in place.
+        setMatches((prev) => {
+          let hardReload = false;
+          const next = prev.map((m) => {
+            const s = snapshot.matches.find((x) => x.matchId === m.matchId);
+            if (!s) return m;
+            if (
+              s.activeGameId !== m.activeGameId ||
+              s.status !== m.status ||
+              s.winnerId !== m.winnerId
+            ) {
+              hardReload = true;
+              return m;
+            }
+            const a = s.life.a;
+            const b = s.life.b;
+            if (a !== null && m.playerA.life !== a) {
+              m = { ...m, playerA: { ...m.playerA, life: a } };
+            }
+            if (b !== null && m.playerB && m.playerB.life !== b) {
+              m = { ...m, playerB: { ...m.playerB, life: b } };
+            }
+            return m;
+          });
+          if (hardReload) {
+            window.location.reload();
+          }
+          return next;
+        });
+      } catch {
+        /* network blip — next tick retries */
+      }
+    };
+    const id = setInterval(tick, 10_000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [eventId, isEventComplete]);
+
   // Wide-viewport match grid — kept as the original near-square layout so the
   // TV broadcast still looks like a TV broadcast. At narrow widths a sibling
   // container-query rule below overrides this with a single column, so the

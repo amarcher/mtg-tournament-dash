@@ -412,7 +412,10 @@ export async function confirmRoundAction(eventId: string) {
     );
   }
 
-  publish(eventId, { type: "round_started", roundNumber: pending.roundNumber });
+  await publish(eventId, {
+    type: "round_started",
+    roundNumber: pending.roundNumber,
+  });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);
@@ -643,7 +646,10 @@ export async function completeRoundAction(eventId: string) {
       .where(eq(events.id, eventId));
   }
 
-  publish(eventId, { type: "round_completed", roundNumber: round.roundNumber });
+  await publish(eventId, {
+    type: "round_completed",
+    roundNumber: round.roundNumber,
+  });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
 }
@@ -682,7 +688,7 @@ export async function adjustLifeAction(args: {
     .select()
     .from(rounds)
     .where(eq(rounds.id, match.roundId));
-  publish(round.eventId, {
+  await publish(round.eventId, {
     type: "life_changed",
     matchId: args.matchId,
     gameId: game.id,
@@ -785,7 +791,7 @@ export async function reportGameWinnerAction(args: {
         .set({ currentElo: elo.playerB.after })
         .where(eq(players.id, b.id));
     }
-    publish(event.id, {
+    await publish(event.id, {
       type: "match_complete",
       matchId: match.id,
       winnerId,
@@ -798,7 +804,7 @@ export async function reportGameWinnerAction(args: {
       playerALife: event.startingLife,
       playerBLife: event.startingLife,
     });
-    publish(event.id, {
+    await publish(event.id, {
       type: "game_complete",
       matchId: match.id,
       winnerId: args.winnerId,
@@ -976,7 +982,7 @@ async function finalizeMatchOutcome(args: {
       .where(eq(players.id, b.id));
   }
 
-  publish(round.eventId, {
+  await publish(round.eventId, {
     type: "match_complete",
     matchId: match.id,
     winnerId: winnerId ?? "",

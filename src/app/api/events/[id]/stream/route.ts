@@ -1,7 +1,8 @@
 import { subscribe, type EventMessage } from "@/lib/pubsub";
 
-// Long-lived stream — keep on Node.js runtime so we have full Web Streams + access
-// to in-process state (the pubsub Map). Fluid Compute will reuse the instance.
+// Long-lived stream — keep on Node.js runtime so we have full Web Streams +
+// access to the pubsub layer (which in turn talks to Upstash Realtime over
+// HTTPS, or to the in-process Map fallback in local dev).
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -13,17 +14,28 @@ export async function GET(
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
-    start(controller) {
-      // Initial comment to flush headers immediately.
+    async start(controller) {
+      // Flush headers immediately so the browser knows the connection is
+      // alive — some proxies otherwise buffer until the first data frame.
       controller.enqueue(encoder.encode(`: connected\n\n`));
 
       const send = (msg: EventMessage) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(msg)}\n\n`));
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(msg)}\n\n`)
+          );
+        } catch {
+          /* stream already closed */
+        }
       };
 
-      const unsubscribe = subscribe(id, send);
+      // Replay the last ~50 events on subscribe so a client reconnecting
+      // after Vercel's 300s function-duration kill backfills the gap before
+      // going live. No-op on the in-process path (Map has no history).
+      const unsubscribe = await subscribe(id, send, { historyLimit: 50 });
 
-      // Heartbeat every 25s (most proxies kill idle connections at 30s).
+      // Heartbeat every 25s so idle-connection killers in front of Vercel
+      // (CDN, browser, intermediate proxies) don't drop the stream.
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
@@ -32,9 +44,13 @@ export async function GET(
         }
       }, 25_000);
 
-      const cleanup = () => {
+      const cleanup = async () => {
         clearInterval(heartbeat);
-        unsubscribe();
+        try {
+          await unsubscribe();
+        } catch {
+          /* best effort */
+        }
         try {
           controller.close();
         } catch {
@@ -42,7 +58,9 @@ export async function GET(
         }
       };
 
-      req.signal.addEventListener("abort", cleanup);
+      req.signal.addEventListener("abort", () => {
+        void cleanup();
+      });
     },
   });
 
