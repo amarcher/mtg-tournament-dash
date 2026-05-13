@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -48,6 +49,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // GA4 measurement ID is build-time inlined via the NEXT_PUBLIC_ prefix.
+  // Unset (empty string) means GA is silently disabled — local dev, anyone
+  // running without analytics, the verify harness, etc. all work without a
+  // gtag round-trip. Production needs NEXT_PUBLIC_GA4_MEASUREMENT_ID set in
+  // .env.local before `npm run build` so the value is baked into the bundle.
+  const gaId = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
+
   return (
     // suppressHydrationWarning on <html>/<body> swallows attribute diffs
     // caused by Chrome extensions that inject markers into the document
@@ -63,6 +71,7 @@ export default function RootLayout({
         className="min-h-full flex flex-col bg-zinc-950 text-zinc-100"
       >
         {children}
+        {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );
