@@ -48,7 +48,7 @@ wakes.
 
 ---
 
-## Phase 0 — Free wins, ship this week (1–2 days)
+## Phase 0 — Free wins, ship this week (1–2 days) ✅ Done
 
 Independent of the cloud migration. Worth doing first.
 
@@ -74,7 +74,7 @@ optional cloud generation is design-ready.
 
 ---
 
-## Phase 1 — Storage off the tunnel (1–2 days)
+## Phase 1 — Storage off the tunnel (1–2 days) ✅ Done
 
 Goal: portraits live on Vercel Blob, so the site survives Mac sleep.
 
@@ -113,7 +113,7 @@ generation; OG unfurls keep working when the Mac is off.
 
 ---
 
-## Phase 2 — Cross-instance real-time (2–3 days)
+## Phase 2 — Cross-instance real-time (2–3 days) ✅ Done
 
 Goal: SSE works correctly when Vercel scales beyond one function instance.
 
