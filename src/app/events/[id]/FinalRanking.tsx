@@ -20,18 +20,6 @@ export type FinalRankingPlayer = {
   history: MatchHistoryRow[];
 };
 
-function fmtDelta(d: number): string {
-  if (d === 0) return "±0";
-  return d > 0 ? `+${d}` : `${d}`;
-}
-
-function deltaColor(d: number | null): string {
-  if (d === null) return "text-zinc-500";
-  if (d > 0) return "text-emerald-400";
-  if (d < 0) return "text-red-400";
-  return "text-zinc-400";
-}
-
 function ordinal(n: number): string {
   const v = n % 100;
   if (v >= 11 && v <= 13) return `${n}th`;
@@ -47,6 +35,18 @@ function ordinal(n: number): string {
   }
 }
 
+function fmtDelta(d: number): string {
+  if (d === 0) return "±0";
+  return d > 0 ? `+${d}` : `${d}`;
+}
+
+function deltaColor(d: number | null): string {
+  if (d === null) return "text-zinc-500";
+  if (d > 0) return "text-emerald-400";
+  if (d < 0) return "text-red-400";
+  return "text-zinc-400";
+}
+
 function avatarForRank(
   rank: number,
   total: number,
@@ -60,48 +60,48 @@ function avatarForRank(
 }
 
 /**
- * The screen the TV (and the player's phone) drops into after the final
- * round of a tournament closes. Renders one wizard card per player,
- * arranged left-to-right in finishing order with each player's per-round
- * history listed underneath their portrait.
+ * Final standings layout — one wizard card per player in finishing order.
  *
- * - `players` must be pre-sorted by tiebreaker order (rank == index + 1).
- * - `highlightPlayerId` rings the matching card; used on the phone view so
- *   each player can find themselves at a glance.
- * - `variant` switches between full-screen TV layout (`tv`, fills the
- *   broadcast cell, large portraits) and a compact phone layout (`compact`,
- *   one column per card scaled by container width).
+ * Layout is driven by the *wrapping container's* width, not the viewport:
+ *
+ *   container <  36rem  → single column            (phone, /play's max-w-md)
+ *   container >= 36rem  → 2 columns                (tablet, mid-width broadcast)
+ *   container >= 42rem  → 3 columns                (large tablet)
+ *   container >= 48rem  → N columns                (TV broadcast — single horizontal row)
+ *
+ * Where N is the number of players (capped to keep cards readable when there
+ * are many entries). The card itself also uses `container-type: inline-size`
+ * so its internal font sizes scale with whatever cell width it ends up in.
+ *
+ * No `variant` prop is needed — both /broadcast (full-viewport on TV, phone
+ * width on a phone) and /play (always inside `max-w-md`) just embed
+ * `<FinalRanking …/>` and get the right layout for free.
  */
 export function FinalRanking({
   players,
   highlightPlayerId,
-  variant = "tv",
 }: {
   players: FinalRankingPlayer[];
   highlightPlayerId?: string;
-  variant?: "tv" | "compact";
 }) {
   const total = players.length;
-  const gridStyle: React.CSSProperties =
-    variant === "tv"
-      ? {
-          // For TV: a single horizontal row when ≤6 players; multi-row only
-          // when there are too many to fit comfortably.
-          gridTemplateColumns:
-            total <= 6
-              ? `repeat(${Math.max(total, 1)}, minmax(0, 1fr))`
-              : `repeat(${Math.ceil(total / 2)}, minmax(0, 1fr))`,
-        }
-      : { gridTemplateColumns: "1fr" };
+  // N-col layout for ≤ 6 players keeps one row; beyond that, ceil(N/2) so the
+  // cards don't get squished into thin strips. Wrapped in a CSS custom property
+  // so the @3xl: rule below can read it without needing dynamically-generated
+  // Tailwind class names.
+  const wideCols = total <= 6 ? Math.max(total, 1) : Math.ceil(total / 2);
 
   return (
+    // @container so card sizing tracks the FinalRanking's own width, not the
+    // viewport — TV broadcast at 1920px and a phone at 390px hit this code
+    // with the same component. `flex-1 + min-h-0` is gated to @3xl so on
+    // narrow containers the cards keep their natural aspect-[3/4] height
+    // instead of getting squashed into N equal rows when stacked.
     <div
-      className={
-        variant === "tv"
-          ? "grid min-h-0 flex-1 gap-3"
-          : "grid w-full gap-3"
-      }
-      style={gridStyle}
+      className="@container grid w-full grid-cols-1 gap-3 @xl:grid-cols-2 @2xl:grid-cols-3 @3xl:min-h-0 @3xl:flex-1 @3xl:[grid-template-columns:var(--final-cols)]"
+      style={{
+        ["--final-cols" as string]: `repeat(${wideCols}, minmax(0, 1fr))`,
+      }}
     >
       {players.map((p, i) => (
         <RankedCard
@@ -110,7 +110,6 @@ export function FinalRanking({
           rank={i + 1}
           total={total}
           highlight={p.playerId === highlightPlayerId}
-          variant={variant}
         />
       ))}
     </div>
@@ -122,13 +121,11 @@ function RankedCard({
   rank,
   total,
   highlight,
-  variant,
 }: {
   player: FinalRankingPlayer;
   rank: number;
   total: number;
   highlight: boolean;
-  variant: "tv" | "compact";
 }) {
   const avatarUrl = avatarForRank(rank, total, player.avatars);
   const isWinner = rank === 1;
@@ -152,12 +149,10 @@ function RankedCard({
       }`}
       style={{ containerType: "inline-size" }}
     >
-      {/* Portrait fills the top portion of the card */}
-      <div
-        className={`relative w-full ${
-          variant === "tv" ? "aspect-[3/4]" : "aspect-[4/5]"
-        }`}
-      >
+      {/* Portrait fills the top of the card. Aspect 3/4 — slightly taller than
+          square, gives faces real estate without the card becoming awkwardly
+          tall when stacked on a phone. */}
+      <div className="relative w-full aspect-[3/4]">
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -172,29 +167,35 @@ function RankedCard({
             </span>
           </div>
         )}
-        {/* Rank badge — top-left, large enough to read from across a room */}
+        {/* Rank badge — clamped to the card's own width via cqi, so it stays
+            legible whether the card is 80 px wide or 320 px. */}
         <div
-          className={`absolute left-2 top-2 z-10 rounded-lg bg-zinc-950/80 px-3 py-1 font-bold tabular-nums backdrop-blur ${rankColor}`}
+          className={`absolute left-2 top-2 z-10 rounded-lg bg-zinc-950/85 px-2.5 py-1 font-bold tabular-nums backdrop-blur ${rankColor}`}
           style={{
-            fontSize: variant === "tv" ? "clamp(1.2rem, 7cqi, 2.4rem)" : "1.5rem",
+            fontSize: "clamp(1rem, 8cqi, 2.4rem)",
             textShadow: "0 2px 8px rgba(0,0,0,0.9)",
           }}
         >
           {ordinal(rank)}
         </div>
         {isWinner && (
-          <div className="absolute right-2 top-2 z-10 rounded-full bg-amber-500 px-2.5 py-0.5 text-[0.6rem] font-bold uppercase tracking-[0.25em] text-zinc-950">
+          <div
+            className="absolute right-2 top-2 z-10 rounded-full bg-amber-500 px-2 py-0.5 font-bold uppercase tracking-[0.2em] text-zinc-950"
+            style={{
+              fontSize: "clamp(0.5rem, 2.4cqi, 0.7rem)",
+            }}
+          >
             Champion
           </div>
         )}
-        {/* Readability scrim at the bottom for name + stats */}
+        {/* Bottom scrim + name + stats — all scaled with cqi so the card holds
+            up at any width from a phone column to a TV cell. */}
         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/70 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-0.5 px-3 pb-2">
+        <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-0.5 px-2 pb-2">
           <div
             className="max-w-full truncate text-center font-semibold tracking-tight text-white"
             style={{
-              fontSize:
-                variant === "tv" ? "clamp(0.95rem, 5cqi, 1.6rem)" : "1.1rem",
+              fontSize: "clamp(0.9rem, 6cqi, 1.5rem)",
               textShadow: "0 2px 8px rgba(0,0,0,0.9)",
             }}
           >
@@ -203,8 +204,7 @@ function RankedCard({
           <div
             className="font-mono tabular-nums text-zinc-200"
             style={{
-              fontSize:
-                variant === "tv" ? "clamp(0.7rem, 3cqi, 1rem)" : "0.8rem",
+              fontSize: "clamp(0.7rem, 3.4cqi, 1rem)",
               textShadow: "0 1px 4px rgba(0,0,0,0.9)",
             }}
           >
@@ -216,8 +216,7 @@ function RankedCard({
           <div
             className="font-mono tabular-nums"
             style={{
-              fontSize:
-                variant === "tv" ? "clamp(0.65rem, 2.8cqi, 0.95rem)" : "0.75rem",
+              fontSize: "clamp(0.65rem, 3cqi, 0.9rem)",
               textShadow: "0 1px 4px rgba(0,0,0,0.9)",
             }}
           >
@@ -226,13 +225,15 @@ function RankedCard({
               {fmtDelta(player.eventEloDelta)}
             </span>
             <span className="ml-1.5 text-zinc-500">
-              ELO from {player.startingElo}
+              from {player.startingElo}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Per-round history list — sits below the portrait */}
+      {/* Per-round history list — sits below the portrait. Hidden on the
+          smallest container widths (< 12rem cell) where it'd be unreadable
+          anyway; reappears as soon as the card has room. */}
       <ul className="flex shrink-0 flex-col gap-0.5 px-3 py-2 text-xs">
         {player.history.length === 0 ? (
           <li className="text-zinc-500">No completed rounds</li>

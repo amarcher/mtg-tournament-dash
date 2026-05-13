@@ -125,58 +125,34 @@ export function BroadcastClient({
     return () => es.close();
   }, [eventId]);
 
-  // Pick a roughly-square grid for any match count. Most events are ≤4
-  // matches (1×N) or 4 (2×2); larger nights drop into multi-row layouts so
-  // the cards never get squished into thin columns.
+  // Wide-viewport match grid — kept as the original near-square layout so the
+  // TV broadcast still looks like a TV broadcast. At narrow widths a sibling
+  // container-query rule below overrides this with a single column, so the
+  // values here only kick in once the broadcast cell is comfortably wide.
   const matchCount = matches.length;
-  const matchGridStyle: React.CSSProperties = (() => {
-    if (matchCount <= 1)
-      return { gridTemplateColumns: "1fr", gridTemplateRows: "1fr" };
-    if (matchCount <= 3)
-      return {
-        gridTemplateColumns: `repeat(${matchCount}, minmax(0, 1fr))`,
-        gridTemplateRows: "1fr",
-      };
-    if (matchCount === 4)
-      return {
-        gridTemplateColumns: "1fr 1fr",
-        gridTemplateRows: "1fr 1fr",
-      };
-    if (matchCount <= 6)
-      return {
-        gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-        gridTemplateRows: "repeat(2, minmax(0, 1fr))",
-      };
-    if (matchCount <= 8)
-      return {
-        gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-        gridTemplateRows: "repeat(2, minmax(0, 1fr))",
-      };
-    // 9+: square-ish auto layout.
-    const cols = Math.ceil(Math.sqrt(matchCount));
-    const rows = Math.ceil(matchCount / cols);
-    return {
-      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-      gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-    };
+  const wideMatchCols = (() => {
+    if (matchCount <= 1) return 1;
+    if (matchCount <= 3) return matchCount;
+    if (matchCount === 4) return 2;
+    if (matchCount <= 6) return 3;
+    if (matchCount <= 8) return 4;
+    return Math.ceil(Math.sqrt(matchCount));
   })();
+  const wideMatchRows = Math.max(1, Math.ceil(matchCount / wideMatchCols));
 
-  // Standings: single row when it fits, wrap when there are too many.
-  const standingsStyle: React.CSSProperties = {
-    gridTemplateColumns:
-      standings.length <= 8
-        ? `repeat(${Math.max(standings.length, 1)}, minmax(0, 1fr))`
-        : "repeat(auto-fit, minmax(180px, 1fr))",
-  };
+  // Standings strip uses the same `@3xl` threshold as the match grid — below
+  // that, auto-fit wrap keeps each cell at least ~150 px wide.
+  const wideStandingsCols =
+    standings.length <= 8 ? Math.max(standings.length, 1) : 0;
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-      <header className="flex shrink-0 items-center justify-between gap-6 border-b border-zinc-800 px-12 py-4">
+    <div className="fixed inset-0 flex flex-col overflow-y-auto bg-zinc-950 text-zinc-100">
+      <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-12 sm:py-4">
         <div className="min-w-0">
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
             {event.name}
           </h1>
-          <div className="mt-0.5 text-xs uppercase tracking-[0.2em] text-zinc-500">
+          <div className="mt-0.5 text-[0.65rem] uppercase tracking-[0.2em] text-zinc-500 sm:text-xs">
             {isEventComplete
               ? "Final results"
               : currentRoundNumber
@@ -184,25 +160,25 @@ export function BroadcastClient({
                 : "Awaiting round start"}
           </div>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center justify-between gap-4 sm:justify-end sm:gap-6">
           <a
             href={claimUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-3 rounded-lg border border-zinc-700/80 bg-zinc-900/90 px-3 py-2 shadow-sm hover:border-amber-500/60"
+            className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-900/90 px-2.5 py-1.5 shadow-sm hover:border-amber-500/60 sm:gap-3 sm:px-3 sm:py-2"
             aria-label="Open claim page"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={claimQrDataUrl}
               alt="Scan to claim your seat"
-              className="h-14 w-14 rounded bg-white p-0.5"
+              className="h-10 w-10 rounded bg-white p-0.5 sm:h-14 sm:w-14"
             />
             <div className="flex flex-col">
-              <div className="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-amber-400">
+              <div className="text-[0.55rem] font-semibold uppercase tracking-[0.3em] text-amber-400 sm:text-[0.6rem]">
                 Join
               </div>
-              <div className="max-w-[180px] truncate font-mono text-[0.65rem] text-zinc-400">
+              <div className="max-w-[160px] truncate font-mono text-[0.6rem] text-zinc-400 sm:max-w-[180px] sm:text-[0.65rem]">
                 {claimHostLabel}
               </div>
             </div>
@@ -214,14 +190,19 @@ export function BroadcastClient({
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col gap-4 px-8 py-6">
+      <main className="@container flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-8 sm:py-6">
         {isEventComplete ? (
-          <FinalRanking players={finalRanking} variant="tv" />
+          <FinalRanking players={finalRanking} />
         ) : (
           <>
             <section
-              className="grid min-h-0 flex-1 gap-4"
-              style={matchGridStyle}
+              className="grid min-h-0 flex-1 grid-cols-1 gap-3 @3xl:[grid-template-columns:var(--match-cols)] @3xl:[grid-template-rows:var(--match-rows)] @3xl:gap-4"
+              style={
+                {
+                  ["--match-cols" as string]: `repeat(${wideMatchCols}, minmax(0, 1fr))`,
+                  ["--match-rows" as string]: `repeat(${wideMatchRows}, minmax(0, 1fr))`,
+                } as React.CSSProperties
+              }
             >
               {matchCount === 0 && (
                 <div className="flex items-center justify-center text-zinc-600">
@@ -242,7 +223,16 @@ export function BroadcastClient({
               <div className="mb-1 text-[0.65rem] uppercase tracking-[0.25em] text-zinc-500">
                 Standings
               </div>
-              <div className="grid gap-2" style={standingsStyle}>
+              <div
+                className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] @3xl:[grid-template-columns:var(--standings-cols)]"
+                style={
+                  wideStandingsCols > 0
+                    ? ({
+                        ["--standings-cols" as string]: `repeat(${wideStandingsCols}, minmax(0, 1fr))`,
+                      } as React.CSSProperties)
+                    : undefined
+                }
+              >
                 {standings.map((s, i) => (
                   <div
                     key={s.playerId}
@@ -294,7 +284,7 @@ function RoundTimer({
   if (!startedAtIso) {
     return (
       <div className="text-right">
-        <div className="font-mono text-5xl font-bold tabular-nums text-zinc-700">
+        <div className="font-mono text-3xl font-bold tabular-nums sm:text-5xl text-zinc-700">
           {fmt(durationSec)}
         </div>
         <div className="text-[0.65rem] uppercase tracking-[0.25em] text-zinc-600">
@@ -313,7 +303,7 @@ function RoundTimer({
   return (
     <div className="text-right">
       <div
-        className={`font-mono text-5xl font-bold tabular-nums tracking-tight ${
+        className={`font-mono text-3xl font-bold tabular-nums sm:text-5xl tracking-tight ${
           overtime
             ? "text-red-500"
             : lowTime
