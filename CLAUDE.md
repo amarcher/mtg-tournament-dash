@@ -61,6 +61,10 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 `npm run lan` on the host machine builds + serves on `0.0.0.0:3002` and prints the LAN URL. macOS may prompt to allow incoming connections — accept. Phones on the same Wi-Fi can then scan the QR code in the broadcast header to land on the claim page without typing the IP.
 
+## Native iOS / Android
+
+`capacitor.config.ts` wraps the production web app as a native shell pointing at `https://mtg.capxun.com`. Not built into a binary today — see [`docs/native-app.md`](docs/native-app.md) for the build/submit path. Whenever you change web code, redeploying to Vercel updates the in-app experience instantly; only native shell changes (icons, plugins, push entitlements) need a resubmission.
+
 ## Deployment
 
 Production runs on **Vercel** at `mtg.capxun.com` (CNAME via Cloudflare DNS-only) and the Vercel-alias `mtg-dash.vercel.app`. Pushing to `main` auto-deploys to production; branch pushes get preview URLs. See `docs/migration-roadmap.md` for the full migration history and rationale.
