@@ -1,3 +1,4 @@
+import { put } from "@vercel/blob";
 import sharp from "sharp";
 // heic-convert ships no types; declare a minimal ambient signature inline.
 // Sharp's bundled libheif on macOS Apple Silicon does NOT ship the HEVC
@@ -196,17 +197,44 @@ function getImageEditor(): ImageEditor {
   }
 }
 
-async function uploadToFilesEndpoint(
-  name: string,
+/**
+ * Persist a generated JPEG and return the URL the DB should reference.
+ *
+ * When `BLOB_READ_WRITE_TOKEN` is set, writes to Vercel Blob with a stable
+ * key (`avatars/<playerId>/<tier>.jpg`) under `allowOverwrite: true`, so a
+ * regenerate hits the same object and `players.avatar*Url` rows never go
+ * stale. A query-string cache buster forces browsers to drop their old copy
+ * on regen.
+ *
+ * When the token is unset (e.g. `npm run lan` without cloud creds), falls
+ * back to the legacy image-gen `/files/<name>` endpoint and returns a
+ * relative `/files/...` path — the Next.js proxy at /files/[file] serves
+ * those.
+ */
+async function uploadPortrait(
+  blobKey: string,
+  legacyFileName: string,
   buf: Buffer,
   signal?: AbortSignal
-): Promise<void> {
+): Promise<string> {
+  const cacheBuster = Date.now();
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const result = await put(blobKey, buf, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: "image/jpeg",
+    });
+    return `${result.url}?v=${cacheBuster}`;
+  }
+
   if (!IMAGEGEN_FILES_TOKEN) {
     throw new Error(
-      "IMAGEGEN_FILES_TOKEN not set in .env.local — wizard storage requires it"
+      "Neither BLOB_READ_WRITE_TOKEN nor IMAGEGEN_FILES_TOKEN is set — " +
+        "wizard storage requires one of them"
     );
   }
-  const res = await fetch(`${IMAGE_GEN_URL}/files/${name}`, {
+  const res = await fetch(`${IMAGE_GEN_URL}/files/${legacyFileName}`, {
     method: "PUT",
     headers: {
       "X-Files-Token": IMAGEGEN_FILES_TOKEN,
@@ -218,9 +246,10 @@ async function uploadToFilesEndpoint(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `PUT /files/${name} returned ${res.status}: ${text.slice(0, 300)}`
+      `PUT /files/${legacyFileName} returned ${res.status}: ${text.slice(0, 300)}`
     );
   }
+  return `/files/${legacyFileName}?v=${cacheBuster}`;
 }
 
 /**
@@ -279,8 +308,11 @@ export async function generateWizardVariantsFromSelfie(args: {
     buffers[tier] = await edit(selfieBuf, prompt, signal);
   }
 
-  const selfieName = `selfie-${playerId}.jpg`;
-  const tierNames: Record<WizardTier, string> = {
+  // Stable keys per (player, tier). Blob writes with allowOverwrite so the
+  // URL prefix never changes — only the cache-buster suffix does. Legacy
+  // filename kept identical to the pre-Blob scheme so existing /files/ rows
+  // and the proxy route keep working.
+  const tierLegacy: Record<WizardTier, string> = {
     fresh: `wizard-${playerId}-fresh.jpg`,
     wounded: `wizard-${playerId}-wounded.jpg`,
     critical: `wizard-${playerId}-critical.jpg`,
@@ -288,20 +320,31 @@ export async function generateWizardVariantsFromSelfie(args: {
     defeat: `wizard-${playerId}-defeat.jpg`,
   };
 
-  await uploadToFilesEndpoint(selfieName, selfieBuf, signal);
-  await Promise.all(
-    tiers.map((tier) =>
-      uploadToFilesEndpoint(tierNames[tier], buffers[tier], signal)
-    )
+  const selfiePath = await uploadPortrait(
+    `avatars/${playerId}/selfie.jpg`,
+    `selfie-${playerId}.jpg`,
+    selfieBuf,
+    signal
   );
+  const tierPaths = await Promise.all(
+    tiers.map(async (tier) => [
+      tier,
+      await uploadPortrait(
+        `avatars/${playerId}/${tier}.jpg`,
+        tierLegacy[tier],
+        buffers[tier],
+        signal
+      ),
+    ] as const)
+  );
+  const byTier = Object.fromEntries(tierPaths) as Record<WizardTier, string>;
 
-  const v = Date.now();
   return {
-    selfiePath: `/files/${selfieName}?v=${v}`,
-    freshPath: `/files/${tierNames.fresh}?v=${v}`,
-    woundedPath: `/files/${tierNames.wounded}?v=${v}`,
-    criticalPath: `/files/${tierNames.critical}?v=${v}`,
-    victoryPath: `/files/${tierNames.victory}?v=${v}`,
-    defeatPath: `/files/${tierNames.defeat}?v=${v}`,
+    selfiePath,
+    freshPath: byTier.fresh,
+    woundedPath: byTier.wounded,
+    criticalPath: byTier.critical,
+    victoryPath: byTier.victory,
+    defeatPath: byTier.defeat,
   };
 }
