@@ -61,22 +61,20 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 `npm run lan` on the host machine builds + serves on `0.0.0.0:3002` and prints the LAN URL. macOS may prompt to allow incoming connections — accept. Phones on the same Wi-Fi can then scan the QR code in the broadcast header to land on the claim page without typing the IP.
 
-## Running behind a Cloudflare tunnel
+## Deployment
 
-`npm run tunnel:named` fronts the production build with a stable `mtg.<your-domain>.com` URL via cloudflared. Three things to know:
+Production runs on **Vercel** at `mtg.capxun.com` (CNAME via Cloudflare DNS-only) and the Vercel-alias `mtg-dash.vercel.app`. Pushing to `main` auto-deploys to production; branch pushes get preview URLs. See `docs/migration-roadmap.md` for the full migration history and rationale.
 
-1. **The image-gen server is also tunnelled** (`imagegen.mised.tech` in `~/.cloudflared/config.yml`) so phones loading `/files/<name>` through `mtg.capxun.com` resolve via the Next.js proxy route, which then hits the image-gen `127.0.0.1:8000/files/<name>`. Both surfaces work.
-2. **Cloudflare's WAF will block multipart selfie uploads by default** (managed OWASP ruleset flags binary POST bodies). Run `npm run cf:skip-waf` once (requires `CLOUDFLARE_API_TOKEN` with `Zone WAF Edit` scope) to install a "Skip managed rules for POST to mtg.&lt;host&gt;" custom rule. Without this, the wizard action's first run returns a Cloudflare block page instead of reaching Next.js.
-3. **Only one mtg-dash cloudflared should be running at a time.** If multiple instances claim the same tunnel name, Cloudflare load-balances across them — a stale leftover from an ungraceful previous shutdown will silently serve half the traffic from an older build (debug symptom: page "flashes" the correct UI then reverts on the next refresh). The script now auto-kills survivors at startup, but if you ever see drift run `npm run tunnel:stop` to nuke every mtg-dash cloudflared + the Next.js server on :3002 in one shot (the system cloudflared at `~/.cloudflared/config.yml`, which handles `imagegen.mised.tech`, is left alone).
+The Mac at home still runs **one** thing the prod site depends on: the FLUX image-gen server on `127.0.0.1:8000`, fronted by the system cloudflared at `~/.cloudflared/config.yml` exposing it at `imagegen.mised.tech`. Vercel reaches this for new wizardize runs. When the Mac is asleep, the site keeps working — only *generating* a new portrait fails until the Mac wakes. Existing portraits live on Vercel Blob and are CDN-served.
+
+**`db.transaction()` is not available** under the `@neondatabase/serverless` HTTP driver this app uses. Each `db.something()` call is one HTTPS roundtrip. If you ever need a multi-statement transaction, switch the affected callsite to the WebSocket/Pool driver, or restructure.
 
 ## Required env vars
 
-- `DATABASE_URL` — Neon Postgres connection string (from `vercel env pull`).
-- `COOKIE_SECRET` — 64 hex chars from `openssl rand -hex 32`.
-- `IMAGE_GEN_URL` — defaults to `http://127.0.0.1:8000`; only override for a remote FLUX server. (Legacy `IMAGEGEN_URL` is still read as a fallback so an existing `.env.local` keeps working until you migrate.)
-- `IMAGEGEN_FILES_TOKEN` — only needed when `BLOB_READ_WRITE_TOKEN` is *unset* (i.e. legacy `/files/<name>` upload path). Shared secret between mtg-dash and image-gen; image-gen reads `FILES_TOKEN` from its own `.env`.
-- `BLOB_READ_WRITE_TOKEN` — set by `vercel install upstash/upstash-kv` and the Blob marketplace integration via `vercel env pull`. Required in prod for wizard portrait storage on Vercel Blob. Without it, `uploadPortrait` falls back to the legacy `IMAGEGEN_FILES_TOKEN` path.
-- `KV_REST_API_URL` / `KV_REST_API_TOKEN` — set by Upstash for Redis marketplace install. Required in prod for cross-instance pub/sub via `@upstash/realtime`. Without them, `src/lib/pubsub.ts` falls back to the in-process `Map` (fine for `npm run dev` / `lan` / `verify`).
-- `CLOUDFLARE_API_TOKEN` — only needed when running `npm run cf:skip-waf`. `Zone WAF Edit` + `Zone Read` scoped to your domain.
-- `TUNNEL_HOSTNAME` — only needed for `npm run tunnel:named`.
-- `NEXT_PUBLIC_GA4_MEASUREMENT_ID` — optional. `G-XXXXXXXXXX` from analytics.google.com. When set, the root layout embeds `@next/third-parties/google`'s `<GoogleAnalytics>` so pageviews show up in the [app-traffic dashboard](https://app-traffic.vercel.app/?project=mtg-dash). When unset, gtag.js isn't loaded at all — no analytics in dev or in any local install. **Build-time inlined** (the `NEXT_PUBLIC_` prefix), so you have to rebuild after changing it. The matching numeric Property ID lives in the app-traffic project's Vercel env as `GA4_PROPERTY_ID_MTG_DASH`.
+Pull with `vercel env pull .env.local` after linking the project.
+
+- `DATABASE_URL` — Neon Postgres connection string. Set in Vercel for all envs via the Neon marketplace integration.
+- `IMAGE_GEN_URL` — defaults to `http://127.0.0.1:8000` for local dev. In Vercel set to `https://imagegen.mised.tech` so cloud functions can reach the home Mac.
+- `BLOB_READ_WRITE_TOKEN` — set by the Vercel Blob marketplace integration. Required wherever the wizard action runs: `uploadPortrait` throws on missing token.
+- `KV_REST_API_URL` / `KV_REST_API_TOKEN` — set by the Upstash for Redis marketplace integration. Required in prod for cross-instance pub/sub via `@upstash/realtime`. When unset, `src/lib/pubsub.ts` falls back to an in-process `Map` (fine for `npm run dev` / `lan` / `verify`).
+- `NEXT_PUBLIC_GA4_MEASUREMENT_ID` — optional. `G-XXXXXXXXXX` from analytics.google.com. When set, the root layout embeds `@next/third-parties/google`'s `<GoogleAnalytics>` so pageviews show up in the [app-traffic dashboard](https://app-traffic.vercel.app/?project=mtg-dash). **Scoped to Production on Vercel** so preview pageviews don't pollute the prod GA4 stream. **Build-time inlined** (the `NEXT_PUBLIC_` prefix), so you have to rebuild after changing it. The matching numeric Property ID lives in the app-traffic project's Vercel env as `GA4_PROPERTY_ID_MTG_DASH`.
