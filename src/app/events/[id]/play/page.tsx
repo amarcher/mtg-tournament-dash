@@ -116,7 +116,6 @@ export default async function PlayPage({
         <FinalRanking
           players={ranking}
           highlightPlayerId={me.playerId}
-          variant="compact"
         />
       </main>
     );
