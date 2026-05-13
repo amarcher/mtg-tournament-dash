@@ -19,6 +19,7 @@
     "migrate:blob": "tsx scripts/migrate-files-to-blob.ts"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.10.1",
     "@neondatabase/serverless": "^1.1.0",
     "@next/third-parties": "^16.2.6",
     "@upstash/realtime": "^1.0.3",
