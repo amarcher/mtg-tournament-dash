@@ -1,13 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import sharp from "sharp";
-
-// Source portrait is the winning wizard from the May 12 tournament (Andrew
-// Archer's "victory" tier). Stored in /public so the deploy bundle includes
-// it; consumed here at SSG time to produce the manifest's 192/512 PNGs.
-const SOURCE = readFileSync(
-  join(process.cwd(), "public/icons/winner-victory.jpg")
-);
+import { getAppIconSource } from "@/lib/icon-source";
 
 export function generateImageMetadata() {
   return [
@@ -27,11 +19,19 @@ export function generateImageMetadata() {
 export default async function Icon({ id }: { id: Promise<string | number> }) {
   const resolvedId = await id;
   const size = resolvedId === "icon-512" ? 512 : 192;
-  const png = await sharp(SOURCE)
+  const source = await getAppIconSource();
+  const png = await sharp(source)
     .resize(size, size, { fit: "cover" })
     .png({ compressionLevel: 9 })
     .toBuffer();
+  // Short private cache lets a freshly-claimed wizard show up on the next
+  // tab refresh without hammering the DB. The OS caches the install-time
+  // bytes forever regardless of this header, so the "frozen at install"
+  // trophy property still holds.
   return new Response(new Uint8Array(png), {
-    headers: { "content-type": "image/png" },
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "private, max-age=60",
+    },
   });
 }
