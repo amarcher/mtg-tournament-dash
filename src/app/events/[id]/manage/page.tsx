@@ -8,6 +8,7 @@ import {
   getPendingRound,
   getRoundMatches,
   getEventStandings,
+  sweepStaleWizardJobs,
 } from "@/db/queries";
 import {
   addManualPairingAction,
@@ -31,6 +32,9 @@ export default async function ManagePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // Reap stale wizardize jobs across the league before rendering the roster
+  // (manage view shows every player's spinner state).
+  await sweepStaleWizardJobs();
   const event = await getEvent(id);
   if (!event) notFound();
 

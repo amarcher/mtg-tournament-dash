@@ -24,7 +24,7 @@ npm run verify      # end-to-end harness — see scripts/verify.ts
 - **Client/server boundary**: anything importing `node:fs/promises`, `sharp`, or talking to FLUX must not be reachable from a Client Component. Pull constants/types into a separate `*-types.ts` module if both sides need them.
 - **DB access**: use the typed query helpers in `src/db/queries.ts` rather than ad-hoc Drizzle in components. The roster-shaped queries return all five tier URLs (`avatarUrl` / `avatarWoundedUrl` / `avatarCriticalUrl` / `avatarVictoryUrl` / `avatarDefeatUrl`) — extend them rather than duplicating the joins.
 - **Real-time**: every mutation that changes user-visible state should `publish(eventId, ...)` from `src/lib/pubsub.ts` so the broadcast view + phone views update without a refresh. The `EventMessage` union is the contract.
-- **Generated image storage** lives on the image-gen server, not in `/public`. The wizard action POSTs the JPEGs to `${IMAGEGEN_URL}/files/<name>` (auth: `X-Files-Token: $IMAGEGEN_FILES_TOKEN`), and the DB stores `/files/<name>?v=<ts>` paths. The Next.js proxy at `src/app/files/[file]/route.ts` streams those back to the browser. Don't go back to writing to `/public` — Next's build manifest snapshots `/public` at build time and won't serve files added after.
+- **Generated image storage** lives on the image-gen server, not in `/public`. The wizard action POSTs the JPEGs to `${IMAGE_GEN_URL}/files/<name>` (auth: `X-Files-Token: $IMAGEGEN_FILES_TOKEN`), and the DB stores `/files/<name>?v=<ts>` paths. The Next.js proxy at `src/app/files/[file]/route.ts` streams those back to the browser. Don't go back to writing to `/public` — Next's build manifest snapshots `/public` at build time and won't serve files added after.
 - **Don't add comments** that explain *what* code does — names should already do that. Comments are for the *why* (a non-obvious constraint, a workaround, a reason a hot path is structured oddly).
 - **Don't add backwards-compat shims** when you can just change the call sites. The codebase is small.
 
@@ -73,7 +73,7 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 - `DATABASE_URL` — Neon Postgres connection string (from `vercel env pull`).
 - `COOKIE_SECRET` — 64 hex chars from `openssl rand -hex 32`.
-- `IMAGEGEN_URL` — defaults to `http://127.0.0.1:8000`; only override for a remote FLUX server.
+- `IMAGE_GEN_URL` — defaults to `http://127.0.0.1:8000`; only override for a remote FLUX server. (Legacy `IMAGEGEN_URL` is still read as a fallback so an existing `.env.local` keeps working until you migrate.)
 - `IMAGEGEN_FILES_TOKEN` — shared secret between mtg-dash and image-gen. Set on both sides; image-gen reads `FILES_TOKEN` from its own `.env`. Without it the wizard action throws before generating.
 - `CLOUDFLARE_API_TOKEN` — only needed when running `npm run cf:skip-waf`. `Zone WAF Edit` + `Zone Read` scoped to your domain.
 - `TUNNEL_HOSTNAME` — only needed for `npm run tunnel:named`.

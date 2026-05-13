@@ -59,7 +59,7 @@ Required env vars (`.env.local`):
 ```env
 DATABASE_URL=postgresql://...        # Neon connection string from Vercel
 COOKIE_SECRET=...                    # 64 hex chars from openssl rand -hex 32
-IMAGEGEN_URL=http://127.0.0.1:8000   # optional, default shown
+IMAGE_GEN_URL=http://127.0.0.1:8000  # optional, default shown
 IMAGEGEN_FILES_TOKEN=...             # shared secret with the image-gen server
                                      # (same value as FLUX server's FILES_TOKEN)
 TUNNEL_HOSTNAME=mtg.yourdomain.com   # optional, only for `npm run tunnel:named`

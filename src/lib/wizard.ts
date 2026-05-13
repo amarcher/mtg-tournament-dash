@@ -15,8 +15,10 @@ import { WIZARD_ARCHETYPES, type WizardArchetype } from "./wizard-types";
 
 export { WIZARD_ARCHETYPES, type WizardArchetype };
 
-const IMAGEGEN_URL =
-  process.env.IMAGEGEN_URL ?? "http://127.0.0.1:8000";
+const IMAGE_GEN_URL =
+  process.env.IMAGE_GEN_URL ??
+  process.env.IMAGEGEN_URL ??
+  "http://127.0.0.1:8000";
 const IMAGEGEN_FILES_TOKEN = process.env.IMAGEGEN_FILES_TOKEN;
 
 /**
@@ -147,10 +149,11 @@ export type WizardVariantResult = {
  */
 export type ImageEditor = (
   selfie: Buffer,
-  prompt: string
+  prompt: string,
+  signal?: AbortSignal
 ) => Promise<Buffer>;
 
-const localFluxEditor: ImageEditor = async (selfieBuf, prompt) => {
+const localFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
   const fd = new FormData();
   fd.set("prompt", prompt);
   fd.set("width", "1024");
@@ -163,9 +166,10 @@ const localFluxEditor: ImageEditor = async (selfieBuf, prompt) => {
     "selfie.jpg"
   );
 
-  const res = await fetch(`${IMAGEGEN_URL}/edit`, {
+  const res = await fetch(`${IMAGE_GEN_URL}/edit`, {
     method: "POST",
     body: fd,
+    signal,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -192,19 +196,24 @@ function getImageEditor(): ImageEditor {
   }
 }
 
-async function uploadToFilesEndpoint(name: string, buf: Buffer): Promise<void> {
+async function uploadToFilesEndpoint(
+  name: string,
+  buf: Buffer,
+  signal?: AbortSignal
+): Promise<void> {
   if (!IMAGEGEN_FILES_TOKEN) {
     throw new Error(
       "IMAGEGEN_FILES_TOKEN not set in .env.local — wizard storage requires it"
     );
   }
-  const res = await fetch(`${IMAGEGEN_URL}/files/${name}`, {
+  const res = await fetch(`${IMAGE_GEN_URL}/files/${name}`, {
     method: "PUT",
     headers: {
       "X-Files-Token": IMAGEGEN_FILES_TOKEN,
       "Content-Type": "application/octet-stream",
     },
     body: new Uint8Array(buf),
+    signal,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -230,8 +239,9 @@ export async function generateWizardVariantsFromSelfie(args: {
   selfie: File;
   archetype: WizardArchetype;
   freeform?: string;
+  signal?: AbortSignal;
 }): Promise<WizardVariantResult> {
-  const { playerId, selfie, archetype, freeform } = args;
+  const { playerId, selfie, archetype, freeform, signal } = args;
 
   // Normalize whatever the phone uploaded (HEIC, JPEG, PNG, WebP, …) into a
   // 1024² JPEG. We persist this normalized copy and feed it to FLUX as-is
@@ -242,13 +252,14 @@ export async function generateWizardVariantsFromSelfie(args: {
   // Probe the server first so we can return a friendly error before we
   // commit to three sequential ~30s requests.
   try {
-    const health = await fetch(`${IMAGEGEN_URL}/health`, {
+    const health = await fetch(`${IMAGE_GEN_URL}/health`, {
       cache: "no-store",
+      signal,
     });
     if (!health.ok) throw new Error(`status ${health.status}`);
   } catch (err) {
     throw new Error(
-      `Local image-gen server not reachable at ${IMAGEGEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
+      `Local image-gen server not reachable at ${IMAGE_GEN_URL}. Start it with: ~/Programs/image-gen/bin/imagegen start\n(${(err as Error).message})`
     );
   }
 
@@ -265,7 +276,7 @@ export async function generateWizardVariantsFromSelfie(args: {
   const edit = getImageEditor();
   for (const tier of tiers) {
     const prompt = buildVariantPrompt(archetype, freeform, tier);
-    buffers[tier] = await edit(selfieBuf, prompt);
+    buffers[tier] = await edit(selfieBuf, prompt, signal);
   }
 
   const selfieName = `selfie-${playerId}.jpg`;
@@ -277,9 +288,11 @@ export async function generateWizardVariantsFromSelfie(args: {
     defeat: `wizard-${playerId}-defeat.jpg`,
   };
 
-  await uploadToFilesEndpoint(selfieName, selfieBuf);
+  await uploadToFilesEndpoint(selfieName, selfieBuf, signal);
   await Promise.all(
-    tiers.map((tier) => uploadToFilesEndpoint(tierNames[tier], buffers[tier]))
+    tiers.map((tier) =>
+      uploadToFilesEndpoint(tierNames[tier], buffers[tier], signal)
+    )
   );
 
   const v = Date.now();
