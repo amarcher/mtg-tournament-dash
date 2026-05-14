@@ -201,13 +201,29 @@ const falFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
     { type: "image/jpeg" }
   );
   const imageUrl = await fal.storage.upload(selfieBlob);
-  const result = await fal.subscribe("fal-ai/flux-2/klein/4b/edit", {
-    input: {
-      prompt,
-      image_urls: [imageUrl],
-    },
-    logs: false,
-  });
+  let result;
+  try {
+    result = await fal.subscribe("fal-ai/flux-2/klein/4b/edit", {
+      input: {
+        prompt,
+        image_urls: [imageUrl],
+      },
+      logs: false,
+    });
+  } catch (err) {
+    // fal's ValidationError surfaces { status, body: { detail: [...] } } where
+    // detail describes which field failed. Node's default console depth
+    // truncates the nested array to `[Object]` — re-throw with the body
+    // expanded so the runtime logs tell us *what* fal rejected.
+    const e = err as { status?: number; body?: unknown; message?: string };
+    const bodyJson =
+      e.body !== undefined ? JSON.stringify(e.body, null, 2) : "(no body)";
+    throw new Error(
+      `fal.subscribe failed (status=${e.status ?? "?"}): ${e.message ?? "(no msg)"}\n` +
+        `prompt(${prompt.length} chars): ${prompt.slice(0, 200)}…\n` +
+        `body: ${bodyJson}`
+    );
+  }
   const outUrl = (
     result.data as { images?: Array<{ url: string }> } | undefined
   )?.images?.[0]?.url;
