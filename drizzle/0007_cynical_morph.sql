@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "wizard_job_error" text;

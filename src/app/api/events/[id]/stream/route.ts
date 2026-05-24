@@ -1,4 +1,5 @@
 import { subscribe, type EventMessage } from "@/lib/pubsub";
+import { STRUCTURAL_EVENT_TYPES } from "@/lib/realtime-schema";
 
 // Long-lived stream — keep on Node.js runtime so we have full Web Streams +
 // access to the pubsub layer (which in turn talks to Upstash Realtime over
@@ -12,6 +13,11 @@ export async function GET(
 ) {
   const { id } = await ctx.params;
   const encoder = new TextEncoder();
+  // Wall clock at connection open. Structural events (which trigger client
+  // `window.location.reload()`) published before this point are history
+  // replays and must be dropped — otherwise every reconnect re-fires the
+  // last `round_started` and the page reloads in an infinite loop.
+  const connectedAt = Date.now();
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -20,6 +26,12 @@ export async function GET(
       controller.enqueue(encoder.encode(`: connected\n\n`));
 
       const send = (msg: EventMessage) => {
+        if (
+          STRUCTURAL_EVENT_TYPES.has(msg.type) &&
+          (typeof msg.ts !== "number" || msg.ts < connectedAt)
+        ) {
+          return;
+        }
         try {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(msg)}\n\n`)

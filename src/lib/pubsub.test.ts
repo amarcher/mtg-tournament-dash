@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { publish, subscribe, type EventMessage } from "./pubsub";
 
+// publish() stamps a `ts` field on every message; tests assert on the
+// non-timestamp payload by stripping it before comparison.
+type PublishInput = Parameters<typeof publish>[1];
+function stripTs(m: EventMessage): PublishInput {
+  const rest = { ...m } as Partial<EventMessage>;
+  delete rest.ts;
+  return rest as PublishInput;
+}
+
 // These tests exercise the in-process Map fallback that kicks in when
 // KV_REST_API_URL is unset. That fallback is what `npm run dev`, `npm run
 // lan`, and `npm run verify` all depend on — provisioning Upstash should
@@ -26,8 +35,9 @@ describe("pubsub (in-process fallback)", () => {
     await subscribe(id, (m) => a.push(m));
     await subscribe(id, (m) => b.push(m));
     await publish(id, { type: "round_started", roundNumber: 1 });
-    expect(a).toEqual([{ type: "round_started", roundNumber: 1 }]);
-    expect(b).toEqual([{ type: "round_started", roundNumber: 1 }]);
+    expect(a.map(stripTs)).toEqual([{ type: "round_started", roundNumber: 1 }]);
+    expect(b.map(stripTs)).toEqual([{ type: "round_started", roundNumber: 1 }]);
+    expect(a[0].ts).toEqual(expect.any(Number));
   });
 
   it("does not deliver across distinct channels", async () => {
@@ -77,7 +87,7 @@ describe("pubsub (in-process fallback)", () => {
     });
     // The throwing subscriber should not have prevented `goodSeen` from
     // receiving the event.
-    expect(goodSeen).toEqual([
+    expect(goodSeen.map(stripTs)).toEqual([
       {
         type: "life_changed",
         matchId: "m1",
@@ -103,7 +113,7 @@ describe("pubsub (in-process fallback)", () => {
     const id = uniqueEventId("variants");
     const seen: EventMessage[] = [];
     await subscribe(id, (m) => seen.push(m));
-    const variants: EventMessage[] = [
+    const variants: PublishInput[] = [
       { type: "round_started", roundNumber: 1 },
       { type: "round_completed", roundNumber: 1 },
       {
@@ -122,6 +132,7 @@ describe("pubsub (in-process fallback)", () => {
       { type: "match_complete", matchId: "m1", winnerId: "p1" },
     ];
     for (const v of variants) await publish(id, v);
-    expect(seen).toEqual(variants);
+    expect(seen.map(stripTs)).toEqual(variants);
+    for (const m of seen) expect(m.ts).toEqual(expect.any(Number));
   });
 });

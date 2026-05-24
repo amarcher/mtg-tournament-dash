@@ -26,20 +26,22 @@ describe("realtime-schema", () => {
       (typeof REALTIME_EVENT_NAMES)[number],
       Omit<Extract<EventMessage, { type: never }>, "type"> | object
     > = {
-      round_started: { roundNumber: 3 },
-      round_completed: { roundNumber: 3 },
+      round_started: { ts: 1, roundNumber: 3 },
+      round_completed: { ts: 1, roundNumber: 3 },
       life_changed: {
+        ts: 1,
         matchId: "m1",
         gameId: "g1",
         side: "a" as const,
         life: 17,
       },
       game_complete: {
+        ts: 1,
         matchId: "m1",
         winnerId: "p1",
         nextGameNumber: 2,
       },
-      match_complete: { matchId: "m1", winnerId: "p1" },
+      match_complete: { ts: 1, matchId: "m1", winnerId: "p1" },
     };
     for (const name of REALTIME_EVENT_NAMES) {
       const schema = realtimeSchema[name];

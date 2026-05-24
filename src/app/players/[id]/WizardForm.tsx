@@ -12,6 +12,8 @@ type Props = {
   defaultArchetype: string | null;
   /** Server-side rendered flag: a wizardize job is currently running. */
   generating: boolean;
+  /** Error message from the last failed background job, or null. */
+  lastError: string | null;
 };
 
 export function WizardForm({
@@ -19,6 +21,7 @@ export function WizardForm({
   hasWizard,
   defaultArchetype,
   generating,
+  lastError,
 }: Props) {
   const router = useRouter();
 
@@ -31,6 +34,10 @@ export function WizardForm({
     return () => clearInterval(t);
   }, [generating, router]);
 
+  // Hide the prior failure banner while a fresh attempt is in flight so the
+  // user doesn't read a stale error alongside the spinner.
+  const showError = !generating && lastError;
+
   return (
     <form
       action={generateWizardAction}
@@ -38,6 +45,17 @@ export function WizardForm({
       encType="multipart/form-data"
     >
       <input type="hidden" name="playerId" value={playerId} />
+      {showError && (
+        <div
+          role="alert"
+          className="md:col-span-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+        >
+          <div className="font-semibold">Last generation failed</div>
+          <div className="mt-1 break-words font-mono text-xs text-red-100/90">
+            {lastError}
+          </div>
+        </div>
+      )}
       <FormBody
         hasWizard={hasWizard}
         defaultArchetype={defaultArchetype}

@@ -189,12 +189,14 @@ export async function generateWizardAction(formData: FormData) {
 
   // Mark "generation in progress" so the page can show a polling state.
   // We blank out the avatar columns so the UI doesn't show the stale wizard
-  // while the new one is being generated.
+  // while the new one is being generated. Clear any prior error so a retry
+  // doesn't show the old failure message alongside the in-progress spinner.
   await db
     .update(players)
     .set({
       wizardArchetype: archetype,
       wizardJobStartedAt: new Date(),
+      wizardJobError: null,
       avatarUrl: null,
       avatarWoundedUrl: null,
       avatarCriticalUrl: null,
@@ -247,15 +249,25 @@ export async function generateWizardAction(formData: FormData) {
           selfieUrl: selfiePath,
           wizardArchetype: archetype,
           wizardJobStartedAt: null,
+          wizardJobError: null,
         })
         .where(eq(players.id, playerId));
     } catch (err) {
       console.error("[wizardize] background job failed:", err);
-      // Clear the in-progress flag so the UI doesn't hang forever. The
-      // user can retry from the same page.
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : "Unknown error during wizard generation.";
+      // Truncate so a multi-KB stack-trace-ish error from FLUX or sharp
+      // doesn't bloat every player row.
+      const truncated = message.slice(0, 800);
+      // Clear the in-progress flag and record the failure so the UI can
+      // explain what went wrong instead of silently returning to idle.
       await db
         .update(players)
-        .set({ wizardJobStartedAt: null })
+        .set({ wizardJobStartedAt: null, wizardJobError: truncated })
         .where(eq(players.id, playerId));
     }
   });

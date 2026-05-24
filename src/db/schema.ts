@@ -72,6 +72,10 @@ export const players = pgTable(
     wizardJobStartedAt: timestamp("wizard_job_started_at", {
       withTimezone: true,
     }),
+    // Populated when the background wizardize job throws. Cleared on the
+    // next successful regen. Surfaced in the WizardForm so failures (Mac
+    // asleep, blob token missing, FLUX OOM) stop being silent.
+    wizardJobError: text("wizard_job_error"),
     currentElo: integer("current_elo").notNull().default(1200),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

@@ -28,12 +28,24 @@ const store: Store = globalAny[KEY]!;
  *   the original pubsub. No history, no cross-instance — fine for dev
  *   where the producer and consumer share one process.
  */
+// Distributive Omit: when applied to a discriminated union it removes the key
+// from each variant individually instead of collapsing the union into a
+// single intersection. Without this, `Omit<EventMessage, "ts">` widens the
+// type and TS rejects every per-variant property at the call site.
+type DistributiveOmit<T, K extends keyof T> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
 export async function publish(
   eventId: string,
-  message: EventMessage
+  message: DistributiveOmit<EventMessage, "ts">
 ): Promise<void> {
+  // Stamp publish-time so the SSE route can distinguish live deliveries from
+  // history replays on reconnect. See STRUCTURAL_EVENT_TYPES in
+  // realtime-schema.ts for why structural events need this gate.
+  const stamped = { ...message, ts: Date.now() } as EventMessage;
   if (isRealtimeConfigured()) {
-    const { type, ...data } = message;
+    const { type, ...data } = stamped;
     // Realtime's emit is heavily generic-narrowed — TS can't relate the
     // discriminated-union pair (type, data) back to the schema map without
     // a per-case switch. The two values come from the same EventMessage
@@ -48,7 +60,7 @@ export async function publish(
   if (!set) return;
   for (const sub of set) {
     try {
-      sub(message);
+      sub(stamped);
     } catch {
       set.delete(sub);
     }

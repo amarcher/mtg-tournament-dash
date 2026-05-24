@@ -6,21 +6,29 @@ import { z } from "zod";
 // Each entry's name is the channel "event" identifier; the Zod object is the
 // payload. We emit on a per-tournament channel (`event:<eventId>`) so events
 // from one tournament never bleed into another's subscribers.
+//
+// `ts` is publish-time wall clock (ms). The SSE route uses it to drop
+// historical structural-event replays on reconnect — without it, every
+// reconnect re-fires `round_started` / `match_complete` from Upstash history
+// and the client re-runs `window.location.reload()` in an infinite loop.
 export const realtimeSchema = {
-  round_started: z.object({ roundNumber: z.number() }),
-  round_completed: z.object({ roundNumber: z.number() }),
+  round_started: z.object({ ts: z.number(), roundNumber: z.number() }),
+  round_completed: z.object({ ts: z.number(), roundNumber: z.number() }),
   life_changed: z.object({
+    ts: z.number(),
     matchId: z.string(),
     gameId: z.string(),
     side: z.enum(["a", "b"]),
     life: z.number(),
   }),
   game_complete: z.object({
+    ts: z.number(),
     matchId: z.string(),
     winnerId: z.string(),
     nextGameNumber: z.number(),
   }),
   match_complete: z.object({
+    ts: z.number(),
     matchId: z.string(),
     winnerId: z.string(),
   }),
@@ -38,11 +46,13 @@ export type RealtimeEventName = (typeof REALTIME_EVENT_NAMES)[number];
 
 // Type used by call sites (publishers + subscribers). Discriminated union
 // keyed on `type`, identical in shape to what existed before Realtime.
+// `ts` is set inside `publish()` — callers pass `Omit<EventMessage, "ts">`.
 export type EventMessage =
-  | { type: "round_started"; roundNumber: number }
-  | { type: "round_completed"; roundNumber: number }
+  | { type: "round_started"; ts: number; roundNumber: number }
+  | { type: "round_completed"; ts: number; roundNumber: number }
   | {
       type: "life_changed";
+      ts: number;
       matchId: string;
       gameId: string;
       side: "a" | "b";
@@ -50,11 +60,22 @@ export type EventMessage =
     }
   | {
       type: "game_complete";
+      ts: number;
       matchId: string;
       winnerId: string;
       nextGameNumber: number;
     }
-  | { type: "match_complete"; matchId: string; winnerId: string };
+  | { type: "match_complete"; ts: number; matchId: string; winnerId: string };
+
+// Event types that trigger a hard reload on the client. The SSE route drops
+// any of these whose `ts` predates the client's connection, so reconnects
+// don't replay an old `round_started` and put the page into a reload loop.
+export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set([
+  "round_started",
+  "round_completed",
+  "match_complete",
+  "game_complete",
+]);
 
 // Channel-name helper. Centralizing this so producer/consumer can't drift.
 export function channelForEvent(eventId: string): string {

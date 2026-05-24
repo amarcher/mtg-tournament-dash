@@ -158,6 +158,7 @@ export default async function PlayerPage({
           hasWizard={Boolean(player.avatarUrl)}
           defaultArchetype={player.wizardArchetype}
           generating={Boolean(player.wizardJobStartedAt)}
+          lastError={player.wizardJobError}
         />
         <WizardGallery
           selfieUrl={player.selfieUrl}

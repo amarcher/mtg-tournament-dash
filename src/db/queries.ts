@@ -73,7 +73,11 @@ export async function sweepStaleWizardJobs(): Promise<number> {
   const cutoff = new Date(Date.now() - 6 * 60_000);
   const cleared = await db
     .update(players)
-    .set({ wizardJobStartedAt: null })
+    .set({
+      wizardJobStartedAt: null,
+      wizardJobError:
+        "Generation timed out after 6 minutes. The image-gen server may have been unreachable — try again.",
+    })
     .where(
       and(
         lt(players.wizardJobStartedAt, cutoff),
