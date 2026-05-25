@@ -13,6 +13,9 @@ import { pickAvatarUrl, type AvatarTiers } from "@/lib/avatar-tier";
 
 type Props = {
   eventId: string;
+  eventName: string;
+  leagueSlug: string | null;
+  tableNumber: number;
   matchId: string;
   mySide: "a" | "b";
   players: { a: Player; b: Player | null };
@@ -33,6 +36,9 @@ function avatarsFor(p: Player | null): AvatarTiers {
 
 export function PlayClient({
   eventId,
+  eventName,
+  leagueSlug,
+  tableNumber,
   matchId,
   mySide,
   players,
@@ -205,34 +211,52 @@ export function PlayClient({
 
   return (
     <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-4">
-      <Link
-        href="/"
-        className="text-sm text-zinc-500 hover:text-zinc-300"
-      >
-        ← Home
-      </Link>
-      <header className="flex items-baseline justify-between">
-        <div>
+      <nav className="flex flex-wrap gap-2 text-sm">
+        {leagueSlug && (
+          <Link
+            href={`/leagues/${leagueSlug}`}
+            className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            League
+          </Link>
+        )}
+        <Link
+          href={`/events/${eventId}/claim?switch=1`}
+          className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+        >
+          Switch player
+        </Link>
+      </nav>
+      <header className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
+        <div className="mb-3 min-w-0">
+          <div className="truncate text-lg font-semibold">{eventName}</div>
           <div className="text-xs uppercase tracking-wide text-zinc-500">
-            You
-          </div>
-          <div className="flex items-baseline gap-2">
-            <div className="text-lg font-semibold">{myName}</div>
-            {myPlayerId && (
-              <Link
-                href={`/players/${myPlayerId}`}
-                className="text-xs text-amber-400/80 hover:text-amber-300"
-              >
-                🔮 Swap portrait
-              </Link>
-            )}
+            Table {tableNumber} · scorekeeper
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-xs uppercase tracking-wide text-zinc-500">
-            vs
+        <div className="flex items-baseline justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-zinc-500">
+              You
+            </div>
+            <div className="flex items-baseline gap-2">
+              <div className="text-lg font-semibold">{myName}</div>
+              {myPlayerId && (
+                <Link
+                  href={`/players/${myPlayerId}`}
+                  className="text-xs text-amber-400/80 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                >
+                  Edit portrait
+                </Link>
+              )}
+            </div>
           </div>
-          <div className="text-lg font-semibold">{oppName ?? "BYE"}</div>
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-zinc-500">
+              vs
+            </div>
+            <div className="text-lg font-semibold">{oppName ?? "BYE"}</div>
+          </div>
         </div>
       </header>
 
@@ -267,14 +291,14 @@ export function PlayClient({
         <button
           onClick={() => reportWinner("me")}
           disabled={pending}
-          className="rounded-xl bg-emerald-500 py-3 font-semibold text-zinc-950 hover:bg-emerald-400 disabled:opacity-50"
+          className="rounded-xl bg-emerald-500 py-3 font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-50"
         >
           I won this game
         </button>
         <button
           onClick={() => reportWinner("opp")}
           disabled={pending}
-          className="rounded-xl bg-zinc-700 py-3 font-semibold hover:bg-zinc-600 disabled:opacity-50"
+          className="rounded-xl bg-zinc-700 py-3 font-semibold transition hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50"
         >
           They won
         </button>
@@ -284,7 +308,7 @@ export function PlayClient({
         <button
           onClick={reportDraw}
           disabled={pending}
-          className="rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          className="rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50"
         >
           Call this match a draw
         </button>
@@ -381,7 +405,7 @@ function LifeButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className="rounded-lg bg-zinc-800 py-3 text-lg font-semibold tabular-nums hover:bg-zinc-700 active:scale-95 disabled:opacity-50"
+      className="rounded-lg bg-zinc-800 py-3 text-lg font-semibold tabular-nums transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 disabled:opacity-50"
     >
       {children}
     </button>
