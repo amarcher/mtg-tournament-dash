@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueBySlug, listLeaguePlayers } from "@/db/queries";
 import { addPlayerAction, createEventAction } from "@/app/events/actions";
+import { AppChrome } from "@/app/components/AppChrome";
 
 export const dynamic = "force-dynamic";
 
@@ -16,14 +17,9 @@ export default async function NewLeagueEventPage({
   const players = await listLeaguePlayers(league.id);
 
   return (
-    <main className="mx-auto max-w-2xl w-full px-6 py-12">
+    <AppChrome league={league} active="events">
+      <main className="mx-auto max-w-2xl w-full px-4 py-8 sm:px-6 sm:py-10">
       <div className="mb-8">
-        <Link
-          href={`/leagues/${league.slug}`}
-          className="text-sm text-zinc-500 hover:text-zinc-300"
-        >
-          ← {league.name}
-        </Link>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
           New event
         </h1>
@@ -35,10 +31,15 @@ export default async function NewLeagueEventPage({
         </h2>
         <form action={addPlayerAction} className="flex gap-2">
           <input type="hidden" name="leagueId" value={league.id} />
+          <label htmlFor="add-player-name" className="sr-only">
+            Display name
+          </label>
           <input
+            id="add-player-name"
             name="name"
             required
             placeholder="Display name"
+            autoComplete="name"
             className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
           />
           <button
@@ -63,25 +64,29 @@ export default async function NewLeagueEventPage({
       <form action={createEventAction} className="space-y-6">
         <input type="hidden" name="leagueId" value={league.id} />
         <div>
-          <label className="mb-1 block text-sm font-medium text-zinc-300">
+          <label htmlFor="event-name" className="mb-1 block text-sm font-medium text-zinc-300">
             Event name
           </label>
           <input
+            id="event-name"
             name="name"
             required
             placeholder="Friday Night Magic — May"
+            autoComplete="off"
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 focus:border-amber-500 focus:outline-none"
           />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-300">
+            <label htmlFor="total-rounds" className="mb-1 block text-sm font-medium text-zinc-300">
               Total rounds
             </label>
             <input
+              id="total-rounds"
               name="totalRounds"
               type="number"
+              inputMode="numeric"
               min={1}
               max={9}
               defaultValue={3}
@@ -89,12 +94,14 @@ export default async function NewLeagueEventPage({
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-zinc-300">
+            <label htmlFor="starting-life" className="mb-1 block text-sm font-medium text-zinc-300">
               Starting life
             </label>
             <input
+              id="starting-life"
               name="startingLife"
               type="number"
+              inputMode="numeric"
               min={1}
               defaultValue={20}
               className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 focus:border-amber-500 focus:outline-none"
@@ -151,6 +158,7 @@ export default async function NewLeagueEventPage({
           Create event
         </button>
       </form>
-    </main>
+      </main>
+    </AppChrome>
   );
 }

@@ -10,19 +10,36 @@ import {
   getEventMatchHistory,
   getEventRoster,
   getEventStandings,
+  getLeague,
 } from "@/db/queries";
 import { PlayClient } from "./PlayClient";
 import { WaitForRound } from "./WaitForRound";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 
-function HomeLink() {
+function EventContextLinks({
+  leagueSlug,
+  eventId,
+}: {
+  leagueSlug?: string;
+  eventId: string;
+}) {
   return (
-    <Link
-      href="/"
-      className="inline-block text-sm text-zinc-500 hover:text-zinc-300"
-    >
-      ← Home
-    </Link>
+    <div className="flex flex-wrap gap-2 text-sm">
+      {leagueSlug && (
+        <Link
+          href={`/leagues/${leagueSlug}`}
+          className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+        >
+          League
+        </Link>
+      )}
+      <Link
+        href={`/events/${eventId}/claim?switch=1`}
+        className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+      >
+        Switch player
+      </Link>
+    </div>
   );
 }
 
@@ -36,13 +53,14 @@ export default async function PlayPage({
   const { id } = await params;
   const event = await getEvent(id);
   if (!event) notFound();
+  const league = await getLeague(event.leagueId);
 
   const me = await getCurrentPlayer(id);
   if (!me) {
     return (
       <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
         <div className="mb-6 text-left">
-          <HomeLink />
+          <EventContextLinks leagueSlug={league?.slug} eventId={id} />
         </div>
         <h1 className="text-2xl font-semibold">Not signed in</h1>
         <p className="mt-3 text-sm text-zinc-400">
@@ -98,7 +116,7 @@ export default async function PlayPage({
     return (
       <main className="mx-auto w-full max-w-md px-4 py-6">
         <div className="mb-4">
-          <HomeLink />
+          <EventContextLinks leagueSlug={league?.slug} eventId={id} />
         </div>
         <div className="mb-4 text-center">
           <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
@@ -125,7 +143,7 @@ export default async function PlayPage({
     return (
       <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
         <div className="mb-6 text-left">
-          <HomeLink />
+          <EventContextLinks leagueSlug={league?.slug} eventId={id} />
         </div>
         <h1 className="text-2xl font-semibold">Hi {me.displayName}</h1>
         <p className="mt-3 text-zinc-400">
@@ -167,6 +185,9 @@ export default async function PlayPage({
   return (
     <PlayClient
       eventId={id}
+      eventName={event.name}
+      leagueSlug={league?.slug ?? null}
+      tableNumber={match.tableNumber}
       matchId={match.id}
       mySide={mySide}
       players={{ a, b }}

@@ -6,6 +6,7 @@ import {
   claimLeaguePlayerAction,
   createLeaguePlayerAction,
 } from "@/app/events/actions";
+import { AppChrome } from "@/app/components/AppChrome";
 
 export const dynamic = "force-dynamic";
 
@@ -30,14 +31,9 @@ export default async function LeagueClaimPage({
   const showBanner = me && !switchMode;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
+    <AppChrome league={league} player={me} active="players">
+      <main className="mx-auto w-full max-w-3xl px-4 py-8">
       <div className="mb-6">
-        <Link
-          href={`/leagues/${league.slug}`}
-          className="text-sm text-zinc-500 hover:text-zinc-300"
-        >
-          ← {league.name}
-        </Link>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">
           Pick or create your wizard
         </h1>
@@ -53,13 +49,13 @@ export default async function LeagueClaimPage({
           </span>
           <Link
             href={`/leagues/${league.slug}`}
-            className="ml-auto rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+            className="ml-auto rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
           >
             Back to league →
           </Link>
           <Link
             href={`/leagues/${league.slug}/claim?switch=1`}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
           >
             Switch player
           </Link>
@@ -76,7 +72,11 @@ export default async function LeagueClaimPage({
         </p>
         <form action={createLeaguePlayerAction} className="flex gap-2">
           <input type="hidden" name="leagueSlug" value={league.slug} />
+          <label htmlFor="league-claim-name" className="sr-only">
+            Your name
+          </label>
           <input
+            id="league-claim-name"
             name="name"
             required
             placeholder="Your name"
@@ -85,7 +85,7 @@ export default async function LeagueClaimPage({
           />
           <button
             type="submit"
-            className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400"
+            className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
           >
             Create wizard
           </button>
@@ -139,18 +139,15 @@ export default async function LeagueClaimPage({
                     </div>
                   </button>
                 </form>
-                <Link
-                  href={`/players/${p.id}`}
-                  aria-label={`Re-wizardize ${p.displayName}`}
-                  className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-zinc-950/80 text-base text-amber-300 ring-1 ring-amber-400/50 backdrop-blur transition hover:bg-zinc-900 hover:text-amber-200"
-                >
-                  ↺
-                </Link>
               </div>
             ))}
           </div>
         </>
       )}
-    </main>
+      <p className="mt-8 text-center text-xs text-zinc-500">
+        Need to update your portrait? Claim your wizard first, then open your player profile.
+      </p>
+      </main>
+    </AppChrome>
   );
 }

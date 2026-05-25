@@ -2,12 +2,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getLeagueBySlug,
+  getEventRounds,
+  getRoundMatches,
   listLeaguePlayers,
   listOpenEventsForPlayer,
   listOpenLeagueEvents,
   listLeagueEvents,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
+import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -30,41 +34,62 @@ export default async function LeagueHomePage({
   const myOpenEvents = me
     ? await listOpenEventsForPlayer(league.id, me.id)
     : [];
+  const myOpenEventIds = new Set(myOpenEvents.map(({ event }) => event.id));
+  const activeSummaries = await Promise.all(
+    openEvents.map(async (event) => {
+      const eventRounds = await getEventRounds(event.id);
+      const activeRound = eventRounds.find((r) => r.status === "active");
+      const pendingRound = eventRounds.find((r) => r.status === "pending");
+      const currentRound = activeRound ?? pendingRound ?? null;
+      const matches = currentRound ? await getRoundMatches(currentRound.id) : [];
+      const incompleteCount = activeRound
+        ? matches.filter(({ match }) => match.status !== "complete").length
+        : 0;
+      const completedCount = eventRounds.filter((r) => r.status === "complete")
+        .length;
+      return {
+        event,
+        currentRound,
+        incompleteCount,
+        completedCount,
+        isMine: myOpenEventIds.has(event.id),
+      };
+    })
+  );
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-12">
-      <div className="mb-10">
-        <Link
-          href="/"
-          className="text-sm text-zinc-500 hover:text-zinc-300"
-        >
-          ← All leagues
-        </Link>
-        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-4">
-          <h1 className="text-4xl font-semibold tracking-tight">
-            {league.name}
-          </h1>
-          <div className="flex flex-wrap gap-2 text-sm">
-            {me ? (
-              <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-emerald-300">
-                You: {me.displayName}
-              </span>
-            ) : null}
+    <AppChrome league={league} player={me} active="league">
+      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+              {league.name}
+            </h1>
+            <p className="mt-2 text-sm text-zinc-500">
+              Game-night command center for events, players, and league history.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <Link
               href={`/leagues/${league.slug}/claim`}
-              className="rounded-full border border-zinc-700 px-3 py-1 text-zinc-300 hover:bg-zinc-800"
+              className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
-              {me ? "Switch player" : "Claim your wizard"}
+              {me ? "Switch player" : "Claim wizard"}
             </Link>
             <Link
               href={`/leagues/${league.slug}/events/new`}
-              className="rounded-full bg-amber-500 px-3 py-1 font-semibold text-zinc-950 hover:bg-amber-400"
+              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               New event
             </Link>
           </div>
         </div>
-      </div>
+
+        <section className="mb-8 grid gap-3 md:grid-cols-3">
+          <DashboardStat label="Wizards" value={players.length} />
+          <DashboardStat label="Open events" value={openEvents.length} />
+          <DashboardStat label="Completed events" value={completedEvents.length} />
+        </section>
 
       {me && myOpenEvents.length > 0 && (
         <section className="mb-10 space-y-2">
@@ -72,7 +97,7 @@ export default async function LeagueHomePage({
             <Link
               key={event.id}
               href={`/events/${event.id}/play`}
-              className="flex items-center justify-between gap-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 transition hover:border-amber-500 hover:bg-amber-500/20"
+              className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-5 py-4 transition hover:border-amber-500 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               <div className="min-w-0">
                 <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
@@ -87,8 +112,8 @@ export default async function LeagueHomePage({
                     : "Tap to stand by — auto-jumps when the round starts"}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950">
-                ▶ Scorekeeper
+              <span className="shrink-0 rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950">
+                Scorekeeper
               </span>
             </Link>
           ))}
@@ -96,37 +121,72 @@ export default async function LeagueHomePage({
       )}
 
       <section className="mb-12">
-        <h2 className="mb-4 text-lg font-medium text-zinc-300">
-          Active events
-        </h2>
+        <div className="mb-4 flex items-baseline justify-between gap-4">
+          <h2 className="text-lg font-medium text-zinc-200">Active events</h2>
+          <Link
+            href={`/leagues/${league.slug}/claim`}
+            className="text-sm text-amber-400 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            Join as player
+          </Link>
+        </div>
         {openEvents.length === 0 ? (
-          <p className="text-sm text-zinc-500">No events in progress.</p>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-sm text-zinc-500">
+            No events in progress.
+          </div>
         ) : (
-          <ul className="space-y-2">
-            {openEvents.map((e) => (
+          <ul className="grid gap-3">
+            {activeSummaries.map(({ event: e, currentRound, incompleteCount, completedCount, isMine }) => (
               <li
                 key={e.id}
-                className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+                className="rounded-lg border border-zinc-800 bg-zinc-900 p-4"
               >
-                <div>
-                  <div className="font-medium">{e.name}</div>
-                  <div className="text-xs text-zinc-500">
-                    {e.format} · {e.totalRounds} rounds · {e.status}
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-lg font-semibold">{e.name}</h3>
+                      <StatusBadge status={e.status} />
+                    </div>
+                    <div className="mt-1 text-sm text-zinc-500">
+                      {currentRound
+                        ? `Round ${currentRound.roundNumber} of ${e.totalRounds}`
+                        : `${e.totalRounds} rounds ready`}
+                      {" · "}
+                      {completedCount} closed
+                      {incompleteCount > 0
+                        ? ` · ${incompleteCount} match${incompleteCount === 1 ? "" : "es"} pending`
+                        : ""}
+                    </div>
                   </div>
-                </div>
-                <div className="flex gap-2 text-sm">
-                  <Link
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 hover:bg-zinc-700"
-                    href={`/events/${e.id}/manage`}
-                  >
-                    Manage
-                  </Link>
-                  <Link
-                    className="rounded-md bg-zinc-800 px-3 py-1.5 hover:bg-zinc-700"
-                    href={`/events/${e.id}/broadcast`}
-                  >
-                    Broadcast
-                  </Link>
+                  <div className="flex flex-wrap gap-2 text-sm">
+                    {isMine ? (
+                      <Link
+                        className="rounded-md bg-amber-500 px-3 py-2 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                        href={`/events/${e.id}/play`}
+                      >
+                        Scorekeeper
+                      </Link>
+                    ) : (
+                      <Link
+                        className="rounded-md border border-zinc-700 px-3 py-2 font-medium text-zinc-200 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                        href={`/events/${e.id}/claim`}
+                      >
+                        Claim seat
+                      </Link>
+                    )}
+                    <Link
+                      className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                      href={`/events/${e.id}/manage`}
+                    >
+                      Manage
+                    </Link>
+                    <Link
+                      className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                      href={`/events/${e.id}/broadcast`}
+                    >
+                      Broadcast
+                    </Link>
+                  </div>
                 </div>
               </li>
             ))}
@@ -176,10 +236,10 @@ export default async function LeagueHomePage({
                       {p.displayName.charAt(0).toUpperCase()}
                     </span>
                   )}
-                  <Link
-                    href={`/players/${p.id}`}
-                    className="font-medium hover:text-amber-400"
-                  >
+                <Link
+                  href={`/players/${p.id}`}
+                  className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                >
                     {p.displayName}
                   </Link>
                 </span>
@@ -205,12 +265,12 @@ export default async function LeagueHomePage({
               >
                 <Link
                   href={`/events/${e.id}/manage`}
-                  className="font-medium hover:text-amber-400"
+                  className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
                   {e.name}
                 </Link>
                 <span className="text-xs text-zinc-500">
-                  {new Date(e.createdAt).toLocaleDateString()}
+                  {formatDate(e.createdAt)}
                 </span>
               </li>
             ))}
@@ -218,6 +278,16 @@ export default async function LeagueHomePage({
         </section>
       )}
 
-    </main>
+      </main>
+    </AppChrome>
+  );
+}
+
+function DashboardStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3">
+      <div className="font-mono text-2xl tabular-nums text-zinc-100">{value}</div>
+      <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+    </div>
   );
 }

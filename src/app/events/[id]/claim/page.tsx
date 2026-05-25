@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getEvent, getEventRoster, getLeague } from "@/db/queries";
 import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
 import { claimIdentityAction } from "@/app/events/actions";
+import { AppChrome } from "@/app/components/AppChrome";
+import { EventNav } from "@/app/components/EventNav";
 
 export const dynamic = "force-dynamic";
 
@@ -36,16 +38,10 @@ export default async function ClaimPage({
     : null;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
+    <AppChrome league={league} player={leagueMe} currentEvent={event} active="players">
+      <main className="mx-auto w-full max-w-3xl px-4 py-8">
+      <EventNav event={event} league={league} active="claim" />
       <div className="mb-6">
-        {league && (
-          <Link
-            href={`/leagues/${league.slug}`}
-            className="text-sm text-zinc-500 hover:text-zinc-300"
-          >
-            ← {league.name}
-          </Link>
-        )}
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {event.name}
         </h1>
@@ -65,7 +61,7 @@ export default async function ClaimPage({
             <input type="hidden" name="playerId" value={leagueMe.id} />
             <button
               type="submit"
-              className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+              className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Continue as {leagueMe.displayName} →
             </button>
@@ -88,13 +84,13 @@ export default async function ClaimPage({
           </span>
           <Link
             href={`/events/${id}/play`}
-            className="ml-auto rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+            className="ml-auto rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
           >
             Continue to play →
           </Link>
           <Link
             href={`/events/${id}/claim?switch=1`}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
           >
             Switch player
           </Link>
@@ -139,15 +135,6 @@ export default async function ClaimPage({
                 </div>
               </button>
             </form>
-            {/* Regen badge — sits OUTSIDE the form so tapping it doesn't
-                submit the claim. z-10 keeps it above the card image. */}
-            <Link
-              href={`/players/${p.playerId}`}
-              aria-label={`Re-wizardize ${p.displayName}`}
-              className="absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-zinc-950/80 text-base text-amber-300 ring-1 ring-amber-400/50 backdrop-blur transition hover:bg-zinc-900 hover:text-amber-200"
-            >
-              ↺
-            </Link>
           </div>
         ))}
       </div>
@@ -155,6 +142,7 @@ export default async function ClaimPage({
       <p className="mt-8 text-center text-xs text-zinc-500">
         Don&apos;t see your face? Ask the organizer for your join link.
       </p>
-    </main>
+      </main>
+    </AppChrome>
   );
 }

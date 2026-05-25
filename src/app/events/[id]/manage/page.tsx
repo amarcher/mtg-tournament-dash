@@ -23,6 +23,10 @@ import {
 } from "@/app/events/actions";
 import { qrDataUrl } from "@/lib/qr";
 import { getPublicBaseUrl } from "@/lib/public-url";
+import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
+import { EventNav } from "@/app/components/EventNav";
+import { CopyButton } from "@/app/components/CopyButton";
+import { formatPct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +70,9 @@ export default async function ManagePage({
       qrDataUrl(`${baseUrl}/events/${id}/join/${p.joinToken}`)
     )
   );
+  const rosterJoinUrls = roster.map(
+    (p) => `${baseUrl}/events/${id}/join/${p.joinToken}`
+  );
 
   const activeRound = rounds.find((r) => r.status === "active");
   const activeMatches = activeRound
@@ -80,6 +87,13 @@ export default async function ManagePage({
   const roundsRemaining =
     event.totalRounds -
     (completedRoundsCount + (activeRound ? 1 : 0) + (pendingRound ? 1 : 0));
+  const currentStep = pendingRound
+    ? 2
+    : activeRound
+      ? 3
+      : roundsRemaining > 0
+        ? 1
+        : 5;
 
   const previewNext = async () => {
     "use server";
@@ -103,45 +117,90 @@ export default async function ManagePage({
   };
 
   return (
-    <main className="mx-auto max-w-5xl w-full px-6 py-12">
-      <div className="mb-8">
-        <Link
-          href={league ? `/leagues/${league.slug}` : "/"}
-          className="text-sm text-zinc-500 hover:text-zinc-300"
-        >
-          ← {league?.name ?? "Home"}
-        </Link>
-        <div className="mt-2 flex items-baseline justify-between">
-          <h1 className="text-3xl font-semibold tracking-tight">{event.name}</h1>
-          <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs uppercase tracking-wide text-zinc-400">
-            {event.status}
-          </span>
+    <AppChrome league={league} currentEvent={event} active="manage">
+      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
+        <EventNav event={event} league={league} active="manage" />
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-semibold tracking-tight">{event.name}</h1>
+              <StatusBadge status={event.status} />
+            </div>
+            <p className="mt-1 text-sm text-zinc-500">
+              {event.format} · {event.totalRounds} rounds · life {event.startingLife}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/events/${id}/broadcast`}
+              target="_blank"
+              className="rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            >
+              Broadcast
+            </Link>
+            <Link
+              href={`/events/${id}/claim`}
+              target="_blank"
+              className="rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            >
+              Claim page
+            </Link>
+          </div>
         </div>
-        <p className="mt-1 text-sm text-zinc-500">
-          {event.format} · {event.totalRounds} rounds · life {event.startingLife}
-        </p>
-      </div>
+
+        <section className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
+          <div className="grid gap-3 md:grid-cols-5">
+            {[
+              ["Share", "Join links"],
+              ["Preview", "Pairings"],
+              ["Run", "Round"],
+              ["Close", "Results"],
+              ["Finish", "Finals"],
+            ].map(([label, detail], index) => {
+              const step = index + 1;
+              const active = step === currentStep;
+              const done = step < currentStep;
+              return (
+                <div
+                  key={label}
+                  className={`rounded-md border px-3 py-2 ${
+                    active
+                      ? "border-amber-500/50 bg-amber-500/10"
+                      : done
+                        ? "border-emerald-500/30 bg-emerald-500/5"
+                        : "border-zinc-800 bg-zinc-950/50"
+                  }`}
+                >
+                  <div className="text-xs uppercase tracking-wide text-zinc-500">
+                    Step {step}
+                  </div>
+                  <div
+                    className={
+                      active ? "font-semibold text-amber-200" : "font-medium"
+                    }
+                  >
+                    {label}
+                  </div>
+                  <div className="text-xs text-zinc-500">{detail}</div>
+                </div>
+              );
+            })}
+          </div>
+          {activeRound && incompleteCount > 0 && (
+            <p className="mt-3 text-sm text-amber-200">
+              {incompleteCount} match{incompleteCount === 1 ? "" : "es"} still{" "}
+              {incompleteCount === 1 ? "needs" : "need"} a result before this
+              round can close.
+            </p>
+          )}
+        </section>
 
       <div className="mb-8 flex flex-wrap gap-3">
-        <Link
-          href={`/events/${id}/broadcast`}
-          target="_blank"
-          className="rounded-md bg-zinc-800 px-4 py-2 text-sm hover:bg-zinc-700"
-        >
-          Open broadcast view ↗
-        </Link>
-        <Link
-          href={`/events/${id}/claim`}
-          target="_blank"
-          className="rounded-md bg-zinc-800 px-4 py-2 text-sm hover:bg-zinc-700"
-        >
-          Open claim page →
-        </Link>
         {!pendingRound && roundsRemaining > 0 && (
           <form action={previewNext}>
             <button
               type="submit"
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400"
+              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Preview round {completedRoundsCount + (activeRound ? 1 : 0) + 1}
             </button>
@@ -152,7 +211,7 @@ export default async function ManagePage({
             <button
               type="submit"
               disabled={incompleteCount > 0}
-              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-zinc-950/60"
+              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-zinc-950/60"
               title={
                 incompleteCount > 0
                   ? `${incompleteCount} match(es) need a result first`
@@ -168,54 +227,76 @@ export default async function ManagePage({
       </div>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
-          Player join links
-        </h2>
-        <ul className="space-y-1 rounded-lg border border-zinc-800 bg-zinc-900 p-3">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
+              Player join links
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Share a direct link or QR with each player. The link identifies them and opens the scorekeeper.
+            </p>
+          </div>
+          <Link
+            href={`/events/${id}/claim`}
+            className="rounded-md border border-zinc-700 px-3 py-2 text-sm font-medium transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            Open shared claim grid
+          </Link>
+        </div>
+        <ul className="grid gap-3 sm:grid-cols-2">
           {roster.map((p, i) => (
             <li
               key={p.playerId}
-              className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-zinc-800"
+              className="rounded-lg border border-zinc-800 bg-zinc-900 p-3"
             >
-              {p.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
+              <div className="flex items-center gap-3">
+                {p.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.avatarUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <Link
+                    href={`/players/${p.playerId}`}
+                    title="Add wizard portrait"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-dashed border-amber-500/50 text-xs text-amber-500/80 transition hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  >
+                    +
+                  </Link>
+                )}
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/players/${p.playerId}`}
+                    className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  >
+                    {p.displayName}
+                  </Link>
+                  <code className="mt-1 hidden truncate rounded bg-zinc-950 px-2 py-1 font-mono text-[0.65rem] text-zinc-500 sm:block">
+                    {rosterJoinUrls[i]}
+                  </code>
+                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={p.avatarUrl}
-                  alt=""
-                  className="h-8 w-8 shrink-0 rounded-full object-cover"
+                  src={rosterQrs[i]}
+                  alt={`QR join link for ${p.displayName}`}
+                  title={rosterJoinUrls[i]}
+                  className="h-14 w-14 shrink-0 rounded bg-white p-0.5"
                 />
-              ) : (
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <CopyButton value={rosterJoinUrls[i]} />
                 <Link
-                  href={`/players/${p.playerId}`}
-                  title="Add wizard portrait"
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-amber-500/50 text-xs text-amber-500/80 hover:bg-amber-500/10"
+                  href={`/events/${id}/join/${p.joinToken}`}
+                  className="rounded-md border border-zinc-700 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
-                  +
+                  Open
                 </Link>
-              )}
-              <Link
-                href={`/players/${p.playerId}`}
-                className="flex-1 font-medium hover:text-amber-400"
-              >
-                {p.displayName}
-              </Link>
-              <code className="select-all rounded bg-zinc-950 px-2 py-1 font-mono text-xs text-zinc-400">
-                /events/{id}/join/{p.joinToken}
-              </code>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={rosterQrs[i]}
-                alt={`QR join link for ${p.displayName}`}
-                title={`${baseUrl}/events/${id}/join/${p.joinToken}`}
-                className="h-12 w-12 shrink-0 rounded bg-white p-0.5"
-              />
+              </div>
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-xs text-zinc-500">
-          Send each player their full URL — visiting it sets a cookie identifying
-          them, then they go to the play page.
-        </p>
       </section>
 
       {pendingRound && (
@@ -292,7 +373,7 @@ export default async function ManagePage({
                 >
                   <button
                     type="submit"
-                    className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/20"
+                    className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
                     title="Excuse this pair from the round — their previous match stays playable"
                   >
                     Drop pair
@@ -421,7 +502,7 @@ export default async function ManagePage({
                   ) : isBye ? (
                     <span className="text-xs text-zinc-500">automatic</span>
                   ) : (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                       <ResultButton
                         matchId={match.id}
                         outcome="a"
@@ -451,64 +532,67 @@ export default async function ManagePage({
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
           Standings
         </h2>
-        <table className="w-full text-sm">
-          <thead className="text-left text-xs uppercase tracking-wide text-zinc-500">
-            <tr>
-              <th className="px-3 py-2">#</th>
-              <th className="px-3 py-2">Player</th>
-              <th className="px-3 py-2 text-right">W-L-D</th>
-              <th className="px-3 py-2 text-right">Pts</th>
-              <th
-                className="px-3 py-2 text-right"
-                title="Opponents' Match-Win Percentage — primary MTG tiebreaker"
-              >
-                OMW%
-              </th>
-              <th
-                className="px-3 py-2 text-right"
-                title="Game-Win Percentage — secondary MTG tiebreaker"
-              >
-                GW%
-              </th>
-              <th
-                className="px-3 py-2 text-right"
-                title="Opponents' Game-Win Percentage — tertiary MTG tiebreaker"
-              >
-                OGW%
-              </th>
-              <th className="px-3 py-2 text-right">ELO</th>
-            </tr>
-          </thead>
-          <tbody>
-            {standings.map((s, i) => (
-              <tr
-                key={s.playerId}
-                className="border-t border-zinc-800 hover:bg-zinc-900"
-              >
-                <td className="px-3 py-2 font-mono text-zinc-500">{i + 1}</td>
-                <td className="px-3 py-2 font-medium">{s.displayName}</td>
-                <td className="px-3 py-2 text-right font-mono">
-                  {s.wins}-{s.losses}-{s.draws}
-                </td>
-                <td className="px-3 py-2 text-right font-mono">{s.matchPoints}</td>
-                <td className="px-3 py-2 text-right font-mono text-zinc-400">
-                  {(s.opponentMatchWinPct * 100).toFixed(1)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-zinc-400">
-                  {(s.gameWinPct * 100).toFixed(1)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-zinc-400">
-                  {(s.opponentGameWinPct * 100).toFixed(1)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono text-zinc-400">
-                  {s.currentElo}
-                </td>
+        <div className="overflow-x-auto rounded-lg border border-zinc-800">
+          <table className="w-full min-w-[680px] text-sm">
+            <thead className="bg-zinc-900/70 text-left text-xs uppercase tracking-wide text-zinc-500">
+              <tr>
+                <th className="px-3 py-2">#</th>
+                <th className="px-3 py-2">Player</th>
+                <th className="px-3 py-2 text-right">W-L-D</th>
+                <th className="px-3 py-2 text-right">Pts</th>
+                <th
+                  className="px-3 py-2 text-right"
+                  title="Opponents' Match-Win Percentage — primary MTG tiebreaker"
+                >
+                  OMW%
+                </th>
+                <th
+                  className="px-3 py-2 text-right"
+                  title="Game-Win Percentage — secondary MTG tiebreaker"
+                >
+                  GW%
+                </th>
+                <th
+                  className="px-3 py-2 text-right"
+                  title="Opponents' Game-Win Percentage — tertiary MTG tiebreaker"
+                >
+                  OGW%
+                </th>
+                <th className="px-3 py-2 text-right">ELO</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {standings.map((s, i) => (
+                <tr
+                  key={s.playerId}
+                  className="border-t border-zinc-800 hover:bg-zinc-900"
+                >
+                  <td className="px-3 py-2 font-mono text-zinc-500">{i + 1}</td>
+                  <td className="px-3 py-2 font-medium">{s.displayName}</td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {s.wins}-{s.losses}-{s.draws}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">{s.matchPoints}</td>
+                  <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                    {formatPct(s.opponentMatchWinPct)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                    {formatPct(s.gameWinPct)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                    {formatPct(s.opponentGameWinPct)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                    {s.currentElo}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
-    </main>
+      </main>
+    </AppChrome>
   );
 }
 
@@ -604,7 +688,7 @@ function SwapPicker({
         </select>
         <button
           type="submit"
-          className="rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium hover:bg-zinc-700"
+          className="rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
           Swap
         </button>
@@ -637,8 +721,8 @@ function ResultButton({
         type="submit"
         className={
           variant === "muted"
-            ? "rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
-            : "rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+            ? "w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 sm:w-auto"
+            : "w-full rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 sm:w-auto"
         }
       >
         {label}

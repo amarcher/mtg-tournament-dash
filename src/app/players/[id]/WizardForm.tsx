@@ -84,10 +84,11 @@ function FormBody({
         className="contents disabled:opacity-60"
       >
         <div className="md:col-span-2">
-          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
+          <label htmlFor="wizard-selfie" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
             Selfie
           </label>
           <input
+            id="wizard-selfie"
             name="selfie"
             type="file"
             required
@@ -96,10 +97,11 @@ function FormBody({
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
+          <label htmlFor="wizard-archetype" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
             Archetype
           </label>
           <select
+            id="wizard-archetype"
             name="archetype"
             defaultValue={defaultArchetype ?? "archmage"}
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
@@ -112,10 +114,11 @@ function FormBody({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
+          <label htmlFor="wizard-freeform" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
             Extra detail (optional)
           </label>
           <input
+            id="wizard-freeform"
             name="freeform"
             placeholder="e.g. red beard, raven on shoulder"
             maxLength={140}
