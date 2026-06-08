@@ -19,9 +19,11 @@ import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 function EventContextLinks({
   leagueSlug,
   eventId,
+  playerId,
 }: {
   leagueSlug?: string;
   eventId: string;
+  playerId?: string;
 }) {
   return (
     <div className="flex flex-wrap gap-2 text-sm">
@@ -31,6 +33,14 @@ function EventContextLinks({
           className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
           League
+        </Link>
+      )}
+      {playerId && (
+        <Link
+          href={`/players/${playerId}`}
+          className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+        >
+          Edit portrait
         </Link>
       )}
       <Link
@@ -116,7 +126,11 @@ export default async function PlayPage({
     return (
       <main className="mx-auto w-full max-w-md px-4 py-6">
         <div className="mb-4">
-          <EventContextLinks leagueSlug={league?.slug} eventId={id} />
+          <EventContextLinks
+            leagueSlug={league?.slug}
+            eventId={id}
+            playerId={me.playerId}
+          />
         </div>
         <div className="mb-4 text-center">
           <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
@@ -143,7 +157,11 @@ export default async function PlayPage({
     return (
       <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
         <div className="mb-6 text-left">
-          <EventContextLinks leagueSlug={league?.slug} eventId={id} />
+          <EventContextLinks
+            leagueSlug={league?.slug}
+            eventId={id}
+            playerId={me.playerId}
+          />
         </div>
         <h1 className="text-2xl font-semibold">Hi {me.displayName}</h1>
         <p className="mt-3 text-zinc-400">
