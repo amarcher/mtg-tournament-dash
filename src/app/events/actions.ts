@@ -706,6 +706,17 @@ export async function endEventAction(eventId: string) {
       .where(eq(rounds.id, round.id));
   }
 
+  // Drop a previewed-but-unconfirmed round so it doesn't survive the finalize
+  // as a stale orphan that reappears (with stale pairings) on reopen.
+  const [pending] = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
+  if (pending) {
+    await db.delete(matches).where(eq(matches.roundId, pending.id));
+    await db.delete(rounds).where(eq(rounds.id, pending.id));
+  }
+
   const completedCount = (
     await db.select().from(rounds).where(eq(rounds.eventId, eventId))
   ).filter((r) => r.status === "complete").length;
@@ -715,10 +726,7 @@ export async function endEventAction(eventId: string) {
 
   await finalizeEvent(eventId);
 
-  await publish(eventId, {
-    type: "round_completed",
-    roundNumber: round?.roundNumber ?? completedCount,
-  });
+  await publish(eventId, { type: "event_state_changed", status: "complete" });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);
@@ -745,14 +753,7 @@ export async function reopenEventAction(eventId: string) {
     .set({ status: "active" })
     .where(eq(events.id, eventId));
 
-  const completedCount = (
-    await db.select().from(rounds).where(eq(rounds.eventId, eventId))
-  ).filter((r) => r.status === "complete").length;
-
-  await publish(eventId, {
-    type: "round_completed",
-    roundNumber: completedCount,
-  });
+  await publish(eventId, { type: "event_state_changed", status: "active" });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);
@@ -779,14 +780,7 @@ export async function addRoundAction(eventId: string) {
     .set({ status: "active", totalRounds: event.totalRounds + 1 })
     .where(eq(events.id, eventId));
 
-  const completedCount = (
-    await db.select().from(rounds).where(eq(rounds.eventId, eventId))
-  ).filter((r) => r.status === "complete").length;
-
-  await publish(eventId, {
-    type: "round_completed",
-    roundNumber: completedCount,
-  });
+  await publish(eventId, { type: "event_state_changed", status: "active" });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);

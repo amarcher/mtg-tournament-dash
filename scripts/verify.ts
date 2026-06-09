@@ -944,17 +944,21 @@ async function runEndEarlyPass() {
   assert(reopenThrew, "reopenEventAction throws on a non-complete event");
 
   // Previewing works again now that the event is active (still within the
-  // 3-round cap — only 2 are played), and a re-end re-completes cleanly.
+  // 3-round cap — only 2 are played). Leave the pending round in place and
+  // end early anyway: the unconfirmed preview must be torn down, not orphaned.
   await previewNextRoundAction(event.id);
   const rePending = await getPendingRound(event.id);
   assert(rePending !== null, "preview works again after reopen");
-  await cancelPendingRoundAction(event.id);
   await endEventAction(event.id);
   const [reEnded] = await db
     .select()
     .from(events)
     .where(eq(events.id, event.id));
   assert(reEnded.status === "complete", "re-ending after reopen re-completes");
+  assert(
+    (await getPendingRound(event.id)) === null,
+    "ending early tears down an unconfirmed pending round (no orphan)"
+  );
 
   // Add a round: raises the cap past the originally scheduled count and reopens.
   const beforeTotal = reEnded.totalRounds;

@@ -116,7 +116,8 @@ export function BroadcastClient({
         msg.type === "match_complete" ||
         msg.type === "game_complete" ||
         msg.type === "round_started" ||
-        msg.type === "round_completed"
+        msg.type === "round_completed" ||
+        msg.type === "event_state_changed"
       ) {
         // Hard refresh — server has the source of truth.
         window.location.reload();

@@ -92,7 +92,12 @@ export default async function ManagePage({
   // closed round, plus the active one once its last match is reported.
   const roundsIfEndedNow =
     completedRoundsCount + (activeRound && incompleteCount === 0 ? 1 : 0);
-  const champion = standings[0]?.displayName;
+  // Name the champion from the locked-in placements, not live standings —
+  // results can still be edited after completion, and the banner must agree
+  // with the finalStanding table shown below it.
+  const champion =
+    roster.find((p) => p.finalStanding === 1)?.displayName ??
+    standings[0]?.displayName;
   const roundsRemaining =
     event.totalRounds -
     (completedRoundsCount + (activeRound ? 1 : 0) + (pendingRound ? 1 : 0));
