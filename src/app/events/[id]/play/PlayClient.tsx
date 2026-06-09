@@ -103,11 +103,12 @@ export function PlayClient({
         setALife(startingLife);
         setBLife(startingLife);
         inFlight.current = { a: 0, b: 0 };
-        // A new game is starting. Drop the ts baselines, and clear the game id
-        // so we don't apply life events until the poll confirms the new active
-        // game (events for the *old* game are now stale by definition).
+        // A new game is starting. Drop the ts baselines and adopt the new game
+        // id the event carries, so life events (and our own writes' CAS token)
+        // target the new game immediately — no blind window waiting on the poll,
+        // and events for the *old* game are rejected by the id mismatch.
         lastTs.current = { a: 0, b: 0 };
-        currentGameId.current = "";
+        currentGameId.current = msg.newGameId;
       }
       if (msg.type === "match_complete" && msg.matchId === matchId) {
         window.location.reload();

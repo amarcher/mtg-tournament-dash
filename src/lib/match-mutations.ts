@@ -186,17 +186,21 @@ export async function applyGameWinner(args: {
     });
   } else {
     const nextGameNumber = allGames.length + 1;
-    await db.insert(games).values({
-      matchId: match.id,
-      gameNumber: nextGameNumber,
-      playerALife: event.startingLife,
-      playerBLife: event.startingLife,
-    });
+    const [newGame] = await db
+      .insert(games)
+      .values({
+        matchId: match.id,
+        gameNumber: nextGameNumber,
+        playerALife: event.startingLife,
+        playerBLife: event.startingLife,
+      })
+      .returning();
     await publish(event.id, {
       type: "game_complete",
       matchId: match.id,
       winnerId: args.winnerId,
       nextGameNumber,
+      newGameId: newGame.id,
     });
   }
 }

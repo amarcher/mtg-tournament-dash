@@ -128,6 +128,7 @@ describe("pubsub (in-process fallback)", () => {
         matchId: "m1",
         winnerId: "p1",
         nextGameNumber: 2,
+        newGameId: "g2",
       },
       { type: "match_complete", matchId: "m1", winnerId: "p1" },
     ];

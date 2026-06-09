@@ -30,6 +30,10 @@ export const realtimeSchema = {
     matchId: z.string(),
     winnerId: z.string(),
     nextGameNumber: z.number(),
+    // Id of the freshly-created next game. The phone view adopts this
+    // immediately so its life-event guard accepts the new game's events
+    // without waiting for the next state poll. See src/lib/life-events.ts.
+    newGameId: z.string(),
   }),
   match_complete: z.object({
     ts: z.number(),
@@ -74,6 +78,7 @@ export type EventMessage =
       matchId: string;
       winnerId: string;
       nextGameNumber: number;
+      newGameId: string;
     }
   | { type: "match_complete"; ts: number; matchId: string; winnerId: string };
 
