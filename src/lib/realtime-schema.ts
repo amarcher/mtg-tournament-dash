@@ -14,6 +14,10 @@ import { z } from "zod";
 export const realtimeSchema = {
   round_started: z.object({ ts: z.number(), roundNumber: z.number() }),
   round_completed: z.object({ ts: z.number(), roundNumber: z.number() }),
+  event_state_changed: z.object({
+    ts: z.number(),
+    status: z.enum(["active", "complete"]),
+  }),
   life_changed: z.object({
     ts: z.number(),
     matchId: z.string(),
@@ -37,6 +41,7 @@ export const realtimeSchema = {
 export const REALTIME_EVENT_NAMES = [
   "round_started",
   "round_completed",
+  "event_state_changed",
   "life_changed",
   "game_complete",
   "match_complete",
@@ -50,6 +55,11 @@ export type RealtimeEventName = (typeof REALTIME_EVENT_NAMES)[number];
 export type EventMessage =
   | { type: "round_started"; ts: number; roundNumber: number }
   | { type: "round_completed"; ts: number; roundNumber: number }
+  | {
+      type: "event_state_changed";
+      ts: number;
+      status: "active" | "complete";
+    }
   | {
       type: "life_changed";
       ts: number;
@@ -73,6 +83,7 @@ export type EventMessage =
 export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set([
   "round_started",
   "round_completed",
+  "event_state_changed",
   "match_complete",
   "game_complete",
 ]);

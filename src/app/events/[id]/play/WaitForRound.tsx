@@ -18,6 +18,7 @@ export function WaitForRound({ eventId }: { eventId: string }) {
         if (
           msg.type === "round_started" ||
           msg.type === "round_completed" ||
+          msg.type === "event_state_changed" ||
           msg.type === "match_complete"
         ) {
           window.location.reload();

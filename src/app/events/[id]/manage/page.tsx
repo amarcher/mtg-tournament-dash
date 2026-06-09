@@ -12,12 +12,15 @@ import {
 } from "@/db/queries";
 import {
   addManualPairingAction,
+  addRoundAction,
   cancelPendingRoundAction,
   completeRoundAction,
   confirmRoundAction,
   dropPendingMatchAction,
+  endEventAction,
   previewNextRoundAction,
   regeneratePendingPairingsAction,
+  reopenEventAction,
   setMatchResultAction,
   swapMatchPlayersAction,
 } from "@/app/events/actions";
@@ -84,6 +87,17 @@ export default async function ManagePage({
   const completedRoundsCount = rounds.filter(
     (r) => r.status === "complete"
   ).length;
+  const isComplete = event.status === "complete";
+  // Rounds whose results would count if the organizer ended right now: every
+  // closed round, plus the active one once its last match is reported.
+  const roundsIfEndedNow =
+    completedRoundsCount + (activeRound && incompleteCount === 0 ? 1 : 0);
+  // Name the champion from the locked-in placements, not live standings —
+  // results can still be edited after completion, and the banner must agree
+  // with the finalStanding table shown below it.
+  const champion =
+    roster.find((p) => p.finalStanding === 1)?.displayName ??
+    standings[0]?.displayName;
   const roundsRemaining =
     event.totalRounds -
     (completedRoundsCount + (activeRound ? 1 : 0) + (pendingRound ? 1 : 0));
@@ -114,6 +128,18 @@ export default async function ManagePage({
   const completeActive = async () => {
     "use server";
     await completeRoundAction(id);
+  };
+  const endEvent = async () => {
+    "use server";
+    await endEventAction(id);
+  };
+  const reopenEvent = async () => {
+    "use server";
+    await reopenEventAction(id);
+  };
+  const addRound = async () => {
+    "use server";
+    await addRoundAction(id);
   };
 
   return (
@@ -195,36 +221,130 @@ export default async function ManagePage({
           )}
         </section>
 
-      <div className="mb-8 flex flex-wrap gap-3">
-        {!pendingRound && roundsRemaining > 0 && (
-          <form action={previewNext}>
-            <button
-              type="submit"
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-            >
-              Preview round {completedRoundsCount + (activeRound ? 1 : 0) + 1}
-            </button>
-          </form>
-        )}
-        {activeRound && (
-          <form action={completeActive}>
-            <button
-              type="submit"
-              disabled={incompleteCount > 0}
-              className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-zinc-950/60"
-              title={
-                incompleteCount > 0
-                  ? `${incompleteCount} match(es) need a result first`
-                  : ""
-              }
-            >
-              {incompleteCount > 0
-                ? `Complete round (${incompleteCount} pending)`
-                : `Complete round ${activeRound.roundNumber}`}
-            </button>
-          </form>
-        )}
-      </div>
+      {isComplete ? (
+        <section className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-medium uppercase tracking-[0.2em] text-amber-300">
+                Tournament complete
+              </h2>
+              <p className="mt-1 text-sm text-zinc-300">
+                {champion ? (
+                  <>
+                    Champion: <strong className="text-amber-200">{champion}</strong> · final
+                    standings locked in after {completedRoundsCount} round
+                    {completedRoundsCount === 1 ? "" : "s"}.
+                  </>
+                ) : (
+                  "Final standings are locked in below."
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-start gap-2">
+              <Link
+                href={`/events/${id}/broadcast`}
+                target="_blank"
+                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              >
+                View results
+              </Link>
+              <form action={addRound}>
+                <button
+                  type="submit"
+                  className="rounded-md border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  title="Reopen the event and schedule one more round"
+                >
+                  Add a round
+                </button>
+              </form>
+              <details className="group">
+                <summary className="cursor-pointer list-none rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
+                  Reopen…
+                </summary>
+                <div className="mt-2 w-full max-w-md rounded-md border border-zinc-700 bg-zinc-950 p-3">
+                  <p className="mb-3 text-xs text-zinc-400">
+                    Unlock final standings and set the event back to in-progress
+                    so you can play more rounds or re-end it. Match results and
+                    ELO are kept.
+                  </p>
+                  <form action={reopenEvent}>
+                    <button
+                      type="submit"
+                      className="rounded-md bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                    >
+                      Reopen event
+                    </button>
+                  </form>
+                </div>
+              </details>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <div className="mb-8 flex flex-wrap items-start gap-3">
+          {!pendingRound && roundsRemaining > 0 && (
+            <form action={previewNext}>
+              <button
+                type="submit"
+                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              >
+                Preview round {completedRoundsCount + (activeRound ? 1 : 0) + 1}
+              </button>
+            </form>
+          )}
+          {activeRound && (
+            <form action={completeActive}>
+              <button
+                type="submit"
+                disabled={incompleteCount > 0}
+                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-zinc-950/60"
+                title={
+                  incompleteCount > 0
+                    ? `${incompleteCount} match(es) need a result first`
+                    : ""
+                }
+              >
+                {incompleteCount > 0
+                  ? `Complete round (${incompleteCount} pending)`
+                  : `Complete round ${activeRound.roundNumber}`}
+              </button>
+            </form>
+          )}
+          {(completedRoundsCount >= 1 || activeRound) && (
+            <details className="group">
+              <summary className="cursor-pointer list-none rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70">
+                End event early…
+              </summary>
+              <div className="mt-2 w-full max-w-md rounded-md border border-red-500/30 bg-zinc-950 p-3">
+                {activeRound && incompleteCount > 0 ? (
+                  <p className="text-xs text-amber-200">
+                    Report the {incompleteCount} pending match
+                    {incompleteCount === 1 ? "" : "es"} in round{" "}
+                    {activeRound.roundNumber} before ending the event.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mb-3 text-xs text-zinc-400">
+                      Finish the tournament now and tabulate the winner from the{" "}
+                      {roundsIfEndedNow} round{roundsIfEndedNow === 1 ? "" : "s"}{" "}
+                      played so far. Final standings get locked in and this
+                      can&apos;t be undone.
+                    </p>
+                    <form action={endEvent}>
+                      <button
+                        type="submit"
+                        className="rounded-md bg-red-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
+                      >
+                        End event &amp; tabulate winner
+                      </button>
+                    </form>
+                  </>
+                )}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
 
       <section className="mb-10">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">

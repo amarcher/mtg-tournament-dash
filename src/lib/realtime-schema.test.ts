@@ -28,6 +28,7 @@ describe("realtime-schema", () => {
     > = {
       round_started: { ts: 1, roundNumber: 3 },
       round_completed: { ts: 1, roundNumber: 3 },
+      event_state_changed: { ts: 1, status: "complete" as const },
       life_changed: {
         ts: 1,
         matchId: "m1",

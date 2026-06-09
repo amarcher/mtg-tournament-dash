@@ -83,7 +83,11 @@ export function PlayClient({
       }
       // When the organizer advances rounds, the page that decides which match
       // is "yours" lives on the server — reload to re-fetch.
-      if (msg.type === "round_started" || msg.type === "round_completed") {
+      if (
+        msg.type === "round_started" ||
+        msg.type === "round_completed" ||
+        msg.type === "event_state_changed"
+      ) {
         window.location.reload();
       }
     });
