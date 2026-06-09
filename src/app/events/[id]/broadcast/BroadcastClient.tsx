@@ -9,6 +9,7 @@ import {
   type AvatarTiers,
 } from "@/lib/avatar-tier";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
+import { shouldApplyLifeChanged } from "@/lib/life-events";
 
 export type { AvatarTiers };
 
@@ -84,6 +85,10 @@ export function BroadcastClient({
     Record<string, "damage" | "heal" | undefined>
   >({});
   const pulseTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Publish-time ts of the last applied life event, keyed `${matchId}:${side}`.
+  // Rejects out-of-order / replayed deliveries; the per-game check uses each
+  // match's `activeGameId` (kept current by the reload-on-game-flip poll).
+  const lastTsRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const es = new EventSource(`/api/events/${eventId}/stream`);
@@ -96,9 +101,21 @@ export function BroadcastClient({
             const sideKey = msg.side === "a" ? "playerA" : "playerB";
             const side = m[sideKey];
             if (!side) return m;
+            const key = `${m.matchId}:${msg.side}`;
+            // Ignore stale replays: a prior game's life total (different
+            // gameId) or an out-of-order delivery older than what we've shown.
+            const fresh = shouldApplyLifeChanged(
+              {
+                currentGameId: m.activeGameId,
+                lastTsA: lastTsRef.current[`${m.matchId}:a`] ?? 0,
+                lastTsB: lastTsRef.current[`${m.matchId}:b`] ?? 0,
+              },
+              msg
+            );
+            if (!fresh) return m;
+            lastTsRef.current[key] = msg.ts;
             const oldLife = side.life;
             const next = msg.life;
-            const key = `${m.matchId}:${msg.side}`;
             const direction: "damage" | "heal" =
               next < oldLife ? "damage" : "heal";
             setPulses((p) => ({ ...p, [key]: direction }));

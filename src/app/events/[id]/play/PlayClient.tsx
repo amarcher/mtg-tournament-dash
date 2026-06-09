@@ -10,6 +10,7 @@ import {
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
 import { pickAvatarUrl, type AvatarTiers } from "@/lib/avatar-tier";
+import { shouldApplyLifeChanged } from "@/lib/life-events";
 
 type Props = {
   eventId: string;
@@ -55,6 +56,15 @@ export function PlayClient({
   // arrive with stale server snapshots and would visually rubber-band the
   // counter back. Cleared once every in-flight write resolves.
   const inFlight = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
+  // The game these life totals belong to. Seeded from SSR and kept current by
+  // the polling reconcile below. The SSE listener ignores `life_changed` events
+  // for any other game, so a reconnect history-replay of a *previous* game's
+  // life totals (whose resetting `game_complete` is structural and gets dropped
+  // from the replay) can't rewind the counter. See src/lib/life-events.ts.
+  const currentGameId = useRef<string>(initialGame.id);
+  // Publish-time ts of the last life event we applied, per side — rejects
+  // out-of-order / duplicated replay deliveries within the current game.
+  const lastTs = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
 
   // Subscribe to live updates for the opponent's edits. SSE is fast but
   // best-effort — the polling loop below is the source of truth.
@@ -63,10 +73,26 @@ export function PlayClient({
     es.addEventListener("message", (e) => {
       const msg = JSON.parse(e.data) as EventMessage;
       if (msg.type === "life_changed" && msg.matchId === matchId) {
-        if (msg.side === "a") {
-          if (inFlight.current.a === 0) setALife(msg.life);
-        } else {
-          if (inFlight.current.b === 0) setBLife(msg.life);
+        const fresh = shouldApplyLifeChanged(
+          {
+            currentGameId: currentGameId.current,
+            lastTsA: lastTs.current.a,
+            lastTsB: lastTs.current.b,
+          },
+          msg
+        );
+        if (fresh) {
+          if (msg.side === "a") {
+            if (inFlight.current.a === 0) {
+              setALife(msg.life);
+              lastTs.current.a = msg.ts;
+            }
+          } else {
+            if (inFlight.current.b === 0) {
+              setBLife(msg.life);
+              lastTs.current.b = msg.ts;
+            }
+          }
         }
       }
       if (msg.type === "game_complete" && msg.matchId === matchId) {
@@ -77,6 +103,12 @@ export function PlayClient({
         setALife(startingLife);
         setBLife(startingLife);
         inFlight.current = { a: 0, b: 0 };
+        // A new game is starting. Drop the ts baselines and adopt the new game
+        // id the event carries, so life events (and our own writes' CAS token)
+        // target the new game immediately — no blind window waiting on the poll,
+        // and events for the *old* game are rejected by the id mismatch.
+        lastTs.current = { a: 0, b: 0 };
+        currentGameId.current = msg.newGameId;
       }
       if (msg.type === "match_complete" && msg.matchId === matchId) {
         window.location.reload();
@@ -111,12 +143,16 @@ export function PlayClient({
           status: "pending" | "in_progress" | "complete";
           life: { a: number | null; b: number | null };
           wins: { a: number; b: number };
+          activeGameId: string | null;
         };
         if (stopped) return;
         if (s.status === "complete") {
           window.location.reload();
           return;
         }
+        // The server is the authority on which game is live; adopt it so the
+        // SSE guard accepts events for the current game (and only that game).
+        if (s.activeGameId) currentGameId.current = s.activeGameId;
         if (s.life.a !== null && inFlight.current.a === 0) {
           setALife((cur) => (cur !== s.life.a ? (s.life.a as number) : cur));
         }
@@ -172,12 +208,28 @@ export function PlayClient({
   const oppName = mySide === "a" ? players.b?.displayName : players.a.displayName;
 
   const adjust = (side: "a" | "b", delta: number) => {
+    // Capture what the user saw *before* the optimistic update — that's the
+    // value the server compares against. Rapid same-side taps each capture the
+    // running optimistic value, so they chain correctly; a stale or duplicated
+    // write fails the compare and the server hands back the truth to resync to.
+    const expectedLife = side === "a" ? aLife : bLife;
+    const gameId = currentGameId.current;
     if (side === "a") setALife((v) => v + delta);
     else setBLife((v) => v + delta);
     inFlight.current[side] += 1;
     startTransition(async () => {
       try {
-        await adjustLifeAction({ matchId, side, delta });
+        const res = await adjustLifeAction({
+          matchId,
+          side,
+          delta,
+          gameId,
+          expectedLife,
+        });
+        if (res.life !== null) {
+          if (side === "a") setALife(res.life);
+          else setBLife(res.life);
+        }
       } finally {
         inFlight.current[side] = Math.max(0, inFlight.current[side] - 1);
       }

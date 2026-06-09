@@ -41,6 +41,7 @@ describe("realtime-schema", () => {
         matchId: "m1",
         winnerId: "p1",
         nextGameNumber: 2,
+        newGameId: "g2",
       },
       match_complete: { ts: 1, matchId: "m1", winnerId: "p1" },
     };
