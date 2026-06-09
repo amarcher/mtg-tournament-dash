@@ -32,13 +32,16 @@ import {
 } from "../src/db/schema";
 import {
   addManualPairingAction,
+  addRoundAction,
   adjustLifeAction,
   cancelPendingRoundAction,
   completeRoundAction,
   confirmRoundAction,
   dropPendingMatchAction,
+  endEventAction,
   generateWizardAction,
   previewNextRoundAction,
+  reopenEventAction,
   regeneratePendingPairingsAction,
   reportGameWinnerAction,
   reportMatchDrawAction,
@@ -845,6 +848,154 @@ async function runReviewFlowPass() {
   ok("post-clean review-flow rows");
 }
 
+/**
+ * Exercise `endEventAction`: drive only 2 of a 3-round event, then end early and
+ * assert the winner is tabulated from the rounds actually played — finalStanding
+ * is a 1..N permutation, rank 1 matches the top of standings, and the completed
+ * event refuses further rounds.
+ */
+async function runEndEarlyPass() {
+  console.log("\n--- end-event-early pass ---");
+  await cleanup();
+
+  const { event, players: tp } = await setupEvent(8);
+  ok(`set up 8-player event ${event.id.slice(0, 8)} for end-early pass`);
+
+  await driveRound1ViaPhones(event.id);
+  await driveRound2WithOverridesAndDraw(event.id);
+  ok("drove 2 of 3 scheduled rounds");
+
+  const [mid] = await db.select().from(events).where(eq(events.id, event.id));
+  assert(mid.status === "active", "event still active after 2 of 3 rounds");
+
+  const standingsBefore = await getEventStandings(event.id);
+  await endEventAction(event.id);
+
+  const [ended] = await db.select().from(events).where(eq(events.id, event.id));
+  assert(
+    ended.status === "complete",
+    "endEventAction marks the event complete after only 2 rounds"
+  );
+
+  const finals = await db
+    .select({
+      playerId: eventPlayers.playerId,
+      finalStanding: eventPlayers.finalStanding,
+    })
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, event.id));
+  assert(
+    finals.every((f) => f.finalStanding !== null),
+    "every player got a finalStanding on early end"
+  );
+  const ranks = finals.map((f) => f.finalStanding!).sort((a, b) => a - b);
+  assert(
+    ranks.length === tp.length && ranks.every((r, i) => r === i + 1),
+    "finalStanding values are a 1..N permutation"
+  );
+  const winner = finals.find((f) => f.finalStanding === 1)!;
+  assert(
+    winner.playerId === standingsBefore[0].playerId,
+    "rank 1 matches the top of standings at end time"
+  );
+
+  let endThrew = false;
+  try {
+    await endEventAction(event.id);
+  } catch {
+    endThrew = true;
+  }
+  assert(endThrew, "endEventAction throws on an already-complete event");
+
+  let previewThrew = false;
+  try {
+    await previewNextRoundAction(event.id);
+  } catch {
+    previewThrew = true;
+  }
+  assert(
+    previewThrew,
+    "previewNextRoundAction refuses a completed event (no sprouting a new round)"
+  );
+
+  // Reopen undoes the completion: status back to active, placements cleared.
+  await reopenEventAction(event.id);
+  const [reopened] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, event.id));
+  assert(reopened.status === "active", "reopenEventAction sets event back to active");
+  const clearedFinals = await db
+    .select({ finalStanding: eventPlayers.finalStanding })
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, event.id));
+  assert(
+    clearedFinals.every((f) => f.finalStanding === null),
+    "reopenEventAction clears every finalStanding"
+  );
+
+  // Reopening a non-complete event throws.
+  let reopenThrew = false;
+  try {
+    await reopenEventAction(event.id);
+  } catch {
+    reopenThrew = true;
+  }
+  assert(reopenThrew, "reopenEventAction throws on a non-complete event");
+
+  // Previewing works again now that the event is active (still within the
+  // 3-round cap — only 2 are played), and a re-end re-completes cleanly.
+  await previewNextRoundAction(event.id);
+  const rePending = await getPendingRound(event.id);
+  assert(rePending !== null, "preview works again after reopen");
+  await cancelPendingRoundAction(event.id);
+  await endEventAction(event.id);
+  const [reEnded] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, event.id));
+  assert(reEnded.status === "complete", "re-ending after reopen re-completes");
+
+  // Add a round: raises the cap past the originally scheduled count and reopens.
+  const beforeTotal = reEnded.totalRounds;
+  await addRoundAction(event.id);
+  const [extended] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, event.id));
+  assert(extended.status === "active", "addRoundAction reopens the event");
+  assert(
+    extended.totalRounds === beforeTotal + 1,
+    "addRoundAction raises totalRounds by one"
+  );
+  const clearedByAdd = await db
+    .select({ finalStanding: eventPlayers.finalStanding })
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, event.id));
+  assert(
+    clearedByAdd.every((f) => f.finalStanding === null),
+    "addRoundAction clears placements on reopen"
+  );
+
+  // The extra round is now previewable even though the original schedule was full.
+  await previewNextRoundAction(event.id);
+  const extraPending = await getPendingRound(event.id);
+  assert(extraPending !== null, "extra round previewable after addRoundAction");
+  await cancelPendingRoundAction(event.id);
+
+  // addRoundAction refuses an event that isn't complete.
+  let addThrew = false;
+  try {
+    await addRoundAction(event.id);
+  } catch {
+    addThrew = true;
+  }
+  assert(addThrew, "addRoundAction throws on a non-complete event");
+
+  await cleanup();
+  ok("post-clean end-early rows");
+}
+
 async function checkRoutes(eventId: string) {
   // Probe the server first; skip silently if it isn't running OR if something
   // unrelated is on the port. Look for "MTG Dash" in the response so a
@@ -1025,6 +1176,7 @@ async function main() {
 
   await runSixPlayerSwissPass();
   await runReviewFlowPass();
+  await runEndEarlyPass();
 
   await cleanup();
   ok("post-clean test rows");

@@ -290,6 +290,7 @@ export async function generateWizardAction(formData: FormData) {
 export async function previewNextRoundAction(eventId: string) {
   const [event] = await db.select().from(events).where(eq(events.id, eventId));
   if (!event) throw new Error("Event not found");
+  if (event.status === "complete") throw new Error("Event is already complete");
 
   const existingRounds = await db
     .select()
@@ -349,6 +350,7 @@ export async function previewNextRoundAction(eventId: string) {
 export async function confirmRoundAction(eventId: string) {
   const [event] = await db.select().from(events).where(eq(events.id, eventId));
   if (!event) throw new Error("Event not found");
+  if (event.status === "complete") throw new Error("Event is already complete");
 
   const [pending] = await db
     .select()
@@ -640,22 +642,7 @@ export async function completeRoundAction(eventId: string) {
   ).filter((r) => r.status === "complete").length;
 
   if (completed >= event.totalRounds) {
-    const standings = await getEventStandings(eventId);
-    for (let i = 0; i < standings.length; i++) {
-      await db
-        .update(eventPlayers)
-        .set({ finalStanding: i + 1 })
-        .where(
-          and(
-            eq(eventPlayers.eventId, eventId),
-            eq(eventPlayers.playerId, standings[i].playerId)
-          )
-        );
-    }
-    await db
-      .update(events)
-      .set({ status: "complete" })
-      .where(eq(events.id, eventId));
+    await finalizeEvent(eventId);
   }
 
   await publish(eventId, {
@@ -664,6 +651,145 @@ export async function completeRoundAction(eventId: string) {
   });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
+}
+
+/**
+ * Lock in final placements and flip the event to `complete`. Shared by
+ * `completeRoundAction` (when the last scheduled round closes) and
+ * `endEventAction` (when the organizer stops early). Standings are computed
+ * from completed rounds only, so an early end ranks players on the rounds
+ * actually played.
+ */
+async function finalizeEvent(eventId: string) {
+  const standings = await getEventStandings(eventId);
+  for (let i = 0; i < standings.length; i++) {
+    await db
+      .update(eventPlayers)
+      .set({ finalStanding: i + 1 })
+      .where(
+        and(
+          eq(eventPlayers.eventId, eventId),
+          eq(eventPlayers.playerId, standings[i].playerId)
+        )
+      );
+  }
+  await db
+    .update(events)
+    .set({ status: "complete" })
+    .where(eq(events.id, eventId));
+}
+
+/**
+ * End the tournament before its scheduled round count is reached — the
+ * organizer uses this when the group decides to stop early (e.g. ran out of
+ * time after two of three rounds). If a round is still active, every match
+ * must have a reported winner first so its results count; we close it, then
+ * rank players on everything played so far and lock in placements.
+ */
+export async function endEventAction(eventId: string) {
+  const [event] = await db.select().from(events).where(eq(events.id, eventId));
+  if (!event) throw new Error("Event not found");
+  if (event.status === "complete") throw new Error("Event is already complete");
+
+  const round = await getCurrentRound(eventId);
+  if (round) {
+    const ms = await getRoundMatches(round.id);
+    const incomplete = ms.filter((r) => r.match.status !== "complete");
+    if (incomplete.length > 0) {
+      throw new Error(
+        `${incomplete.length} match(es) still in progress — report results before ending the event`
+      );
+    }
+    await db
+      .update(rounds)
+      .set({ status: "complete", completedAt: new Date() })
+      .where(eq(rounds.id, round.id));
+  }
+
+  const completedCount = (
+    await db.select().from(rounds).where(eq(rounds.eventId, eventId))
+  ).filter((r) => r.status === "complete").length;
+  if (completedCount === 0) {
+    throw new Error("Play at least one round before ending the event");
+  }
+
+  await finalizeEvent(eventId);
+
+  await publish(eventId, {
+    type: "round_completed",
+    roundNumber: round?.roundNumber ?? completedCount,
+  });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/play`);
+}
+
+/**
+ * Undo a completion — clear the locked-in placements and flip the event back to
+ * `active` so the organizer can keep playing or re-end. The inverse of
+ * `finalizeEvent`. ELO and match results are written at result-report time, not
+ * at finalize, so reopening loses nothing; previewing a new round still respects
+ * the event's `totalRounds` cap.
+ */
+export async function reopenEventAction(eventId: string) {
+  const [event] = await db.select().from(events).where(eq(events.id, eventId));
+  if (!event) throw new Error("Event not found");
+  if (event.status !== "complete") throw new Error("Event is not complete");
+
+  await db
+    .update(eventPlayers)
+    .set({ finalStanding: null })
+    .where(eq(eventPlayers.eventId, eventId));
+  await db
+    .update(events)
+    .set({ status: "active" })
+    .where(eq(events.id, eventId));
+
+  const completedCount = (
+    await db.select().from(rounds).where(eq(rounds.eventId, eventId))
+  ).filter((r) => r.status === "complete").length;
+
+  await publish(eventId, {
+    type: "round_completed",
+    roundNumber: completedCount,
+  });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/play`);
+}
+
+/**
+ * Extend a finished event by one round — raises `totalRounds` and reopens the
+ * event so the extra round flows through the normal preview/confirm UI. Used
+ * when a group wants to keep playing past the originally scheduled count. The
+ * inverse of nothing in particular; just re-end (or reopen) when done. Match
+ * results and ELO carry over untouched.
+ */
+export async function addRoundAction(eventId: string) {
+  const [event] = await db.select().from(events).where(eq(events.id, eventId));
+  if (!event) throw new Error("Event not found");
+  if (event.status !== "complete") throw new Error("Event is not complete");
+
+  await db
+    .update(eventPlayers)
+    .set({ finalStanding: null })
+    .where(eq(eventPlayers.eventId, eventId));
+  await db
+    .update(events)
+    .set({ status: "active", totalRounds: event.totalRounds + 1 })
+    .where(eq(events.id, eventId));
+
+  const completedCount = (
+    await db.select().from(rounds).where(eq(rounds.eventId, eventId))
+  ).filter((r) => r.status === "complete").length;
+
+  await publish(eventId, {
+    type: "round_completed",
+    roundNumber: completedCount,
+  });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/play`);
 }
 
 /* ---- in-match mutations (called from phone view) ---- */
