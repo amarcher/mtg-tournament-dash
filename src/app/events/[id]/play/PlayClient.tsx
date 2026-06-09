@@ -207,12 +207,28 @@ export function PlayClient({
   const oppName = mySide === "a" ? players.b?.displayName : players.a.displayName;
 
   const adjust = (side: "a" | "b", delta: number) => {
+    // Capture what the user saw *before* the optimistic update — that's the
+    // value the server compares against. Rapid same-side taps each capture the
+    // running optimistic value, so they chain correctly; a stale or duplicated
+    // write fails the compare and the server hands back the truth to resync to.
+    const expectedLife = side === "a" ? aLife : bLife;
+    const gameId = currentGameId.current;
     if (side === "a") setALife((v) => v + delta);
     else setBLife((v) => v + delta);
     inFlight.current[side] += 1;
     startTransition(async () => {
       try {
-        await adjustLifeAction({ matchId, side, delta });
+        const res = await adjustLifeAction({
+          matchId,
+          side,
+          delta,
+          gameId,
+          expectedLife,
+        });
+        if (res.life !== null) {
+          if (side === "a") setALife(res.life);
+          else setBLife(res.life);
+        }
       } finally {
         inFlight.current[side] = Math.max(0, inFlight.current[side] - 1);
       }

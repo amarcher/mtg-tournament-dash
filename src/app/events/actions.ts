@@ -14,7 +14,7 @@ function revalidatePath(path: string) {
     /* no-op outside request context */
   }
 }
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   eloChanges,
@@ -35,10 +35,13 @@ import { computeMatchElo } from "@/lib/elo";
 import { leagues } from "@/db/schema";
 import {
   generateJoinToken,
+  getCurrentPlayer,
   setLeagueCookie,
   setPlayerCookie,
 } from "@/lib/auth";
 import { publish } from "@/lib/pubsub";
+import { isMatchParticipant } from "@/lib/match-authz";
+import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
 import {
   generateWizardVariantsFromSelfie,
 } from "@/lib/wizard";
@@ -788,165 +791,52 @@ export async function addRoundAction(eventId: string) {
 
 /* ---- in-match mutations (called from phone view) ---- */
 
-export async function adjustLifeAction(args: {
-  matchId: string;
-  side: "a" | "b";
-  delta: number;
-}) {
+/**
+ * Resolve the match + its event and require the cookie-bound caller to be a
+ * participant. Mirrors the read route's check; the mutating actions go through
+ * this so they aren't less protected than reads.
+ */
+async function authorizeMatchParticipant(matchId: string) {
   const [match] = await db
     .select()
     .from(matches)
-    .where(eq(matches.id, args.matchId));
-  if (!match || match.status !== "in_progress")
-    throw new Error("Match not in progress");
-
-  const [game] = await db
-    .select()
-    .from(games)
-    .where(and(eq(games.matchId, args.matchId), isNull(games.winnerId)))
-    .orderBy(games.gameNumber)
-    .limit(1);
-  if (!game) throw new Error("No active game");
-
-  const current = args.side === "a" ? game.playerALife : game.playerBLife;
-  const next = current + args.delta;
-
-  await db
-    .update(games)
-    .set(args.side === "a" ? { playerALife: next } : { playerBLife: next })
-    .where(eq(games.id, game.id));
-
+    .where(eq(matches.id, matchId));
+  if (!match) throw new Error("Match not found");
   const [round] = await db
     .select()
     .from(rounds)
     .where(eq(rounds.id, match.roundId));
-  await publish(round.eventId, {
-    type: "life_changed",
-    matchId: args.matchId,
-    gameId: game.id,
-    side: args.side,
-    life: next,
-  });
+  const me = await getCurrentPlayer(round.eventId);
+  if (!isMatchParticipant(me?.playerId, match.playerAId, match.playerBId))
+    throw new Error("Not a participant in this match");
+  return { match, round, me };
+}
 
-  return { life: next };
+export async function adjustLifeAction(args: {
+  matchId: string;
+  side: "a" | "b";
+  delta: number;
+  /** The game the client believed it was acting on. */
+  gameId: string;
+  /** Life the client displayed for this side before applying its delta. */
+  expectedLife: number;
+}) {
+  await authorizeMatchParticipant(args.matchId);
+  return applyLifeAdjust(args);
 }
 
 export async function reportGameWinnerAction(args: {
   matchId: string;
   winnerId: string;
 }) {
-  const [match] = await db
-    .select()
-    .from(matches)
-    .where(eq(matches.id, args.matchId));
-  if (!match) throw new Error("Match not found");
-  // Touch UIs double-fire all the time; swallow late calls instead of
-  // crashing the player view. The first call already produced the state the
-  // user intended.
-  if (match.status === "complete") return;
-
-  const [game] = await db
-    .select()
-    .from(games)
-    .where(and(eq(games.matchId, args.matchId), isNull(games.winnerId)))
-    .orderBy(games.gameNumber)
-    .limit(1);
-  // Same idempotency reasoning — if there's no open game, no-op.
-  if (!game) return;
-
-  await db
-    .update(games)
-    .set({ winnerId: args.winnerId, completedAt: new Date() })
-    .where(eq(games.id, game.id));
-
-  const allGames = await db
-    .select()
-    .from(games)
-    .where(eq(games.matchId, args.matchId));
-  const aWins = allGames.filter((g) => g.winnerId === match.playerAId).length;
-  const bWins = allGames.filter((g) => g.winnerId === match.playerBId).length;
-
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, match.roundId));
-  const [event] = await db
-    .select()
-    .from(events)
-    .where(eq(events.id, round.eventId));
-
-  if (aWins >= 2 || bWins >= 2) {
-    const winnerId = aWins >= 2 ? match.playerAId : match.playerBId!;
-    await db
-      .update(matches)
-      .set({ status: "complete", winnerId, completedAt: new Date() })
-      .where(eq(matches.id, match.id));
-
-    if (match.playerBId) {
-      const [a] = await db
-        .select()
-        .from(players)
-        .where(eq(players.id, match.playerAId));
-      const [b] = await db
-        .select()
-        .from(players)
-        .where(eq(players.id, match.playerBId));
-      const elo = computeMatchElo({
-        playerAId: a.id,
-        playerARating: a.currentElo,
-        playerBId: b.id,
-        playerBRating: b.currentElo,
-        winnerId,
-      });
-      await db.insert(eloChanges).values([
-        {
-          matchId: match.id,
-          playerId: a.id,
-          before: elo.playerA.before,
-          after: elo.playerA.after,
-          delta: elo.playerA.delta,
-        },
-        {
-          matchId: match.id,
-          playerId: b.id,
-          before: elo.playerB.before,
-          after: elo.playerB.after,
-          delta: elo.playerB.delta,
-        },
-      ]);
-      await db
-        .update(players)
-        .set({ currentElo: elo.playerA.after })
-        .where(eq(players.id, a.id));
-      await db
-        .update(players)
-        .set({ currentElo: elo.playerB.after })
-        .where(eq(players.id, b.id));
-    }
-    await publish(event.id, {
-      type: "match_complete",
-      matchId: match.id,
-      winnerId,
-    });
-  } else {
-    const nextGameNumber = allGames.length + 1;
-    await db.insert(games).values({
-      matchId: match.id,
-      gameNumber: nextGameNumber,
-      playerALife: event.startingLife,
-      playerBLife: event.startingLife,
-    });
-    await publish(event.id, {
-      type: "game_complete",
-      matchId: match.id,
-      winnerId: args.winnerId,
-      nextGameNumber,
-    });
-  }
-
-  revalidatePath(`/events/${event.id}/play`);
-  revalidatePath(`/events/${event.id}/broadcast`);
-  revalidatePath(`/events/${event.id}/manage`);
+  const { round } = await authorizeMatchParticipant(args.matchId);
+  await applyGameWinner(args);
+  // Revalidation lives in the action wrapper (not the domain core) so the
+  // request-scoped swallowing `revalidatePath` above is used — trusted callers
+  // like the verify harness drive `applyGameWinner` directly, outside a request.
+  revalidatePath(`/events/${round.eventId}/play`);
+  revalidatePath(`/events/${round.eventId}/broadcast`);
+  revalidatePath(`/events/${round.eventId}/manage`);
 }
 
 /**
@@ -967,6 +857,7 @@ export async function setMatchResultAction(formData: FormData) {
  * FormData payload.
  */
 export async function reportMatchDrawAction(args: { matchId: string }) {
+  await authorizeMatchParticipant(args.matchId);
   await finalizeMatchOutcome({ matchId: args.matchId, outcome: "draw" });
 }
 

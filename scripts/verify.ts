@@ -17,7 +17,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-import { eq, like } from "drizzle-orm";
+import { eq, like, and, isNull } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { db } from "../src/db/client";
@@ -33,7 +33,6 @@ import {
 import {
   addManualPairingAction,
   addRoundAction,
-  adjustLifeAction,
   cancelPendingRoundAction,
   completeRoundAction,
   confirmRoundAction,
@@ -43,12 +42,11 @@ import {
   previewNextRoundAction,
   reopenEventAction,
   regeneratePendingPairingsAction,
-  reportGameWinnerAction,
-  reportMatchDrawAction,
   setMatchResultAction,
   startNextRoundAction,
   swapMatchPlayersAction,
 } from "../src/app/events/actions";
+import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
 import { generateJoinToken } from "../src/lib/auth";
 import {
   getActiveMatchForPlayer,
@@ -145,20 +143,45 @@ async function driveRound1ViaPhones(eventId: string) {
   // Exercise the life-adjust path on table 1 before reporting.
   const t1 = ms.find((m) => m.playerB);
   if (t1) {
-    const before = await adjustLifeAction({
+    const [g1] = await db
+      .select()
+      .from(games)
+      .where(and(eq(games.matchId, t1.match.id), isNull(games.winnerId)))
+      .orderBy(games.gameNumber)
+      .limit(1);
+    assert(g1, "active game exists for table 1");
+    const res = await applyLifeAdjust({
       matchId: t1.match.id,
       side: "a",
       delta: -3,
+      gameId: g1.id,
+      expectedLife: g1.playerALife,
     });
-    assert(before.life === 17, "adjustLifeAction returns new life total");
+    assert(
+      res.ok && res.life === g1.playerALife - 3,
+      "applyLifeAdjust returns the new life total"
+    );
+    // Compare-and-set rejects a write whose expected life no longer holds
+    // (e.g. a duplicated/retried tap or a stale cross-game delta).
+    const stale = await applyLifeAdjust({
+      matchId: t1.match.id,
+      side: "a",
+      delta: -1,
+      gameId: g1.id,
+      expectedLife: g1.playerALife,
+    });
+    assert(
+      !stale.ok && stale.reason === "stale_life",
+      "applyLifeAdjust rejects a stale-expected write"
+    );
   }
 
   for (const { match, playerA, playerB } of ms) {
     if (!playerB) continue;
     const winner =
       playerA.displayName < playerB.displayName ? playerA : playerB;
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
   await completeRoundAction(eventId);
 }
@@ -413,8 +436,8 @@ async function runSixPlayerSwissPass() {
     if (!playerB) continue;
     const winner =
       playerA.displayName < playerB.displayName ? playerA : playerB;
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
   await completeRoundAction(event.id);
 
@@ -470,8 +493,8 @@ async function runSixPlayerSwissPass() {
     if (!playerB) continue;
     const winner =
       playerA.displayName < playerB.displayName ? playerA : playerB;
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
   await completeRoundAction(event.id);
 
@@ -504,8 +527,8 @@ async function runSixPlayerSwissPass() {
     if (!playerB) continue;
     const winner =
       playerA.displayName < playerB.displayName ? playerA : playerB;
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
   await completeRoundAction(event.id);
 
@@ -690,20 +713,25 @@ async function runReviewFlowPass() {
   assert(round?.roundNumber === 1, "confirmed round is now active R1");
 
   const r1Active = await getRoundMatches(round!.id);
-  // Pick one match to end as a phone-reported draw; others decisive.
-  await reportMatchDrawAction({ matchId: r1Active[0].match.id });
+  // Pick one match to end as a draw; others decisive. (Driven via the
+  // organizer override here since the harness has no participant cookie for
+  // the phone-side reportMatchDrawAction; both funnel through the same
+  // finalize path.)
+  await setMatchResultAction(
+    makeFormData({ matchId: r1Active[0].match.id, outcome: "draw" })
+  );
   const [drawn] = await db
     .select()
     .from(matches)
     .where(eq(matches.id, r1Active[0].match.id));
   assert(drawn.status === "complete" && drawn.isDraw === true,
-    "reportMatchDrawAction marks the match complete + isDraw");
+    "draw marks the match complete + isDraw");
 
   for (const { match, playerA, playerB } of r1Active.slice(1)) {
     if (!playerB) continue;
     const winner = playerA.displayName < playerB.displayName ? playerA : playerB;
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
   await completeRoundAction(event.id);
   ok("R1 — drove a phone-side match draw alongside decisive results");
@@ -791,8 +819,8 @@ async function runReviewFlowPass() {
   for (const { match, playerA, playerB } of r2Live) {
     if (!playerB) continue;
     const winner = playerA.displayName < playerB.displayName ? playerA : playerB;
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-    await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
   await completeRoundAction(event.id);
 

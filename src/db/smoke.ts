@@ -7,9 +7,9 @@ import { db } from "./client";
 import { events, eventPlayers, players } from "./schema";
 import {
   startNextRoundAction,
-  reportGameWinnerAction,
   completeRoundAction,
 } from "../app/events/actions";
+import { applyGameWinner } from "../lib/match-mutations";
 import { generateJoinToken } from "../lib/auth";
 import {
   getCurrentRound,
@@ -63,8 +63,8 @@ async function main() {
       }
       // Best-of-three: alphabetically earlier name wins games 1 and 2.
       const winner = playerA.displayName < playerB.displayName ? playerA : playerB;
-      await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
-      await reportGameWinnerAction({ matchId: match.id, winnerId: winner.id });
+      await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+      await applyGameWinner({ matchId: match.id, winnerId: winner.id });
       console.log(
         `  T${match.tableNumber}: ${playerA.displayName} vs ${playerB.displayName} → ${winner.displayName} wins 2-0`
       );
