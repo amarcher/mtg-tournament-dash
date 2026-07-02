@@ -47,6 +47,7 @@ import {
   swapMatchPlayersAction,
 } from "../src/app/events/actions";
 import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
+import { addPlayerToEventRoster } from "../src/lib/event-roster";
 import { generateJoinToken } from "../src/lib/auth";
 import {
   getActiveMatchForPlayer,
@@ -1119,6 +1120,106 @@ async function checkRoutes(eventId: string) {
   }
 }
 
+/**
+ * Walk-up self-join (addPlayerToEventRoster): a league player can grab a seat
+ * in a draft event, re-joining is idempotent, and both the started-event and
+ * wrong-league cases are rejected. Self-contained in its own `_verify_walkup`
+ * league so it can't disturb the Swiss math of the main 8-player event.
+ */
+async function runWalkUpSelfJoinTest() {
+  const [league] = await db
+    .insert(leagues)
+    .values({ slug: `${PREFIX}walkup`, name: `${PREFIX}WalkupLeague` })
+    .returning();
+  const [w1, w2, w3, w4] = await db
+    .insert(players)
+    .values(
+      ["W1", "W2", "W3", "W4"].map((n) => ({
+        leagueId: league.id,
+        leagueToken: generateJoinToken(),
+        displayName: `${PREFIX}${n}`,
+      }))
+    )
+    .returning();
+  const [event] = await db
+    .insert(events)
+    .values({
+      leagueId: league.id,
+      name: `${PREFIX}walkup_event`,
+      totalRounds: 1,
+      startingLife: 20,
+    })
+    .returning();
+  await db.insert(eventPlayers).values(
+    [w1, w2].map((p, i) => ({
+      eventId: event.id,
+      playerId: p.id,
+      seed: i + 1,
+      startingElo: p.currentElo,
+      joinToken: generateJoinToken(),
+    }))
+  );
+
+  const joined = await addPlayerToEventRoster({
+    eventId: event.id,
+    playerId: w3.id,
+  });
+  assert(!joined.alreadyJoined, "walk-up joins a draft event");
+  const roster = await getEventRoster(event.id);
+  assert(
+    roster.length === 3 && roster.some((r) => r.playerId === w3.id),
+    "roster includes the walk-up"
+  );
+  const [seat] = await db
+    .select()
+    .from(eventPlayers)
+    .where(
+      and(eq(eventPlayers.eventId, event.id), eq(eventPlayers.playerId, w3.id))
+    );
+  assert(seat.seed === 3, "walk-up gets the next seed");
+
+  const rejoined = await addPlayerToEventRoster({
+    eventId: event.id,
+    playerId: w3.id,
+  });
+  assert(
+    rejoined.alreadyJoined && rejoined.joinToken === joined.joinToken,
+    "re-join is idempotent and returns the same seat"
+  );
+
+  await startNextRoundAction(event.id);
+  let threwStarted = false;
+  try {
+    await addPlayerToEventRoster({ eventId: event.id, playerId: w4.id });
+  } catch {
+    threwStarted = true;
+  }
+  assert(threwStarted, "join rejected once the event has started");
+
+  const [otherLeague] = await db
+    .insert(leagues)
+    .values({ slug: `${PREFIX}walkup2`, name: `${PREFIX}Walkup2` })
+    .returning();
+  const [stranger] = await db
+    .insert(players)
+    .values({
+      leagueId: otherLeague.id,
+      leagueToken: generateJoinToken(),
+      displayName: `${PREFIX}Stranger`,
+    })
+    .returning();
+  let threwLeague = false;
+  try {
+    await addPlayerToEventRoster({
+      eventId: event.id,
+      playerId: stranger.id,
+    });
+  } catch {
+    threwLeague = true;
+  }
+  assert(threwLeague, "join rejected for a player from another league");
+}
+
 async function main() {
   const start = Date.now();
   console.log("=== verify ===\n");
@@ -1137,6 +1238,9 @@ async function main() {
 
   await driveRound3WithPrematureEnd(event.id);
   ok("round 3 — premature complete throws, then succeeds");
+
+  await runWalkUpSelfJoinTest();
+  ok("walk-up self-join — draft joins, idempotency, started/league guards");
 
   // === invariants ===
   const standings = await getEventStandings(event.id);

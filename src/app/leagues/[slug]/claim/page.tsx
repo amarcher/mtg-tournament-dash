@@ -15,10 +15,13 @@ export default async function LeagueClaimPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ switch?: string }>;
+  searchParams: Promise<{ switch?: string; event?: string }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
+  // Carried from an event claim page (the TV QR): after creating a wizard,
+  // createLeaguePlayerAction also grabs a seat in this event if still draft.
+  const returnEventId = sp.event ?? "";
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
@@ -72,6 +75,9 @@ export default async function LeagueClaimPage({
         </p>
         <form action={createLeaguePlayerAction} className="flex gap-2">
           <input type="hidden" name="leagueSlug" value={league.slug} />
+          {returnEventId && (
+            <input type="hidden" name="eventId" value={returnEventId} />
+          )}
           <label htmlFor="league-claim-name" className="sr-only">
             Your name
           </label>

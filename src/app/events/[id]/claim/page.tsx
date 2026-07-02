@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getEvent, getEventRoster, getLeague } from "@/db/queries";
 import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
-import { claimIdentityAction } from "@/app/events/actions";
+import { claimIdentityAction, joinEventAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
 import { EventNav } from "@/app/components/EventNav";
 
@@ -76,12 +76,30 @@ export default async function ClaimPage({
         </div>
       )}
 
-      {!me && leagueMe && !onRoster && (
+      {!me && leagueMe && !onRoster && event.status === "draft" && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <span className="text-amber-200">
+            You&apos;re <strong>{leagueMe.displayName}</strong> from{" "}
+            {league?.name ?? "this league"} — this event hasn&apos;t started,
+            so grab a seat.
+          </span>
+          <form action={joinEventAction} className="ml-auto">
+            <input type="hidden" name="eventId" value={id} />
+            <button
+              type="submit"
+              className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            >
+              Join as {leagueMe.displayName} →
+            </button>
+          </form>
+        </div>
+      )}
+
+      {!me && leagueMe && !onRoster && event.status !== "draft" && (
         <div className="mb-6 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
           You&apos;re <strong>{leagueMe.displayName}</strong> in{" "}
-          {league?.name ?? "this league"}, but you&apos;re not in this
-          event&apos;s lineup — the organizer picks it when setting up the
-          event, so ask them to add you.{" "}
+          {league?.name ?? "this league"}, but this event has already started
+          and you&apos;re not in its lineup — ask the organizer to add you.{" "}
           {league && (
             <Link
               href={`/leagues/${league.slug}`}
@@ -160,7 +178,7 @@ export default async function ClaimPage({
         {league ? (
           <>
             <Link
-              href={`/leagues/${league.slug}/claim`}
+              href={`/leagues/${league.slug}/claim?event=${id}`}
               className="text-amber-400/90 underline-offset-2 transition hover:text-amber-300 hover:underline"
             >
               Create your wizard in {league.name}
