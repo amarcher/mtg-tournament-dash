@@ -13,7 +13,7 @@ export default async function ClaimPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ switch?: string }>;
+  searchParams: Promise<{ switch?: string; badlink?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -50,6 +50,13 @@ export default async function ClaimPage({
         </p>
       </div>
 
+      {sp.badlink === "1" && !me && (
+        <div className="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+          That join link didn&apos;t work — it may be old or mistyped. No
+          problem: claim your seat below instead.
+        </div>
+      )}
+
       {!me && leagueMe && onRoster && (
         <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
           <span className="text-amber-200">
@@ -72,8 +79,17 @@ export default async function ClaimPage({
       {!me && leagueMe && !onRoster && (
         <div className="mb-6 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-400">
           You&apos;re <strong>{leagueMe.displayName}</strong> in{" "}
-          {league?.name ?? "this league"}, but you&apos;re not on this
-          event&apos;s roster. Ask the organizer to add you.
+          {league?.name ?? "this league"}, but you&apos;re not in this
+          event&apos;s lineup — the organizer picks it when setting up the
+          event, so ask them to add you.{" "}
+          {league && (
+            <Link
+              href={`/leagues/${league.slug}`}
+              className="text-amber-400/90 underline-offset-2 transition hover:text-amber-300 hover:underline"
+            >
+              Back to {league.name} →
+            </Link>
+          )}
         </div>
       )}
 
@@ -140,7 +156,20 @@ export default async function ClaimPage({
       </div>
 
       <p className="mt-8 text-center text-xs text-zinc-500">
-        Don&apos;t see your face? Ask the organizer for your join link.
+        Don&apos;t see your face?{" "}
+        {league ? (
+          <>
+            <Link
+              href={`/leagues/${league.slug}/claim`}
+              className="text-amber-400/90 underline-offset-2 transition hover:text-amber-300 hover:underline"
+            >
+              Create your wizard in {league.name}
+            </Link>{" "}
+            or ask the organizer for your join link.
+          </>
+        ) : (
+          <>Ask the organizer for your join link.</>
+        )}
       </p>
       </main>
     </AppChrome>

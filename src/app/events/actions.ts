@@ -29,6 +29,7 @@ import {
   getCurrentRound,
   getEventStandings,
   getRoundMatches,
+  listOpenEventsForPlayer,
 } from "@/db/queries";
 import { generateSwissPairings } from "@/lib/pairings/swiss";
 import { computeMatchElo } from "@/lib/elo";
@@ -169,6 +170,31 @@ export async function claimLeaguePlayerAction(formData: FormData) {
   if (!player) throw new Error("Player is not in this league");
 
   await setLeagueCookie(league.id, player.leagueToken);
+
+  // If this wizard has a seat in an open event, continue straight into it —
+  // set the event cookie and land on the scorekeeper instead of dumping the
+  // player at league home to hunt for the "Scorekeeper" card. Prefer an
+  // active event over a draft one.
+  const open = await listOpenEventsForPlayer(league.id, player.id);
+  const target =
+    open.find((o) => o.event.status === "active") ?? open[0] ?? null;
+  if (target) {
+    const [ep] = await db
+      .select()
+      .from(eventPlayers)
+      .where(
+        and(
+          eq(eventPlayers.eventId, target.event.id),
+          eq(eventPlayers.playerId, player.id)
+        )
+      )
+      .limit(1);
+    if (ep) {
+      await setPlayerCookie(target.event.id, ep.joinToken);
+      redirect(`/events/${target.event.id}/play`);
+    }
+  }
+
   redirect(`/leagues/${league.slug}`);
 }
 

@@ -1083,6 +1083,16 @@ async function checkRoutes(eventId: string) {
       path: `/events/${eventId}/claim`,
       mustInclude: [`${PREFIX}P1`, `${PREFIX}event`],
     },
+    // Cookieless /play must land on the claim page, not a dead end.
+    {
+      path: `/events/${eventId}/play`,
+      mustInclude: ["Tap your wizard to claim your seat"],
+    },
+    // A bad join token must redirect to the claim page with the notice.
+    {
+      path: `/events/${eventId}/join/bogus-token`,
+      mustInclude: ["claim your seat below instead"],
+    },
   ];
 
   for (const c of checks) {
