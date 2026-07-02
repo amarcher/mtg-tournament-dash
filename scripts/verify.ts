@@ -38,7 +38,6 @@ import {
   confirmRoundAction,
   dropPendingMatchAction,
   endEventAction,
-  generateWizardAction,
   previewNextRoundAction,
   reopenEventAction,
   regeneratePendingPairingsAction,
@@ -47,6 +46,7 @@ import {
   swapMatchPlayersAction,
 } from "../src/app/events/actions";
 import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
+import { startWizardGeneration } from "../src/lib/wizard-job";
 import { generateJoinToken } from "../src/lib/auth";
 import {
   getActiveMatchForPlayer,
@@ -252,7 +252,7 @@ async function driveRound3WithPrematureEnd(eventId: string) {
 }
 
 /**
- * End-to-end wizardize: drive `generateWizardAction` against the local FLUX
+ * End-to-end wizardize: drive `startWizardGeneration` against the local FLUX
  * server using a bundled fixture selfie, assert all three tier files land on
  * disk and the player row gets all three URL columns populated, then clean
  * up the generated jpgs (the player row itself is purged by `cleanup()`).
@@ -293,18 +293,17 @@ async function runWizardizeIntegrationTest(playerId: string) {
   }
 
   const t0 = Date.now();
-  const fd = new FormData();
-  fd.set("playerId", playerId);
-  fd.set("archetype", "frost mage");
-  fd.set("freeform", "");
-  fd.set(
-    "selfie",
-    new File([new Uint8Array(selfieBytes)], "test-selfie.jpg", {
+  // Drive the domain core directly — the generateWizardAction wrapper now
+  // authorizes via the league cookie, which doesn't exist outside a request.
+  await startWizardGeneration({
+    playerId,
+    archetype: "frost mage",
+    freeform: "",
+    selfie: new File([new Uint8Array(selfieBytes)], "test-selfie.jpg", {
       type: "image/jpeg",
-    })
-  );
-  await generateWizardAction(fd);
-  // Action now returns immediately and runs FLUX in the background. Poll the
+    }),
+  });
+  // The core returns immediately and runs FLUX in the background. Poll the
   // DB until wizard_job_started_at clears (success or failure).
   let row: {
     avatarUrl: string | null;
@@ -340,69 +339,79 @@ async function runWizardizeIntegrationTest(playerId: string) {
     return;
   }
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  ok(`generateWizardAction completed end-to-end against FLUX (${elapsed}s)`);
+  ok(`startWizardGeneration completed end-to-end against FLUX (${elapsed}s)`);
+  // Storage shape depends on env: with BLOB_READ_WRITE_TOKEN the pipeline
+  // writes absolute Vercel Blob URLs keyed `avatars/<playerId>/<tier>.jpg`;
+  // without it, the legacy PUT-to-image-gen path stores `/files/wizard-...`.
+  const blobMode = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  const tiers = {
+    fresh: row.avatarUrl,
+    wounded: row.avatarWoundedUrl,
+    critical: row.avatarCriticalUrl,
+    victory: row.avatarVictoryUrl,
+    defeat: row.avatarDefeatUrl,
+  } as const;
+  for (const [tier, url] of Object.entries(tiers)) {
+    const expected = blobMode
+      ? `avatars/${playerId}/${tier}.jpg`
+      : `wizard-${playerId}-${tier}.jpg`;
+    assert(
+      url?.includes(expected),
+      `${tier} URL written to players.avatar_*_url (${expected})`
+    );
+  }
   assert(
-    row.avatarUrl?.includes(`wizard-${playerId}-fresh.jpg`),
-    "fresh URL written to players.avatar_url"
-  );
-  assert(
-    row.avatarWoundedUrl?.includes(`wizard-${playerId}-wounded.jpg`),
-    "wounded URL written to players.avatar_wounded_url"
-  );
-  assert(
-    row.avatarCriticalUrl?.includes(`wizard-${playerId}-critical.jpg`),
-    "critical URL written to players.avatar_critical_url"
-  );
-  assert(
-    row.avatarVictoryUrl?.includes(`wizard-${playerId}-victory.jpg`),
-    "victory URL written to players.avatar_victory_url"
-  );
-  assert(
-    row.avatarDefeatUrl?.includes(`wizard-${playerId}-defeat.jpg`),
-    "defeat URL written to players.avatar_defeat_url"
-  );
-  assert(
-    row.selfieUrl?.includes(`selfie-${playerId}.jpg`),
+    row.selfieUrl?.includes(
+      blobMode ? `avatars/${playerId}/selfie.jpg` : `selfie-${playerId}.jpg`
+    ),
     "selfie URL persisted"
   );
   assert(row.wizardArchetype === "frost mage", "wizardArchetype persisted");
-  assert(row.avatarUrl?.startsWith("/files/"), "URLs point at /files/");
-  assert(row.avatarUrl?.includes("?v="), "fresh URL has cache-buster");
+  if (blobMode) {
+    assert(
+      row.avatarUrl?.startsWith("https://"),
+      "URLs are absolute Blob URLs"
+    );
+  } else {
+    assert(row.avatarUrl?.startsWith("/files/"), "URLs point at /files/");
+    assert(row.avatarUrl?.includes("?v="), "fresh URL has cache-buster");
+  }
 
-  // Each variant on the image-gen server should be a real JPEG, not a 0-byte
-  // error response. Probe via the public /files endpoint.
-  for (const tier of ["fresh", "wounded", "critical", "victory", "defeat"] as const) {
-    const name = `wizard-${playerId}-${tier}.jpg`;
-    const res = await fetch(`${fluxUrl}/files/${name}`);
+  // Each stored variant should be a real JPEG, not a 0-byte error response.
+  for (const [tier, url] of Object.entries(tiers)) {
+    if (!url) continue;
+    const probeUrl = url.startsWith("http") ? url : `${fluxUrl}${url}`;
+    const res = await fetch(probeUrl);
     if (!res.ok) {
-      fail(`/files/${name} GET → ${res.status}`);
+      fail(`${tier} variant GET → ${res.status}`);
       continue;
     }
     const bytes = Buffer.from(await res.arrayBuffer());
     assert(
       bytes.length > 50_000,
-      `${tier} variant > 50KB on image-gen (${bytes.length} B)`
+      `${tier} variant > 50KB in storage (${bytes.length} B)`
     );
   }
 
-  // Clean up uploaded files via the DELETE endpoint.
-  const token = process.env.IMAGEGEN_FILES_TOKEN ?? "";
-  for (const tier of [
-    "fresh",
-    "wounded",
-    "critical",
-    "victory",
-    "defeat",
-  ] as const) {
-    await fetch(`${fluxUrl}/files/wizard-${playerId}-${tier}.jpg`, {
-      method: "DELETE",
-      headers: { "X-Files-Token": token },
-    }).catch(() => undefined);
+  // Clean up the uploaded artifacts for this throwaway player.
+  if (blobMode) {
+    const { del } = await import("@vercel/blob");
+    const keys = [...Object.keys(tiers), "selfie"].map(
+      (t) => `avatars/${playerId}/${t}.jpg`
+    );
+    await del(keys).catch(() => undefined);
+  } else {
+    const token = process.env.IMAGEGEN_FILES_TOKEN ?? "";
+    for (const name of [
+      ...Object.keys(tiers).map((tier) => `wizard-${playerId}-${tier}.jpg`),
+      `selfie-${playerId}.jpg`,
+    ]) {
+      await fetch(`${fluxUrl}/files/${name}`, {
+        method: "DELETE",
+        headers: { "X-Files-Token": token },
+      }).catch(() => undefined);
+    }
   }
-  await fetch(`${fluxUrl}/files/selfie-${playerId}.jpg`, {
-    method: "DELETE",
-    headers: { "X-Files-Token": token },
-  }).catch(() => undefined);
   ok("post-clean generated wizard/selfie files");
 }
 

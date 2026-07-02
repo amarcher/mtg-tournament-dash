@@ -9,6 +9,7 @@ import {
   listOpenEventsForPlayer,
   sweepStaleWizardJobs,
 } from "@/db/queries";
+import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { WizardForm } from "./WizardForm";
 import { WizardGallery } from "./WizardGallery";
 
@@ -28,6 +29,8 @@ export default async function PlayerPage({
   if (!player) notFound();
   const league = await getLeague(player.leagueId);
   const openEvents = await listOpenEventsForPlayer(player.leagueId, player.id);
+  const leagueMe = await getCurrentLeaguePlayer(player.leagueId);
+  const canEdit = leagueMe?.id === player.id;
 
   const myMatches = await db
     .select({
@@ -153,13 +156,32 @@ export default async function PlayerPage({
           generate a fantasy portrait that becomes your avatar and the
           backdrop of your life-total cell on the broadcast view.
         </p>
-        <WizardForm
-          playerId={player.id}
-          hasWizard={Boolean(player.avatarUrl)}
-          defaultArchetype={player.wizardArchetype}
-          generating={Boolean(player.wizardJobStartedAt)}
-          lastError={player.wizardJobError}
-        />
+        {canEdit ? (
+          <WizardForm
+            playerId={player.id}
+            hasWizard={Boolean(player.avatarUrl)}
+            defaultArchetype={player.wizardArchetype}
+            generating={Boolean(player.wizardJobStartedAt)}
+            lastError={player.wizardJobError}
+          />
+        ) : (
+          <div className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
+            Only {player.displayName} can edit this portrait.
+            {league && (
+              <>
+                {" "}
+                If that&apos;s you,{" "}
+                <Link
+                  href={`/leagues/${league.slug}/claim`}
+                  className="text-amber-400/90 underline-offset-2 transition hover:text-amber-300 hover:underline"
+                >
+                  claim your wizard
+                </Link>{" "}
+                first.
+              </>
+            )}
+          </div>
+        )}
         <WizardGallery
           selfieUrl={player.selfieUrl}
           freshUrl={player.avatarUrl}
