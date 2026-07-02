@@ -266,8 +266,8 @@ export function PlayClient({
   };
 
   return (
-    <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-4">
-      <nav className="flex flex-wrap gap-2 text-sm">
+    <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-4 landscape:h-dvh landscape:max-w-4xl landscape:gap-2 landscape:overflow-hidden landscape:py-2">
+      <nav className="flex flex-wrap gap-2 text-sm landscape:hidden">
         {leagueSlug && (
           <Link
             href={`/leagues/${leagueSlug}`}
@@ -283,7 +283,18 @@ export function PlayClient({
           Switch player
         </Link>
       </nav>
-      <header className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
+      <div className="hidden items-center justify-between gap-3 text-xs text-zinc-400 landscape:flex">
+        <span className="min-w-0 truncate">
+          <span className="font-semibold text-zinc-200">{eventName}</span>
+          <span className="text-zinc-500"> · Table {tableNumber}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <GamePips wins={mySide === "a" ? wins.b : wins.a} />
+          <span className="text-zinc-500">games</span>
+          <GamePips wins={mySide === "a" ? wins.a : wins.b} />
+        </span>
+      </div>
+      <header className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 landscape:hidden">
         <div className="mb-3 min-w-0">
           <div className="truncate text-lg font-semibold">{eventName}</div>
           <div className="text-xs uppercase tracking-wide text-zinc-500">
@@ -316,34 +327,46 @@ export function PlayClient({
         </div>
       </header>
 
-      <div className="flex items-center justify-center gap-3 text-sm">
+      <div className="flex items-center justify-center gap-3 text-sm landscape:hidden">
         <GamePips wins={mySide === "a" ? wins.a : wins.b} />
         <span className="text-zinc-500">games</span>
         <GamePips wins={mySide === "a" ? wins.b : wins.a} />
       </div>
 
-      <LifePanel
-        label={`${myName ?? "You"} (you)`}
-        life={myLife}
-        startingLife={startingLife}
-        avatars={avatarsFor(mySide === "a" ? players.a : players.b)}
-        onAdjust={(d) => adjust(mySide, d)}
-        pending={pending}
-        emphasized
-      />
+      {/* Portrait stacks opponent above you — your counter sits nearest you
+          with the phone on the table. Landscape puts you side-by-side,
+          opponent left, you right. */}
+      <div className="flex min-h-0 flex-col gap-6 landscape:flex-1 landscape:flex-row landscape:gap-3">
+        {oppName && (
+          <LifePanel
+            label={oppName}
+            life={oppLife}
+            startingLife={startingLife}
+            avatars={avatarsFor(mySide === "a" ? players.b : players.a)}
+            onAdjust={(d) => adjust(oppSide, d)}
+            pending={pending}
+          />
+        )}
 
-      {oppName && (
         <LifePanel
-          label={oppName}
-          life={oppLife}
+          label={`${myName ?? "You"} (you)`}
+          life={myLife}
           startingLife={startingLife}
-          avatars={avatarsFor(mySide === "a" ? players.b : players.a)}
-          onAdjust={(d) => adjust(oppSide, d)}
+          avatars={avatarsFor(mySide === "a" ? players.a : players.b)}
+          onAdjust={(d) => adjust(mySide, d)}
           pending={pending}
+          emphasized
         />
-      )}
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => reportWinner("opp")}
+          disabled={pending || !oppName}
+          className="rounded-xl bg-zinc-700 py-3 font-semibold transition hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50"
+        >
+          They won
+        </button>
         <button
           onClick={() => reportWinner("me")}
           disabled={pending}
@@ -351,20 +374,13 @@ export function PlayClient({
         >
           I won this game
         </button>
-        <button
-          onClick={() => reportWinner("opp")}
-          disabled={pending}
-          className="rounded-xl bg-zinc-700 py-3 font-semibold transition hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50"
-        >
-          They won
-        </button>
       </div>
 
       {players.b && (
         <button
           onClick={reportDraw}
           disabled={pending}
-          className="rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50"
+          className="rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50 landscape:py-1.5 landscape:text-xs"
         >
           Call this match a draw
         </button>
@@ -393,7 +409,7 @@ function LifePanel({
   const bgUrl = pickAvatarUrl(life, startingLife, avatars);
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border p-5 text-center ${
+      className={`relative overflow-hidden rounded-2xl border p-5 text-center landscape:flex landscape:min-w-0 landscape:flex-1 landscape:flex-col landscape:justify-center ${
         emphasized
           ? "border-amber-500/40 bg-zinc-900"
           : "border-zinc-800 bg-zinc-900/60"
