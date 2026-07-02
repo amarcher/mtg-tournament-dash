@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, players } from "@/db/schema";
@@ -66,22 +66,10 @@ export default async function PlayPage({
   const league = await getLeague(event.leagueId);
 
   const me = await getCurrentPlayer(id);
-  if (!me) {
-    return (
-      <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
-        <div className="mb-6 text-left">
-          <EventContextLinks leagueSlug={league?.slug} eventId={id} />
-        </div>
-        <h1 className="text-2xl font-semibold">Not signed in</h1>
-        <p className="mt-3 text-sm text-zinc-400">
-          Open the join link the organizer sent you. It looks like
-          <code className="mx-1 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs">
-            /events/{id}/join/…
-          </code>
-        </p>
-      </main>
-    );
-  }
+  // No (or stale) event cookie — the claim page can recover every case: it
+  // recognizes league-cookie holders for a one-tap continue and shows the
+  // roster grid to everyone else. Never strand the player on a dead end.
+  if (!me) redirect(`/events/${id}/claim`);
 
   const match = await getActiveMatchForPlayer(id, me.playerId);
 

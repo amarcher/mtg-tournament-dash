@@ -9,7 +9,11 @@ export async function GET(
   const { id, token } = await ctx.params;
   const ep = await getEventPlayerByToken(token);
   if (!ep || ep.eventId !== id) {
-    return NextResponse.json({ error: "invalid token" }, { status: 404 });
+    // Old/mistyped link — send the player to the claim page (which 404s if
+    // the event itself doesn't exist) instead of dead-ending on raw JSON.
+    return NextResponse.redirect(
+      new URL(`/events/${id}/claim?badlink=1`, _req.url)
+    );
   }
   await setPlayerCookie(id, token);
   const url = new URL(`/events/${id}/play`, _req.url);
