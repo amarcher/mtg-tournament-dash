@@ -152,7 +152,13 @@ export function PlayClient({
         }
         // The server is the authority on which game is live; adopt it so the
         // SSE guard accepts events for the current game (and only that game).
-        if (s.activeGameId) currentGameId.current = s.activeGameId;
+        // On a poll-driven game flip (SSE game_complete missed), also drop the
+        // ts baselines like the SSE branch does — otherwise the previous
+        // game's lastTs could reject the new game's first live events.
+        if (s.activeGameId && s.activeGameId !== currentGameId.current) {
+          currentGameId.current = s.activeGameId;
+          lastTs.current = { a: 0, b: 0 };
+        }
         if (s.life.a !== null && inFlight.current.a === 0) {
           setALife((cur) => (cur !== s.life.a ? (s.life.a as number) : cur));
         }
