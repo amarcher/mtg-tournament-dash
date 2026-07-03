@@ -40,6 +40,7 @@ import {
   setLeagueCookie,
   setPlayerCookie,
 } from "@/lib/auth";
+import { addPlayerToEventRoster } from "@/lib/event-roster";
 import { publish } from "@/lib/pubsub";
 import { isMatchParticipant } from "@/lib/match-authz";
 import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
@@ -121,6 +122,7 @@ export async function addPlayerAction(formData: FormData) {
 export async function createLeaguePlayerAction(formData: FormData) {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
+  const eventId = String(formData.get("eventId") ?? "").trim();
   if (!leagueSlug) throw new Error("League required");
   if (!name) throw new Error("Display name required");
 
@@ -141,7 +143,54 @@ export async function createLeaguePlayerAction(formData: FormData) {
     .returning();
 
   await setLeagueCookie(league.id, token);
+
+  // Walk-up chain: when creation was reached from an event's claim page (the
+  // TV QR), grab a seat in that event too — if it's still in draft — so the
+  // new wizard is already rostered by the time they finish their portrait.
+  // Best-effort: a started event just skips this, never blocks onboarding.
+  if (eventId) {
+    try {
+      const { joinToken } = await addPlayerToEventRoster({
+        eventId,
+        playerId: player.id,
+      });
+      await setPlayerCookie(eventId, joinToken);
+      revalidatePath(`/events/${eventId}/claim`);
+      revalidatePath(`/events/${eventId}/manage`);
+    } catch {
+      /* event started or invalid — onboarding continues without the seat */
+    }
+  }
+
   redirect(`/players/${player.id}`);
+}
+
+/**
+ * Walk-up self-join from the event claim page: a player recognized by their
+ * league cookie (but not on this event's roster) grabs a seat themselves
+ * while the event is still in draft. The playerId is always the caller's own
+ * identity — never form-supplied.
+ */
+export async function joinEventAction(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "").trim();
+  if (!eventId) throw new Error("eventId required");
+
+  const [event] = await db.select().from(events).where(eq(events.id, eventId));
+  if (!event) throw new Error("Event not found");
+
+  const caller = await getCurrentLeaguePlayer(event.leagueId);
+  if (!caller) {
+    throw new Error("Claim your wizard in this league first, then join.");
+  }
+
+  const { joinToken } = await addPlayerToEventRoster({
+    eventId,
+    playerId: caller.id,
+  });
+  await setPlayerCookie(eventId, joinToken);
+  revalidatePath(`/events/${eventId}/claim`);
+  revalidatePath(`/events/${eventId}/manage`);
+  redirect(`/events/${eventId}/play`);
 }
 
 /**
