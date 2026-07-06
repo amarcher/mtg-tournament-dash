@@ -40,7 +40,10 @@ npm run verify      # end-to-end harness — see scripts/verify.ts
 
 1. Edit `src/db/schema.ts`.
 2. `npm run db:generate` (creates a numbered SQL file under `drizzle/`).
-3. `npm run db:migrate` (applies to Neon).
+3. `npm run db:migrate` (applies to Neon). Production also applies pending
+   migrations automatically during the Vercel build (the `build` script runs
+   `db:migrate` when `VERCEL_ENV=production`), so a merge to `main` can't
+   deploy schema-dependent code ahead of its migration.
 4. Update the relevant query helpers in `src/db/queries.ts` to thread new columns through.
 5. Migrations are additive only — never drop or rename a column without an explicit user request.
 

@@ -5,7 +5,7 @@ type AppChromeProps = {
   league?: Pick<League, "name" | "slug"> | null;
   player?: Pick<Player, "displayName"> | null;
   currentEvent?: Pick<Event, "id" | "name" | "status"> | null;
-  active?: "league" | "players" | "events" | "play" | "manage";
+  active?: "league" | "players" | "events" | "play" | "manage" | "schedule";
   children: React.ReactNode;
 };
 
@@ -55,6 +55,12 @@ export function AppChrome({
                 >
                   New Event
                 </Link>
+                <Link
+                  href={`${leagueHref}/schedule`}
+                  className={`${linkBase} ${active === "schedule" ? linkActive : ""}`}
+                >
+                  Schedule
+                </Link>
               </>
             )}
             {eventHref && (
@@ -95,9 +101,9 @@ export function AppChrome({
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === "complete"
+    status === "complete" || status === "finalized"
       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-      : status === "active"
+      : status === "active" || status === "open"
         ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
         : "border-zinc-700 bg-zinc-900 text-zinc-400";
   return (

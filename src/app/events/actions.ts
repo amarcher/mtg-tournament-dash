@@ -13,19 +13,23 @@ function revalidatePath(path: string) {
     /* no-op outside request context */
   }
 }
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
+  datePolls,
   eloChanges,
   eventPlayers,
   events,
   games,
   matches,
   players,
+  pollOptions,
+  pollVotes,
   rounds,
 } from "@/db/schema";
 import {
   getCurrentRound,
+  getDatePoll,
   getEventStandings,
   getRoundMatches,
   listOpenEventsForPlayer,
@@ -49,6 +53,7 @@ import {
   WIZARD_ARCHETYPES,
   type WizardArchetype,
 } from "@/lib/wizard-types";
+import { isPollResponse, parseDateTimeLocal } from "@/lib/schedule-types";
 
 export async function createEventAction(formData: FormData) {
   const leagueId = String(formData.get("leagueId") ?? "");
@@ -1056,4 +1061,131 @@ export async function claimIdentityAction(formData: FormData) {
     await setLeagueCookie(player.leagueId, player.leagueToken);
   }
   redirect(`/events/${eventId}/play`);
+}
+
+async function requirePollLeague(leagueId: string) {
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, leagueId));
+  if (!league) throw new Error("League not found");
+  return league;
+}
+
+async function requireLeaguePlayer(leagueId: string, playerId: string) {
+  if (!playerId) throw new Error("Claim a wizard first");
+  const [player] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!player || player.leagueId !== leagueId) {
+    throw new Error("Player not in this league");
+  }
+  return player;
+}
+
+export async function createDatePollAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  const createdByPlayerId = String(formData.get("playerId") ?? "");
+  const title =
+    String(formData.get("title") ?? "").trim() || "Next draft night";
+  const rawDates = formData
+    .getAll("optionDate")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+
+  if (!leagueId) throw new Error("League required");
+  const league = await requirePollLeague(leagueId);
+  await requireLeaguePlayer(leagueId, createdByPlayerId);
+
+  const dates: Date[] = [];
+  for (const raw of rawDates) {
+    const parsed = parseDateTimeLocal(raw);
+    if (!parsed) throw new Error(`Couldn't read date "${raw}"`);
+    if (!dates.some((d) => d.getTime() === parsed.getTime())) {
+      dates.push(parsed);
+    }
+  }
+  if (dates.length < 2) {
+    throw new Error("Propose at least 2 different dates");
+  }
+
+  const [poll] = await db
+    .insert(datePolls)
+    .values({ leagueId, title, createdByPlayerId })
+    .returning();
+  await db
+    .insert(pollOptions)
+    .values(dates.map((startsAt) => ({ pollId: poll.id, startsAt })));
+
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/leagues/${league.slug}/schedule`);
+  redirect(`/leagues/${league.slug}/schedule/${poll.id}`);
+}
+
+export async function castPollVotesAction(formData: FormData) {
+  const pollId = String(formData.get("pollId") ?? "");
+  const playerId = String(formData.get("playerId") ?? "");
+
+  if (!pollId) throw new Error("Poll required");
+  const poll = await getDatePoll(pollId);
+  if (!poll) throw new Error("Poll not found");
+  if (poll.status !== "open") throw new Error("This poll is closed");
+  await requireLeaguePlayer(poll.leagueId, playerId);
+
+  const options = await db
+    .select()
+    .from(pollOptions)
+    .where(eq(pollOptions.pollId, pollId));
+  const rows = options.flatMap((o) => {
+    const response = formData.get(`response_${o.id}`);
+    return isPollResponse(response)
+      ? [{ optionId: o.id, playerId, response }]
+      : [];
+  });
+  if (rows.length === 0) {
+    throw new Error("Mark your availability for at least one date");
+  }
+
+  await db
+    .insert(pollVotes)
+    .values(rows)
+    .onConflictDoUpdate({
+      target: [pollVotes.optionId, pollVotes.playerId],
+      set: { response: sql`excluded.response`, updatedAt: sql`now()` },
+    });
+
+  const league = await requirePollLeague(poll.leagueId);
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/leagues/${league.slug}/schedule`);
+  revalidatePath(`/leagues/${league.slug}/schedule/${pollId}`);
+}
+
+export async function finalizeDatePollAction(formData: FormData) {
+  const pollId = String(formData.get("pollId") ?? "");
+  const playerId = String(formData.get("playerId") ?? "");
+  const optionId = String(formData.get("optionId") ?? "");
+
+  if (!pollId) throw new Error("Poll required");
+  if (!optionId) throw new Error("Pick a date to finalize");
+  const poll = await getDatePoll(pollId);
+  if (!poll) throw new Error("Poll not found");
+  if (poll.status !== "open") throw new Error("This poll is already closed");
+  await requireLeaguePlayer(poll.leagueId, playerId);
+
+  const [option] = await db
+    .select()
+    .from(pollOptions)
+    .where(and(eq(pollOptions.id, optionId), eq(pollOptions.pollId, pollId)));
+  if (!option) throw new Error("Date not found in this poll");
+
+  await db
+    .update(datePolls)
+    .set({ status: "finalized", finalizedOptionId: optionId })
+    .where(eq(datePolls.id, pollId));
+
+  const league = await requirePollLeague(poll.leagueId);
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/leagues/${league.slug}/schedule`);
+  revalidatePath(`/leagues/${league.slug}/schedule/${pollId}`);
 }

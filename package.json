@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run db:migrate; fi && next build",
     "start": "next start",
     "lan": "bash scripts/lan.sh",
     "verify": "tsx scripts/verify.ts",
