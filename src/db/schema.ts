@@ -36,6 +36,18 @@ export const tournamentFormat = pgEnum("tournament_format", [
   "commander_pod",
 ]);
 
+export const pollStatus = pgEnum("poll_status", [
+  "open",
+  "finalized",
+  "canceled",
+]);
+
+export const pollResponse = pgEnum("poll_response", [
+  "yes",
+  "if_need_be",
+  "no",
+]);
+
 export const leagues = pgTable(
   "leagues",
   {
@@ -186,6 +198,61 @@ export const games = pgTable(
   })
 );
 
+export const datePolls = pgTable(
+  "date_polls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdByPlayerId: uuid("created_by_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    status: pollStatus("status").notNull().default("open"),
+    finalizedOptionId: uuid("finalized_option_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    leagueIdx: index("date_polls_league_idx").on(t.leagueId),
+  })
+);
+
+export const pollOptions = pgTable(
+  "poll_options",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pollId: uuid("poll_id")
+      .notNull()
+      .references(() => datePolls.id, { onDelete: "cascade" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    pollIdx: index("poll_options_poll_idx").on(t.pollId),
+  })
+);
+
+export const pollVotes = pgTable(
+  "poll_votes",
+  {
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => pollOptions.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    response: pollResponse("response").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    pk: uniqueIndex("poll_votes_pk").on(t.optionId, t.playerId),
+  })
+);
+
 export const eloChanges = pgTable("elo_changes", {
   id: uuid("id").primaryKey().defaultRandom(),
   matchId: uuid("match_id")
@@ -212,3 +279,6 @@ export type Round = typeof rounds.$inferSelect;
 export type Match = typeof matches.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type EloChange = typeof eloChanges.$inferSelect;
+export type DatePoll = typeof datePolls.$inferSelect;
+export type PollOption = typeof pollOptions.$inferSelect;
+export type PollVote = typeof pollVotes.$inferSelect;

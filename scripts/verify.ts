@@ -34,10 +34,13 @@ import {
   addManualPairingAction,
   addRoundAction,
   cancelPendingRoundAction,
+  castPollVotesAction,
   completeRoundAction,
   confirmRoundAction,
+  createDatePollAction,
   dropPendingMatchAction,
   endEventAction,
+  finalizeDatePollAction,
   previewNextRoundAction,
   reopenEventAction,
   regeneratePendingPairingsAction,
@@ -52,13 +55,17 @@ import { generateJoinToken } from "../src/lib/auth";
 import {
   getActiveMatchForPlayer,
   getCurrentRound,
+  getDatePoll,
   getEventMatchHistory,
   getEventRoster,
   getEventRounds,
   getEventStandings,
   getPendingRound,
+  getPollDetail,
   getRoundMatches,
 } from "../src/db/queries";
+import { pickLeadingOptionId } from "../src/lib/poll-tally";
+import { datePolls } from "../src/db/schema";
 
 const PREFIX = "_verify_";
 const VERIFY_PORT = process.env.VERIFY_PORT ?? "3002";
@@ -129,10 +136,24 @@ async function setupEvent(playerCount: number) {
   return { event, league, players: inserted };
 }
 
-function makeFormData(entries: Record<string, string>): FormData {
+function makeFormData(entries: Record<string, string | string[]>): FormData {
   const fd = new FormData();
-  for (const [k, v] of Object.entries(entries)) fd.set(k, v);
+  for (const [k, v] of Object.entries(entries)) {
+    if (Array.isArray(v)) for (const item of v) fd.append(k, item);
+    else fd.set(k, v);
+  }
   return fd;
+}
+
+// Actions that end in redirect() throw NEXT_REDIRECT even outside a request
+// scope — for the harness that's the success path, not a failure.
+function isNextRedirect(e: unknown): boolean {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "digest" in e &&
+    String((e as { digest: unknown }).digest).startsWith("NEXT_REDIRECT")
+  );
 }
 
 async function driveRound1ViaPhones(eventId: string) {
@@ -1038,7 +1059,10 @@ async function runEndEarlyPass() {
   ok("post-clean end-early rows");
 }
 
-async function checkRoutes(eventId: string) {
+async function checkRoutes(
+  eventId: string,
+  sched?: { leagueSlug: string; pollId: string }
+) {
   // Probe the server first; skip silently if it isn't running OR if something
   // unrelated is on the port. Look for "MTG Dash" in the response so a
   // foreign dev server on the same port doesn't produce false 404s.
@@ -1104,6 +1128,24 @@ async function checkRoutes(eventId: string) {
       mustInclude: ["claim your seat below instead"],
     },
   ];
+
+  if (sched) {
+    checks.push(
+      {
+        path: `/leagues/${sched.leagueSlug}/schedule`,
+        mustInclude: [`${PREFIX}poll`, "Propose dates"],
+      },
+      {
+        path: `/leagues/${sched.leagueSlug}/schedule/new`,
+        mustInclude: ["Propose draft nights"],
+      },
+      // The pass finalizes the poll, so the winner banner must render.
+      {
+        path: `/leagues/${sched.leagueSlug}/schedule/${sched.pollId}`,
+        mustInclude: [`${PREFIX}poll`, "Draft night is set"],
+      }
+    );
+  }
 
   for (const c of checks) {
     try {
@@ -1229,6 +1271,216 @@ async function runWalkUpSelfJoinTest() {
   assert(threwLeague, "join rejected for a player from another league");
 }
 
+/**
+ * Doodle-style date polls: create (with validation + date dedupe), vote,
+ * re-vote (upsert), finalize, and the closed/foreign-player guards.
+ * Self-contained in its own `_verify_sched` league. Returns the poll
+ * coordinates so checkRoutes can probe the schedule pages.
+ */
+async function runSchedulingPollPass(): Promise<{
+  leagueSlug: string;
+  pollId: string;
+}> {
+  const [league] = await db
+    .insert(leagues)
+    .values({ slug: `${PREFIX}sched`, name: `${PREFIX}SchedLeague` })
+    .returning();
+  const [s1, s2, s3] = await db
+    .insert(players)
+    .values(
+      ["S1", "S2", "S3"].map((n) => ({
+        leagueId: league.id,
+        leagueToken: generateJoinToken(),
+        displayName: `${PREFIX}${n}`,
+      }))
+    )
+    .returning();
+
+  try {
+    await createDatePollAction(
+      makeFormData({
+        leagueId: league.id,
+        playerId: s1.id,
+        title: `${PREFIX}poll`,
+        optionDate: "2026-07-17T19:00",
+      })
+    );
+    fail("poll with a single date should throw");
+  } catch (e) {
+    if (isNextRedirect(e)) fail("poll with a single date should throw");
+    else ok("rejects a poll with fewer than 2 dates");
+  }
+
+  try {
+    await createDatePollAction(
+      makeFormData({
+        leagueId: league.id,
+        playerId: crypto.randomUUID(),
+        title: `${PREFIX}poll`,
+        optionDate: ["2026-07-17T19:00", "2026-07-18T19:00"],
+      })
+    );
+    fail("poll from a non-league player should throw");
+  } catch (e) {
+    if (isNextRedirect(e)) fail("poll from a non-league player should throw");
+    else ok("rejects a poll creator outside the league");
+  }
+
+  try {
+    await createDatePollAction(
+      makeFormData({
+        leagueId: league.id,
+        playerId: s1.id,
+        title: `${PREFIX}poll`,
+        optionDate: [
+          "2026-07-17T19:00",
+          "2026-07-18T19:00",
+          "2026-07-18T19:00", // duplicate — must collapse
+          "2026-07-24T19:00",
+        ],
+      })
+    );
+    fail("createDatePollAction should redirect on success");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("poll created (redirects to the poll page)");
+    else throw e;
+  }
+
+  const [poll] = await db
+    .select()
+    .from(datePolls)
+    .where(eq(datePolls.leagueId, league.id));
+  assert(poll && poll.status === "open", "poll row exists and is open");
+  let options = await getPollDetail(poll.id);
+  assert(options.length === 3, "duplicate candidate date collapsed (3 options)");
+  const [o1, o2, o3] = options;
+
+  await castPollVotesAction(
+    makeFormData({
+      pollId: poll.id,
+      playerId: s1.id,
+      [`response_${o1.id}`]: "yes",
+      [`response_${o2.id}`]: "if_need_be",
+      [`response_${o3.id}`]: "no",
+    })
+  );
+  await castPollVotesAction(
+    makeFormData({
+      pollId: poll.id,
+      playerId: s2.id,
+      [`response_${o1.id}`]: "yes",
+    })
+  );
+  await castPollVotesAction(
+    makeFormData({
+      pollId: poll.id,
+      playerId: s3.id,
+      [`response_${o1.id}`]: "no",
+      [`response_${o2.id}`]: "yes",
+    })
+  );
+
+  options = await getPollDetail(poll.id);
+  const votesFor = (id: string) =>
+    options.find((o) => o.id === id)!.votes;
+  assert(votesFor(o1.id).length === 3, "option 1 has 3 votes");
+  assert(
+    votesFor(o1.id).filter((v) => v.response === "yes").length === 2,
+    "option 1 tallies 2 yes"
+  );
+  const leading = pickLeadingOptionId(
+    options.map((o) => ({
+      id: o.id,
+      startsAt: o.startsAt,
+      responses: o.votes.map((v) => v.response),
+    }))
+  );
+  assert(leading === o1.id, "option 1 leads (2 yes > 1 yes + 1 if-need-be)");
+
+  // Re-vote: s2 flips option 1 to "no" — upsert must overwrite, not duplicate.
+  await castPollVotesAction(
+    makeFormData({
+      pollId: poll.id,
+      playerId: s2.id,
+      [`response_${o1.id}`]: "no",
+    })
+  );
+  options = await getPollDetail(poll.id);
+  assert(votesFor(o1.id).length === 3, "re-vote did not add a duplicate row");
+  assert(
+    votesFor(o1.id).find((v) => v.playerId === s2.id)?.response === "no",
+    "re-vote overwrote the response"
+  );
+  const newLeading = pickLeadingOptionId(
+    options.map((o) => ({
+      id: o.id,
+      startsAt: o.startsAt,
+      responses: o.votes.map((v) => v.response),
+    }))
+  );
+  assert(newLeading === o2.id, "lead moves to option 2 after the flip");
+
+  try {
+    await castPollVotesAction(
+      makeFormData({ pollId: poll.id, playerId: s1.id })
+    );
+    fail("vote with no responses should throw");
+  } catch {
+    ok("rejects a vote with no responses");
+  }
+
+  try {
+    await castPollVotesAction(
+      makeFormData({
+        pollId: poll.id,
+        playerId: crypto.randomUUID(),
+        [`response_${o1.id}`]: "yes",
+      })
+    );
+    fail("vote from a non-league player should throw");
+  } catch {
+    ok("rejects a voter outside the league");
+  }
+
+  try {
+    await finalizeDatePollAction(
+      makeFormData({
+        pollId: poll.id,
+        playerId: s1.id,
+        optionId: crypto.randomUUID(),
+      })
+    );
+    fail("finalizing a foreign option should throw");
+  } catch {
+    ok("rejects finalizing an option not in the poll");
+  }
+
+  await finalizeDatePollAction(
+    makeFormData({ pollId: poll.id, playerId: s1.id, optionId: o2.id })
+  );
+  const finalized = await getDatePoll(poll.id);
+  assert(finalized?.status === "finalized", "poll marked finalized");
+  assert(
+    finalized?.finalizedOptionId === o2.id,
+    "winning option recorded"
+  );
+
+  try {
+    await castPollVotesAction(
+      makeFormData({
+        pollId: poll.id,
+        playerId: s1.id,
+        [`response_${o1.id}`]: "yes",
+      })
+    );
+    fail("voting on a finalized poll should throw");
+  } catch {
+    ok("rejects votes once the poll is finalized");
+  }
+
+  return { leagueSlug: league.slug, pollId: poll.id };
+}
+
 async function main() {
   const start = Date.now();
   console.log("=== verify ===\n");
@@ -1250,6 +1502,9 @@ async function main() {
 
   await runWalkUpSelfJoinTest();
   ok("walk-up self-join — draft joins, idempotency, started/league guards");
+
+  const sched = await runSchedulingPollPass();
+  ok("scheduling poll — create, vote, re-vote upsert, finalize, guards");
 
   // === invariants ===
   const standings = await getEventStandings(event.id);
@@ -1323,7 +1578,7 @@ async function main() {
     );
   }
 
-  await checkRoutes(event.id);
+  await checkRoutes(event.id, sched);
 
   // FLUX-backed wizardize: ~90s when the image-gen server is up. Run it on
   // the first test player so the avatar columns also get exercised.

@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  getLatestLeaguePoll,
   getLeagueBySlug,
   getEventRounds,
+  getPollDetail,
   getRoundMatches,
   listLeaguePlayers,
   listOpenEventsForPlayer,
@@ -12,6 +14,8 @@ import {
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { formatDate } from "@/lib/format";
+import { formatPollDate } from "@/lib/schedule-types";
+import { pickLeadingOptionId } from "@/lib/poll-tally";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +28,30 @@ export default async function LeagueHomePage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [players, openEvents, allEvents, me] = await Promise.all([
+  const [players, openEvents, allEvents, me, latestPoll] = await Promise.all([
     listLeaguePlayers(league.id),
     listOpenLeagueEvents(league.id),
     listLeagueEvents(league.id),
     getCurrentLeaguePlayer(league.id),
+    getLatestLeaguePoll(league.id),
   ]);
+  const pollOptions = latestPoll ? await getPollDetail(latestPoll.id) : [];
+  const pollVoterCount = new Set(
+    pollOptions.flatMap((o) => o.votes.map((v) => v.playerId))
+  ).size;
+  const pollWinner =
+    latestPoll?.status === "finalized"
+      ? pollOptions.find((o) => o.id === latestPoll.finalizedOptionId) ?? null
+      : null;
+  const pollLeadingId = pickLeadingOptionId(
+    pollOptions.map((o) => ({
+      id: o.id,
+      startsAt: o.startsAt,
+      responses: o.votes.map((v) => v.response),
+    }))
+  );
+  const pollLeading =
+    pollOptions.find((o) => o.id === pollLeadingId) ?? null;
   const completedEvents = allEvents.filter((e) => e.status === "complete");
   const myOpenEvents = me
     ? await listOpenEventsForPlayer(league.id, me.id)
@@ -90,6 +112,53 @@ export default async function LeagueHomePage({
           <DashboardStat label="Open events" value={openEvents.length} />
           <DashboardStat label="Completed events" value={completedEvents.length} />
         </section>
+
+      {latestPoll && latestPoll.status === "open" && (
+        <section className="mb-10">
+          <Link
+            href={`/leagues/${league.slug}/schedule/${latestPoll.id}`}
+            className="flex items-center justify-between gap-4 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-4 transition hover:border-amber-500/60 hover:bg-zinc-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            <div className="min-w-0">
+              <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                Scheduling · {pollVoterCount} of {players.length} voted
+              </div>
+              <div className="mt-0.5 truncate text-lg font-semibold">
+                {latestPoll.title}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {pollLeading
+                  ? `Leading: ${formatPollDate(pollLeading.startsAt)}`
+                  : "No availability marked yet"}
+              </div>
+            </div>
+            <span className="shrink-0 rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950">
+              Vote
+            </span>
+          </Link>
+        </section>
+      )}
+
+      {pollWinner && (
+        <section className="mb-10">
+          <Link
+            href={`/leagues/${league.slug}/schedule/${latestPoll!.id}`}
+            className="flex items-center justify-between gap-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 transition hover:border-emerald-500 hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+          >
+            <div className="min-w-0">
+              <div className="text-xs uppercase tracking-[0.2em] text-emerald-300">
+                Next draft night
+              </div>
+              <div className="mt-0.5 truncate text-lg font-semibold text-emerald-100">
+                {formatPollDate(pollWinner.startsAt)}
+              </div>
+            </div>
+            <span className="shrink-0 text-xs text-emerald-200/70">
+              {latestPoll!.title}
+            </span>
+          </Link>
+        </section>
+      )}
 
       {me && myOpenEvents.length > 0 && (
         <section className="mb-10 space-y-2">

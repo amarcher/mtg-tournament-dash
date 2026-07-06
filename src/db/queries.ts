@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
+  datePolls,
   eloChanges,
   eventPlayers,
   events,
@@ -8,7 +9,10 @@ import {
   leagues,
   matches,
   players,
+  pollOptions,
+  pollVotes,
   rounds,
+  type PollVote,
 } from "./schema";
 import {
   compareByMtgTiebreakers,
@@ -598,6 +602,79 @@ export async function getPlayer(playerId: string) {
     .from(players)
     .where(eq(players.id, playerId));
   return row;
+}
+
+export async function getDatePoll(pollId: string) {
+  const [row] = await db
+    .select()
+    .from(datePolls)
+    .where(eq(datePolls.id, pollId));
+  return row ?? null;
+}
+
+export async function listLeaguePolls(leagueId: string) {
+  return db
+    .select()
+    .from(datePolls)
+    .where(eq(datePolls.leagueId, leagueId))
+    .orderBy(desc(datePolls.createdAt));
+}
+
+export async function getLatestLeaguePoll(leagueId: string) {
+  const [row] = await db
+    .select()
+    .from(datePolls)
+    .where(
+      and(
+        eq(datePolls.leagueId, leagueId),
+        sql`${datePolls.status} <> 'canceled'`
+      )
+    )
+    .orderBy(desc(datePolls.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export type PollVoteRow = {
+  optionId: string;
+  playerId: string;
+  response: PollVote["response"];
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+/**
+ * Options ordered by date, each carrying its votes with the voter's name and
+ * avatar attached. Two roundtrips instead of one left join — the vote rows
+ * need player columns and the Neon HTTP driver makes per-row lateral tricks
+ * not worth it at friend-league scale.
+ */
+export async function getPollDetail(pollId: string) {
+  const options = await db
+    .select()
+    .from(pollOptions)
+    .where(eq(pollOptions.pollId, pollId))
+    .orderBy(asc(pollOptions.startsAt));
+
+  const optionIds = options.map((o) => o.id);
+  const votes: PollVoteRow[] = optionIds.length
+    ? await db
+        .select({
+          optionId: pollVotes.optionId,
+          playerId: pollVotes.playerId,
+          response: pollVotes.response,
+          displayName: players.displayName,
+          avatarUrl: players.avatarUrl,
+        })
+        .from(pollVotes)
+        .innerJoin(players, eq(players.id, pollVotes.playerId))
+        .where(inArray(pollVotes.optionId, optionIds))
+    : [];
+
+  return options.map((option) => ({
+    ...option,
+    votes: votes.filter((v) => v.optionId === option.id),
+  }));
 }
 
 export async function getLeagueHeadToHead(leagueId: string) {
