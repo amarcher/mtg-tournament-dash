@@ -253,7 +253,11 @@ export function PlayClient({
           ? players.b!.id
           : players.a.id;
     startTransition(async () => {
-      await reportGameWinnerAction({ matchId, winnerId });
+      await reportGameWinnerAction({
+        matchId,
+        winnerId,
+        gameId: currentGameId.current,
+      });
     });
   };
 

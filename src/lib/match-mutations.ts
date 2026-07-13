@@ -90,6 +90,13 @@ export async function applyLifeAdjust(args: {
 export async function applyGameWinner(args: {
   matchId: string;
   winnerId: string;
+  /**
+   * The game the client believed it was reporting. When provided (the phone
+   * UI always does), the report is dropped unless it targets the currently
+   * open game — a backgrounded tab that missed a game flip must not decide
+   * the next game. Trusted server-side callers may omit it.
+   */
+  gameId?: string;
 }): Promise<void> {
   const [match] = await db
     .select()
@@ -109,6 +116,7 @@ export async function applyGameWinner(args: {
     .limit(1);
   // Same idempotency reasoning — if there's no open game, no-op.
   if (!game) return;
+  if (args.gameId && game.id !== args.gameId) return;
 
   await db
     .update(games)

@@ -17,11 +17,24 @@ function leagueCookieName(leagueId: string) {
 
 export async function setPlayerCookie(eventId: string, joinToken: string) {
   const store = await cookies();
-  store.set(eventCookieName(eventId), joinToken, {
+  // Expire any cookie set under the pre-July-2026 `/events/<id>` path — a
+  // same-name cookie on a more specific path would shadow the new one below.
+  store.set(eventCookieName(eventId), "", {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: `/events/${eventId}`,
+    maxAge: 0,
+  });
+  // Path is "/" (not `/events/<id>`) because the phone view polls
+  // `/api/events/<id>/match/<matchId>/state`, which a `/events/<id>`-scoped
+  // cookie never reaches — the poll 401'd and reconnecting tabs stayed stale.
+  // The cookie name is already event-scoped, so the wide path leaks nothing.
+  store.set(eventCookieName(eventId), joinToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
 }
