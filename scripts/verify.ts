@@ -175,6 +175,21 @@ async function driveRound1ViaPhones(eventId: string) {
       !stale.ok && stale.reason === "stale_life",
       "applyLifeAdjust rejects a stale-expected write"
     );
+    // A winner report carrying a gameId that is no longer the open game
+    // (backgrounded tab that missed a game flip) must be dropped.
+    await applyGameWinner({
+      matchId: t1.match.id,
+      winnerId: t1.playerA.id,
+      gameId: "00000000-0000-0000-0000-000000000000",
+    });
+    const [g1After] = await db
+      .select()
+      .from(games)
+      .where(eq(games.id, g1.id));
+    assert(
+      g1After.winnerId === null,
+      "applyGameWinner drops a report for a non-open gameId"
+    );
   }
 
   for (const { match, playerA, playerB } of ms) {

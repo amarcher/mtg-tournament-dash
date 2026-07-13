@@ -834,6 +834,8 @@ export async function adjustLifeAction(args: {
 export async function reportGameWinnerAction(args: {
   matchId: string;
   winnerId: string;
+  /** The game the client believed it was reporting — see applyGameWinner. */
+  gameId: string;
 }) {
   const { round } = await authorizeMatchParticipant(args.matchId);
   await applyGameWinner(args);
