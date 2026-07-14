@@ -141,7 +141,28 @@ export default async function PlayPage({
     );
   }
 
-  if (!match) {
+  // A complete match must never mount PlayClient: its poll sees
+  // status "complete" and reloads, which re-renders the same complete match —
+  // an infinite reload loop. Show the waiting room with the result instead.
+  if (!match || match.status === "complete") {
+    let resultLine: string | null = null;
+    if (match && match.status === "complete") {
+      const oppId =
+        match.playerAId === me.playerId ? match.playerBId : match.playerAId;
+      const opp = oppId
+        ? (
+            await db.select().from(players).where(eq(players.id, oppId))
+          )[0]
+        : null;
+      const oppName = opp?.displayName ?? "your opponent";
+      resultLine = !oppId
+        ? "You had a bye this round."
+        : match.isDraw
+          ? `Your match against ${oppName} was a draw.`
+          : match.winnerId === me.playerId
+            ? `You won your match against ${oppName}!`
+            : `You lost your match against ${oppName}.`;
+    }
     return (
       <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
         <div className="mb-6 text-left">
@@ -152,9 +173,13 @@ export default async function PlayPage({
           />
         </div>
         <h1 className="text-2xl font-semibold">Hi {me.displayName}</h1>
+        {resultLine && (
+          <p className="mt-3 font-medium text-amber-300">{resultLine}</p>
+        )}
         <p className="mt-3 text-zinc-400">
-          No active match for you right now. This page will jump to your seat as
-          soon as the organizer starts the next round.
+          {match
+            ? "Hang tight while the other tables finish — this page will jump to your next pairing automatically."
+            : "No active match for you right now. This page will jump to your seat as soon as the organizer starts the next round."}
         </p>
         <WaitForRound eventId={id} />
       </main>
