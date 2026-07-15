@@ -13,7 +13,7 @@ function revalidatePath(path: string) {
     /* no-op outside request context */
   }
 }
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   datePolls,
@@ -609,6 +609,166 @@ export async function addManualPairingAction(args: {
  * Tear down the whole pending round. Useful when the organizer wants to roll
  * back the "preview next round" step entirely.
  */
+/**
+ * Undo a just-confirmed round: flip the round and its matches back to
+ * pending so the organizer lands on the review-pairings screen (swap / drop /
+ * manual pairing) and can confirm again. The escape hatch for "we confirmed
+ * the wrong pairings and everyone already sat down".
+ *
+ * Refuses once any result is recorded — reverting would silently discard it.
+ * Life taps alone don't block (game rows are recreated at the next confirm)
+ * but they are discarded, which the UI copy says out loud.
+ */
+export async function revertRoundToPairingsAction(eventId: string) {
+  const [alreadyPending] = await db
+    .select()
+    .from(rounds)
+    .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
+  if (alreadyPending) {
+    throw new Error(
+      `Cancel the round ${alreadyPending.roundNumber} preview first`
+    );
+  }
+
+  const round = await getCurrentRound(eventId);
+  if (!round) throw new Error("No active round to revert");
+
+  const ms = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.roundId, round.id));
+  const matchIds = ms.map((m) => m.id);
+  const roundGames = matchIds.length
+    ? await db.select().from(games).where(inArray(games.matchId, matchIds))
+    : [];
+  const hasResults =
+    ms.some(
+      (m) => m.playerBId !== null && (m.status === "complete" || m.isDraw)
+    ) || roundGames.some((g) => g.winnerId !== null);
+  if (hasResults) {
+    throw new Error(
+      "Results are already in for this round — swap individual pairings instead of reverting"
+    );
+  }
+
+  if (matchIds.length) {
+    await db.delete(games).where(inArray(games.matchId, matchIds));
+  }
+  // Byes were auto-resolved at confirm; clear those wins back to pending too.
+  await db
+    .update(matches)
+    .set({ status: "pending", winnerId: null, isDraw: false, completedAt: null })
+    .where(eq(matches.roundId, round.id));
+  await db
+    .update(rounds)
+    .set({ status: "pending", startedAt: null })
+    .where(eq(rounds.id, round.id));
+
+  // Reverting round 1 of a fresh event reopens the draft window (walk-up
+  // self-join is draft-only), mirroring confirmRoundAction's draft→active.
+  const allRounds = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.eventId, eventId));
+  const anyPlayed = allRounds.some(
+    (r) => r.id !== round.id && (r.status === "active" || r.status === "complete")
+  );
+  if (!anyPlayed) {
+    await db.update(events).set({ status: "draft" }).where(eq(events.id, eventId));
+  }
+
+  // Structural event so every phone reloads off the retracted round and into
+  // the waiting room.
+  await publish(eventId, {
+    type: "round_completed",
+    roundNumber: round.roundNumber,
+  });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/play`);
+}
+
+/**
+ * Swap two players between matches of a round that is already running — the
+ * "wrong people sat down together" fix, without retracting the whole round.
+ * Only legal while neither table has a recorded result; both tables' game-1
+ * life resets to the event's starting life since different players now hold
+ * the seats. Byes are excluded (they were auto-resolved at confirm) — revert
+ * the round for those.
+ */
+export async function swapActiveMatchPlayersAction(args: {
+  matchAId: string;
+  sideA: "a" | "b";
+  matchBId: string;
+  sideB: "a" | "b";
+}) {
+  const [mA] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchAId));
+  const [mB] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchBId));
+  if (!mA || !mB) throw new Error("Match not found");
+  if (mA.roundId !== mB.roundId)
+    throw new Error("Matches must be in the same round");
+  if (mA.status !== "in_progress" || mB.status !== "in_progress")
+    throw new Error("Both matches must still be in progress");
+  if (mA.playerBId === null || mB.playerBId === null)
+    throw new Error("Can't swap into a bye — revert the round instead");
+
+  const matchIds = [...new Set([mA.id, mB.id])];
+  const roundGames = await db
+    .select()
+    .from(games)
+    .where(inArray(games.matchId, matchIds));
+  if (roundGames.some((g) => g.winnerId !== null)) {
+    throw new Error(
+      "A game result is already recorded on one of these tables"
+    );
+  }
+
+  const [round] = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.id, mA.roundId));
+  const [event] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, round.eventId));
+
+  const aHas = args.sideA === "a" ? mA.playerAId : mA.playerBId;
+  const bHas = args.sideB === "a" ? mB.playerAId : mB.playerBId;
+  await db
+    .update(matches)
+    .set(args.sideA === "a" ? { playerAId: bHas } : { playerBId: bHas })
+    .where(eq(matches.id, mA.id));
+  await db
+    .update(matches)
+    .set(args.sideB === "a" ? { playerAId: aHas } : { playerBId: aHas })
+    .where(eq(matches.id, mB.id));
+
+  // New seats, fresh life. Discards any stray taps on either table.
+  await db
+    .update(games)
+    .set({
+      playerALife: event.startingLife,
+      playerBLife: event.startingLife,
+    })
+    .where(inArray(games.matchId, matchIds));
+
+  // Same broadcast as a round start: every phone reloads and re-resolves
+  // which match is theirs.
+  await publish(event.id, {
+    type: "round_started",
+    roundNumber: round.roundNumber,
+  });
+  revalidatePath(`/events/${event.id}/manage`);
+  revalidatePath(`/events/${event.id}/broadcast`);
+  revalidatePath(`/events/${event.id}/play`);
+}
+
 export async function cancelPendingRoundAction(eventId: string) {
   const [pending] = await db
     .select()

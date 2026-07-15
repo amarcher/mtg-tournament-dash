@@ -1,4 +1,14 @@
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  sql,
+} from "drizzle-orm";
 import { db } from "./client";
 import {
   datePolls,
@@ -191,6 +201,20 @@ export async function getMatchGames(matchId: string) {
     .from(games)
     .where(eq(games.matchId, matchId))
     .orderBy(asc(games.gameNumber));
+}
+
+/**
+ * Match ids in a round that already have at least one recorded game winner.
+ * The manage view uses this to decide which in-progress tables are still
+ * safely editable (swap players / revert round) versus already scoring.
+ */
+export async function getMatchIdsWithRecordedGames(roundId: string) {
+  const rows = await db
+    .select({ matchId: games.matchId })
+    .from(games)
+    .innerJoin(matches, eq(matches.id, games.matchId))
+    .where(and(eq(matches.roundId, roundId), isNotNull(games.winnerId)));
+  return [...new Set(rows.map((r) => r.matchId))];
 }
 
 /**
