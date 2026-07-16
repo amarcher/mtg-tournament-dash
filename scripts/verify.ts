@@ -17,7 +17,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-import { eq, like, and, isNull } from "drizzle-orm";
+import { eq, like, and, inArray, isNull } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { db } from "../src/db/client";
@@ -44,8 +44,10 @@ import {
   previewNextRoundAction,
   reopenEventAction,
   regeneratePendingPairingsAction,
+  revertRoundToPairingsAction,
   setMatchResultAction,
   startNextRoundAction,
+  swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
 } from "../src/app/events/actions";
 import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
@@ -158,9 +160,77 @@ function isNextRedirect(e: unknown): boolean {
 
 async function driveRound1ViaPhones(eventId: string) {
   await startNextRoundAction(eventId);
+
+  // Un-start escape hatch: retract the just-confirmed round back to the
+  // pairing-review screen, then confirm again — the full undo loop.
+  await revertRoundToPairingsAction(eventId);
+  const revertedPending = await getPendingRound(eventId);
+  assert(revertedPending, "revert flips the active round back to pending");
+  const revertedMs = await getRoundMatches(revertedPending!.id);
+  assert(
+    revertedMs.every(
+      ({ match }) => match.status === "pending" && match.winnerId === null
+    ),
+    "reverted matches are pending with no winner"
+  );
+  const revertedGames = await db
+    .select()
+    .from(games)
+    .where(
+      inArray(
+        games.matchId,
+        revertedMs.map((r) => r.match.id)
+      )
+    );
+  assert(revertedGames.length === 0, "revert deletes the round's game rows");
+  const [evAfterRevert] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, eventId));
+  assert(
+    evAfterRevert.status === "draft",
+    "reverting round 1 reopens the draft window"
+  );
+  await confirmRoundAction(eventId);
+
   const round = await getCurrentRound(eventId);
   assert(round, "round 1 active after startNextRoundAction");
   const ms = await getRoundMatches(round!.id);
+
+  // In-round seat swap: exchange the A seats of the first two tables and
+  // swap back — legal while both tables are virgin.
+  const realMs = ms.filter((m) => m.playerB);
+  if (realMs.length >= 2) {
+    const [t1m, t2m] = realMs;
+    await swapActiveMatchPlayersAction({
+      matchAId: t1m.match.id,
+      sideA: "a",
+      matchBId: t2m.match.id,
+      sideB: "a",
+    });
+    const [t1Swapped] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, t1m.match.id));
+    assert(
+      t1Swapped.playerAId === t2m.match.playerAId,
+      "active swap re-seats players across tables"
+    );
+    await swapActiveMatchPlayersAction({
+      matchAId: t1m.match.id,
+      sideA: "a",
+      matchBId: t2m.match.id,
+      sideB: "a",
+    });
+    const [t1Back] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, t1m.match.id));
+    assert(
+      t1Back.playerAId === t1m.match.playerAId,
+      "active swap back restores the original seats"
+    );
+  }
 
   // Exercise the life-adjust path on table 1 before reporting.
   const t1 = ms.find((m) => m.playerB);
@@ -219,6 +289,29 @@ async function driveRound1ViaPhones(eventId: string) {
       playerA.displayName < playerB.displayName ? playerA : playerB;
     await applyGameWinner({ matchId: match.id, winnerId: winner.id });
     await applyGameWinner({ matchId: match.id, winnerId: winner.id });
+  }
+
+  // With results recorded, both escape hatches must refuse.
+  let revertBlocked = false;
+  try {
+    await revertRoundToPairingsAction(eventId);
+  } catch {
+    revertBlocked = true;
+  }
+  assert(revertBlocked, "revert refuses once results are recorded");
+  if (realMs.length >= 2) {
+    let swapBlocked = false;
+    try {
+      await swapActiveMatchPlayersAction({
+        matchAId: realMs[0].match.id,
+        sideA: "a",
+        matchBId: realMs[1].match.id,
+        sideB: "a",
+      });
+    } catch {
+      swapBlocked = true;
+    }
+    assert(swapBlocked, "active swap refuses once results are recorded");
   }
 
   // Previewing the next round BEFORE tapping "Complete round" must still see

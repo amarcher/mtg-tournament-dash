@@ -5,6 +5,7 @@ import {
   getEventRoster,
   getEventRounds,
   getLeague,
+  getMatchIdsWithRecordedGames,
   getPendingRound,
   getRoundMatches,
   getEventStandings,
@@ -21,7 +22,9 @@ import {
   previewNextRoundAction,
   regeneratePendingPairingsAction,
   reopenEventAction,
+  revertRoundToPairingsAction,
   setMatchResultAction,
+  swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
 } from "@/app/events/actions";
 import { qrDataUrl } from "@/lib/qr";
@@ -84,6 +87,22 @@ export default async function ManagePage({
   const incompleteCount = activeMatches.filter(
     (r) => r.match.status !== "complete"
   ).length;
+  // Tables with a recorded game winner: no longer safe to re-seat or revert.
+  const matchIdsWithGames = activeRound
+    ? await getMatchIdsWithRecordedGames(activeRound.id)
+    : [];
+  const roundHasAnyResult =
+    activeMatches.some(
+      ({ match }) =>
+        match.playerBId !== null &&
+        (match.status === "complete" || match.isDraw)
+    ) || matchIdsWithGames.length > 0;
+  const swappableActive = activeMatches.filter(
+    ({ match }) =>
+      match.status === "in_progress" &&
+      match.playerBId !== null &&
+      !matchIdsWithGames.includes(match.id)
+  );
   const completedRoundsCount = rounds.filter(
     (r) => r.status === "complete"
   ).length;
@@ -120,6 +139,10 @@ export default async function ManagePage({
   const cancelPending = async () => {
     "use server";
     await cancelPendingRoundAction(id);
+  };
+  const revertActive = async () => {
+    "use server";
+    await revertRoundToPairingsAction(id);
   };
   const regeneratePending = async () => {
     "use server";
@@ -320,6 +343,30 @@ export default async function ManagePage({
                   : `Complete round ${activeRound.roundNumber}`}
               </button>
             </form>
+          )}
+          {activeRound && !roundHasAnyResult && !pendingRound && (
+            <details className="group">
+              <summary className="cursor-pointer list-none rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
+                Un-start round…
+              </summary>
+              <div className="mt-2 w-full max-w-md rounded-md border border-zinc-700 bg-zinc-950 p-3">
+                <p className="mb-3 text-xs text-zinc-400">
+                  Retract round {activeRound.roundNumber} and go back to the
+                  review-pairings screen — swap, drop, or re-roll, then confirm
+                  again. Players&apos; phones return to the waiting room. Any
+                  life taps this round are discarded. Unavailable once a result
+                  is reported.
+                </p>
+                <form action={revertActive}>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  >
+                    Back to pairings
+                  </button>
+                </form>
+              </div>
+            </details>
           )}
           {(completedRoundsCount >= 1 || activeRound) && (
             <details className="group">
@@ -602,6 +649,14 @@ export default async function ManagePage({
             <p className="mb-3 text-xs text-zinc-500">
               Pick a winner below to finalize any matches that didn&apos;t
               report through the phone view.
+              {swappableActive.length >= 2 && (
+                <>
+                  {" "}
+                  Wrong seats? Tap a player&apos;s name to swap them with
+                  someone from another table — possible until a result is
+                  recorded.
+                </>
+              )}
             </p>
           )}
           <ul className="space-y-2">
@@ -626,11 +681,30 @@ export default async function ManagePage({
                   <span className="font-mono text-xs text-zinc-500">
                     T{match.tableNumber}
                   </span>
-                  <span className="flex-1">
-                    <strong>{playerA.displayName}</strong>{" "}
-                    <span className="text-zinc-500">vs</span>{" "}
-                    <strong>{playerB?.displayName ?? "BYE"}</strong>
-                  </span>
+                  {swappableActive.length >= 2 &&
+                  swappableActive.some((s) => s.match.id === match.id) ? (
+                    <span className="flex flex-1 flex-wrap items-center gap-1">
+                      <ActiveSwapPicker
+                        label={playerA.displayName}
+                        matchId={match.id}
+                        side="a"
+                        swappable={swappableActive}
+                      />
+                      <span className="text-zinc-500">vs</span>
+                      <ActiveSwapPicker
+                        label={playerB!.displayName}
+                        matchId={match.id}
+                        side="b"
+                        swappable={swappableActive}
+                      />
+                    </span>
+                  ) : (
+                    <span className="flex-1">
+                      <strong>{playerA.displayName}</strong>{" "}
+                      <span className="text-zinc-500">vs</span>{" "}
+                      <strong>{playerB?.displayName ?? "BYE"}</strong>
+                    </span>
+                  )}
                   {isComplete ? (
                     <span className="text-xs text-emerald-400">
                       {match.isDraw
@@ -746,6 +820,74 @@ type PendingMatchRow = {
   playerA: { id: string; displayName: string };
   playerB: { id: string; displayName: string } | null;
 };
+
+/**
+ * Same interaction as SwapPicker, but for a round that is already running:
+ * swap this seat with a seat at another still-virgin table (no recorded
+ * results). Calls `swapActiveMatchPlayersAction`, which also resets both
+ * tables' life totals and broadcasts a reload to every phone.
+ */
+function ActiveSwapPicker({
+  label,
+  matchId,
+  side,
+  swappable,
+}: {
+  label: string;
+  matchId: string;
+  side: "a" | "b";
+  swappable: PendingMatchRow[];
+}) {
+  return (
+    <details className="group">
+      <summary className="cursor-pointer rounded-md px-2 py-1 text-sm font-semibold text-zinc-100 hover:bg-zinc-800">
+        {label}
+      </summary>
+      <form
+        action={async (fd) => {
+          "use server";
+          const target = String(fd.get("target") ?? "");
+          if (!target) return;
+          const [otherMatchId, otherSide] = target.split(":");
+          await swapActiveMatchPlayersAction({
+            matchAId: matchId,
+            sideA: side,
+            matchBId: otherMatchId,
+            sideB: otherSide as "a" | "b",
+          });
+        }}
+        className="mt-1 flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 p-2"
+      >
+        <select
+          name="target"
+          required
+          defaultValue=""
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+        >
+          <option value="" disabled>
+            Swap with…
+          </option>
+          {swappable
+            .filter((row) => row.match.id !== matchId)
+            .flatMap((row) => [
+              <option key={`${row.match.id}:a`} value={`${row.match.id}:a`}>
+                T{row.match.tableNumber} · {row.playerA.displayName}
+              </option>,
+              <option key={`${row.match.id}:b`} value={`${row.match.id}:b`}>
+                T{row.match.tableNumber} · {row.playerB!.displayName}
+              </option>,
+            ])}
+        </select>
+        <button
+          type="submit"
+          className="rounded-md bg-amber-500 px-3 py-1 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+        >
+          Swap
+        </button>
+      </form>
+    </details>
+  );
+}
 
 /**
  * Lets the organizer swap the player on a given side of a pending match with
