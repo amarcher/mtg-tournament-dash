@@ -78,6 +78,19 @@ export async function getCurrentLeaguePlayer(leagueId: string) {
   return player;
 }
 
+/**
+ * League ids this browser holds a guest league cookie for — powers the
+ * zero-login "Your leagues" section on the home page. Ids only; the tokens
+ * themselves are verified by getCurrentLeaguePlayer when it matters.
+ */
+export async function listCookieLeagueIds(): Promise<string[]> {
+  const store = await cookies();
+  return store
+    .getAll()
+    .filter((c) => c.name.startsWith(LEAGUE_COOKIE_PREFIX) && c.value)
+    .map((c) => c.name.slice(LEAGUE_COOKIE_PREFIX.length));
+}
+
 export function generateJoinToken(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);

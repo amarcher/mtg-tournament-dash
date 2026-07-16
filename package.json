@@ -30,9 +30,11 @@
     "@fal-ai/client": "^1.10.1",
     "@neondatabase/serverless": "^1.1.0",
     "@next/third-parties": "^16.2.6",
+    "@upstash/ratelimit": "^2.0.8",
     "@upstash/realtime": "^1.0.3",
     "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.3.3",
+    "better-auth": "^1.6.23",
     "drizzle-orm": "^0.45.2",
     "heic-convert": "^2.1.0",
     "motion": "^12.38.0",
@@ -40,6 +42,7 @@
     "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "resend": "^6.17.2",
     "server-only": "^0.0.1"
   },
   "devDependencies": {

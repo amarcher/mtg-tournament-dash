@@ -8,6 +8,7 @@ import {
   type PollVoteRow,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { isLeagueOrganizer } from "@/lib/authz";
 import {
   castPollVotesAction,
   finalizeDatePollAction,
@@ -40,10 +41,11 @@ export default async function SchedulePollPage({
   const poll = await getDatePoll(pollId);
   if (!poll || poll.leagueId !== league.id) notFound();
 
-  const [options, leaguePlayers, me] = await Promise.all([
+  const [options, leaguePlayers, me, organizer] = await Promise.all([
     getPollDetail(poll.id),
     listLeaguePlayers(league.id),
     getCurrentLeaguePlayer(league.id),
+    isLeagueOrganizer(league),
   ]);
 
   const voterIds = new Set(
@@ -150,7 +152,7 @@ export default async function SchedulePollPage({
   });
 
   return (
-    <AppChrome league={league} player={me} active="schedule">
+    <AppChrome league={league} player={me} isOrganizer={organizer} active="schedule">
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-8">
           <div className="flex flex-wrap items-center gap-3">

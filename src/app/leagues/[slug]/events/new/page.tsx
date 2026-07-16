@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getLeagueBySlug, listLeaguePlayers } from "@/db/queries";
 import { addPlayerAction, createEventAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
+import { OrganizerGate } from "@/app/components/OrganizerGate";
+import { isLeagueOrganizer } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +16,15 @@ export default async function NewLeagueEventPage({
   const { slug } = await params;
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
+  if (!(await isLeagueOrganizer(league))) {
+    return (
+      <OrganizerGate league={league} next={`/leagues/${slug}/events/new`} />
+    );
+  }
   const players = await listLeaguePlayers(league.id);
 
   return (
-    <AppChrome league={league} active="events">
+    <AppChrome league={league} isOrganizer active="events">
       <main className="mx-auto max-w-2xl w-full px-4 py-8 sm:px-6 sm:py-10">
       <div className="mb-8">
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
