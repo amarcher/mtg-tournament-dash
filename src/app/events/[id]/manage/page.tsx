@@ -283,14 +283,25 @@ export default async function ManagePage({
       ) : (
         <div className="mb-8 flex flex-wrap items-start gap-3">
           {!pendingRound && roundsRemaining > 0 && (
-            <form action={previewNext}>
-              <button
-                type="submit"
-                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-              >
-                Preview round {completedRoundsCount + (activeRound ? 1 : 0) + 1}
-              </button>
-            </form>
+            <div>
+              <form action={previewNext}>
+                <button
+                  type="submit"
+                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                >
+                  Preview round{" "}
+                  {completedRoundsCount + (activeRound ? 1 : 0) + 1}
+                </button>
+              </form>
+              {activeRound && incompleteCount > 0 && (
+                <p className="mt-2 max-w-xs text-xs text-amber-200">
+                  {incompleteCount} table{incompleteCount === 1 ? "" : "s"}{" "}
+                  haven&apos;t reported yet — pairings previewed now won&apos;t
+                  see those results. Waiting on them (or re-rolling once
+                  they&apos;re in) gives better matchups.
+                </p>
+              )}
+            </div>
           )}
           {activeRound && (
             <form action={completeActive}>
@@ -452,6 +463,15 @@ export default async function ManagePage({
               </form>
             </div>
           </div>
+          {activeRound && incompleteCount > 0 && (
+            <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200">
+              {incompleteCount} table{incompleteCount === 1 ? "" : "s"} in round{" "}
+              {activeRound.roundNumber} still {incompleteCount === 1 ? "hasn't" : "haven't"}{" "}
+              reported — these pairings don&apos;t reflect those results.
+              Re-roll once they&apos;re in (unless you&apos;re excusing that
+              pair from this round).
+            </p>
+          )}
           <p className="mb-3 text-xs text-amber-200/70">
             Players won&apos;t see this round until you confirm. Swap players
             between tables, drop a pair that doesn&apos;t want to play (they

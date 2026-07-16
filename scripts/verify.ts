@@ -220,6 +220,41 @@ async function driveRound1ViaPhones(eventId: string) {
     await applyGameWinner({ matchId: match.id, winnerId: winner.id });
     await applyGameWinner({ matchId: match.id, winnerId: winner.id });
   }
+
+  // Previewing the next round BEFORE tapping "Complete round" must still see
+  // the results that are already in — pairing reads completed matches, not
+  // completed round rows. (A blind preview paired a round-1 rematch at the
+  // July 2026 draft night.)
+  const winners = new Set(
+    ms
+      .filter((m) => m.playerB)
+      .map(({ playerA, playerB }) =>
+        (playerA.displayName < playerB!.displayName ? playerA : playerB!).id
+      )
+  );
+  const playedPairs = new Set(
+    ms
+      .filter((m) => m.playerB)
+      .map(({ playerA, playerB }) =>
+        [playerA.id, playerB!.id].sort().join("+")
+      )
+  );
+  await previewNextRoundAction(eventId);
+  const preCompletePending = await getPendingRound(eventId);
+  assert(preCompletePending, "round 2 previewable before round 1 row closes");
+  const previewedMs = await getRoundMatches(preCompletePending!.id);
+  const hasRematch = previewedMs.some(
+    ({ playerA, playerB }) =>
+      playerB && playedPairs.has([playerA.id, playerB.id].sort().join("+"))
+  );
+  const hasCrossGroup = previewedMs.some(
+    ({ playerA, playerB }) =>
+      playerB && winners.has(playerA.id) !== winners.has(playerB.id)
+  );
+  assert(!hasRematch, "pre-complete preview avoids round-1 rematches");
+  assert(!hasCrossGroup, "pre-complete preview pairs within score groups");
+  await cancelPendingRoundAction(eventId);
+
   await completeRoundAction(eventId);
 }
 

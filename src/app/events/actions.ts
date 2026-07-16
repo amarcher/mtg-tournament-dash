@@ -31,6 +31,7 @@ import {
   getCurrentRound,
   getDatePoll,
   getEventStandings,
+  getPairingInputs,
   getRoundMatches,
   listOpenEventsForPlayer,
 } from "@/db/queries";
@@ -321,15 +322,7 @@ export async function previewNextRoundAction(eventId: string) {
     throw new Error("All rounds have been played");
   }
 
-  const standings = await getEventStandings(eventId);
-  const pairings = generateSwissPairings(
-    standings.map((s) => ({
-      playerId: s.playerId,
-      matchPoints: s.matchPoints,
-      opponentsFaced: s.opponentsFaced,
-      hasHadBye: s.hasHadBye,
-    }))
-  );
+  const pairings = generateSwissPairings(await getPairingInputs(eventId));
 
   const roundNumber = completedOrActiveCount + 1;
   const [newRound] = await db
@@ -471,15 +464,7 @@ export async function regeneratePendingPairingsAction(eventId: string) {
 
   await db.delete(matches).where(eq(matches.roundId, pending.id));
 
-  const standings = await getEventStandings(eventId);
-  const pairings = generateSwissPairings(
-    standings.map((s) => ({
-      playerId: s.playerId,
-      matchPoints: s.matchPoints,
-      opponentsFaced: s.opponentsFaced,
-      hasHadBye: s.hasHadBye,
-    }))
-  );
+  const pairings = generateSwissPairings(await getPairingInputs(eventId));
   await db.insert(matches).values(
     pairings.map((p) => ({
       roundId: pending.id,

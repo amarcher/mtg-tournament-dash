@@ -194,6 +194,57 @@ export async function getMatchGames(matchId: string) {
 }
 
 /**
+ * Inputs for generateSwissPairings. Unlike getEventStandings — which only
+ * counts rounds whose *row* is complete, so displayed standings hold still
+ * mid-round — pairing must see every match result that exists: organizers
+ * routinely preview the next round before tapping "Complete round", and a
+ * preview computed without those results pairs blind (July 2026 draft night
+ * produced a round-1 rematch this way). Aggregates every complete match in
+ * the event regardless of its round's status.
+ */
+export async function getPairingInputs(eventId: string) {
+  const roster = await getEventRoster(eventId);
+  const completedMatches = await db
+    .select({ match: matches })
+    .from(matches)
+    .innerJoin(rounds, eq(rounds.id, matches.roundId))
+    .where(and(eq(rounds.eventId, eventId), eq(matches.status, "complete")));
+
+  const records = new Map(
+    roster.map((p) => [
+      p.playerId,
+      { matchPoints: 0, opponentsFaced: [] as string[], hasHadBye: false },
+    ])
+  );
+  for (const { match: m } of completedMatches) {
+    const a = records.get(m.playerAId);
+    if (!a) continue;
+    if (m.playerBId === null) {
+      a.matchPoints += 3;
+      a.hasHadBye = true;
+      continue;
+    }
+    const b = records.get(m.playerBId);
+    if (!b) continue;
+    a.opponentsFaced.push(m.playerBId);
+    b.opponentsFaced.push(m.playerAId);
+    if (m.isDraw) {
+      a.matchPoints += 1;
+      b.matchPoints += 1;
+    } else if (m.winnerId === m.playerAId) {
+      a.matchPoints += 3;
+    } else if (m.winnerId === m.playerBId) {
+      b.matchPoints += 3;
+    }
+  }
+
+  return roster.map((p) => ({
+    playerId: p.playerId,
+    ...records.get(p.playerId)!,
+  }));
+}
+
+/**
  * Match-points standings for an event so far.
  *
  * Sort order follows the MTG tournament tiebreakers (see src/lib/tiebreakers):
