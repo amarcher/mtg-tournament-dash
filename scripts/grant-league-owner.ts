@@ -36,21 +36,25 @@ async function main() {
     process.exit(1);
   }
 
+  // First grantee becomes the primary owner (owner_user_id — the un-removable
+  // anchor). Later grantees become co-owners: a league_members row with
+  // role='owner', which the authz layer treats identically.
+  let coOwner = false;
   if (league.ownerUserId && league.ownerUserId !== account.id) {
-    const [current] = await db
+    const [primary] = await db
       .select()
       .from(user)
       .where(eq(user.id, league.ownerUserId));
-    console.error(
-      `league "${slug}" is already owned by ${current?.email ?? league.ownerUserId} — not overwriting`
+    coOwner = true;
+    console.log(
+      `primary owner stays ${primary?.email ?? league.ownerUserId}; adding ${email} as co-owner`
     );
-    process.exit(1);
+  } else {
+    await db
+      .update(leagues)
+      .set({ ownerUserId: account.id })
+      .where(eq(leagues.id, league.id));
   }
-
-  await db
-    .update(leagues)
-    .set({ ownerUserId: account.id })
-    .where(eq(leagues.id, league.id));
   const [existing] = await db
     .select()
     .from(leagueMembers)
@@ -76,7 +80,9 @@ async function main() {
       .values({ leagueId: league.id, userId: account.id, role: "owner" });
   }
 
-  console.log(`${email} now owns "${league.name}" (/${league.slug})`);
+  console.log(
+    `${email} now ${coOwner ? "co-owns" : "owns"} "${league.name}" (/${league.slug})`
+  );
 }
 
 main();
