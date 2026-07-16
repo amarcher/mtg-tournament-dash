@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueBySlug, listLeaguePolls } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { isLeagueOrganizer } from "@/lib/authz";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { formatDate } from "@/lib/format";
 
@@ -15,13 +16,14 @@ export default async function SchedulePage({
   const { slug } = await params;
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
-  const [polls, me] = await Promise.all([
+  const [polls, me, organizer] = await Promise.all([
     listLeaguePolls(league.id),
     getCurrentLeaguePlayer(league.id),
+    isLeagueOrganizer(league),
   ]);
 
   return (
-    <AppChrome league={league} player={me} active="schedule">
+    <AppChrome league={league} player={me} isOrganizer={organizer} active="schedule">
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>

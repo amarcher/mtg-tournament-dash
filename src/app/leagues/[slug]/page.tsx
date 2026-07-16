@@ -12,6 +12,7 @@ import {
   listLeagueEvents,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { isLeagueOrganizer } from "@/lib/authz";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { formatDate } from "@/lib/format";
 import { formatPollDate } from "@/lib/schedule-types";
@@ -28,13 +29,15 @@ export default async function LeagueHomePage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [players, openEvents, allEvents, me, latestPoll] = await Promise.all([
-    listLeaguePlayers(league.id),
-    listOpenLeagueEvents(league.id),
-    listLeagueEvents(league.id),
-    getCurrentLeaguePlayer(league.id),
-    getLatestLeaguePoll(league.id),
-  ]);
+  const [players, openEvents, allEvents, me, latestPoll, organizer] =
+    await Promise.all([
+      listLeaguePlayers(league.id),
+      listOpenLeagueEvents(league.id),
+      listLeagueEvents(league.id),
+      getCurrentLeaguePlayer(league.id),
+      getLatestLeaguePoll(league.id),
+      isLeagueOrganizer(league),
+    ]);
   const pollOptions = latestPoll ? await getPollDetail(latestPoll.id) : [];
   const pollVoterCount = new Set(
     pollOptions.flatMap((o) => o.votes.map((v) => v.playerId))
@@ -80,7 +83,7 @@ export default async function LeagueHomePage({
   );
 
   return (
-    <AppChrome league={league} player={me} active="league">
+    <AppChrome league={league} player={me} isOrganizer={organizer} active="league">
       <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -98,12 +101,14 @@ export default async function LeagueHomePage({
             >
               {me ? "Switch player" : "Claim wizard"}
             </Link>
-            <Link
-              href={`/leagues/${league.slug}/events/new`}
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-            >
-              New event
-            </Link>
+            {organizer && (
+              <Link
+                href={`/leagues/${league.slug}/events/new`}
+                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              >
+                New event
+              </Link>
+            )}
           </div>
         </div>
 
@@ -243,12 +248,14 @@ export default async function LeagueHomePage({
                         Claim seat
                       </Link>
                     )}
-                    <Link
-                      className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                      href={`/events/${e.id}/manage`}
-                    >
-                      Manage
-                    </Link>
+                    {organizer && (
+                      <Link
+                        className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                        href={`/events/${e.id}/manage`}
+                      >
+                        Manage
+                      </Link>
+                    )}
                     <Link
                       className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                       href={`/events/${e.id}/broadcast`}
@@ -333,7 +340,11 @@ export default async function LeagueHomePage({
                 className="flex items-baseline justify-between rounded-md bg-zinc-900/30 px-4 py-2 text-sm"
               >
                 <Link
-                  href={`/events/${e.id}/manage`}
+                  href={
+                    organizer
+                      ? `/events/${e.id}/manage`
+                      : `/events/${e.id}/broadcast`
+                  }
                   className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
                   {e.name}

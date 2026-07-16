@@ -10,6 +10,9 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { user } from "./auth-schema";
+
+export * from "./auth-schema";
 
 export const eventStatus = pgEnum("event_status", [
   "draft",
@@ -48,18 +51,58 @@ export const pollResponse = pgEnum("poll_response", [
   "no",
 ]);
 
+export const leagueMemberRole = pgEnum("league_member_role", [
+  "owner",
+  "organizer",
+]);
+
 export const leagues = pgTable(
   "leagues",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
+    // No-login admin access: knowing this token (via the
+    // /leagues/[slug]/manage/[token] link) grants organizer rights through a
+    // cookie. Nullable — leagues inserted by seed/verify scripts don't mint
+    // one, and a null token never matches any cookie.
+    organizerToken: text("organizer_token"),
+    // Shareable co-manager invite: signing in and visiting
+    // /leagues/[slug]/invite/[token] creates a league_members row. Rotating
+    // either token invalidates all outstanding links (and cookies) at once.
+    managerInviteToken: text("manager_invite_token"),
+    ownerUserId: text("owner_user_id").references(() => user.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),
   },
   (t) => ({
     slugIdx: uniqueIndex("leagues_slug_idx").on(t.slug),
+    organizerTokenIdx: uniqueIndex("leagues_organizer_token_idx").on(
+      t.organizerToken
+    ),
+    managerInviteTokenIdx: uniqueIndex("leagues_manager_invite_token_idx").on(
+      t.managerInviteToken
+    ),
+  })
+);
+
+export const leagueMembers = pgTable(
+  "league_members",
+  {
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: leagueMemberRole("role").notNull().default("organizer"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    pk: uniqueIndex("league_members_pk").on(t.leagueId, t.userId),
   })
 );
 
@@ -270,6 +313,7 @@ export const eloChanges = pgTable("elo_changes", {
 });
 
 export type League = typeof leagues.$inferSelect;
+export type LeagueMember = typeof leagueMembers.$inferSelect;
 export type NewLeague = typeof leagues.$inferInsert;
 export type Player = typeof players.$inferSelect;
 export type NewPlayer = typeof players.$inferInsert;

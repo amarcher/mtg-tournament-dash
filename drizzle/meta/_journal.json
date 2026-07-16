@@ -64,6 +64,20 @@
       "when": 1783362338151,
       "tag": "0008_good_scream",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784221910523,
+      "tag": "0009_smart_sabretooth",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784221929495,
+      "tag": "0010_backfill_league_tokens",
+      "breakpoints": true
     }
   ]
 }

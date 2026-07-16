@@ -5,7 +5,17 @@ type AppChromeProps = {
   league?: Pick<League, "name" | "slug"> | null;
   player?: Pick<Player, "displayName"> | null;
   currentEvent?: Pick<Event, "id" | "name" | "status"> | null;
-  active?: "league" | "players" | "events" | "play" | "manage" | "schedule";
+  /** Hides organizer-only nav (New Event, Settings). Actions are the real
+   * authz boundary — this is progressive disclosure, not security. */
+  isOrganizer?: boolean;
+  active?:
+    | "league"
+    | "players"
+    | "events"
+    | "play"
+    | "manage"
+    | "schedule"
+    | "settings";
   children: React.ReactNode;
 };
 
@@ -17,6 +27,7 @@ export function AppChrome({
   league,
   player,
   currentEvent,
+  isOrganizer = false,
   active,
   children,
 }: AppChromeProps) {
@@ -49,18 +60,28 @@ export function AppChrome({
                 >
                   Players
                 </Link>
-                <Link
-                  href={`${leagueHref}/events/new`}
-                  className={`${linkBase} ${active === "events" ? linkActive : ""}`}
-                >
-                  New Event
-                </Link>
+                {isOrganizer && (
+                  <Link
+                    href={`${leagueHref}/events/new`}
+                    className={`${linkBase} ${active === "events" ? linkActive : ""}`}
+                  >
+                    New Event
+                  </Link>
+                )}
                 <Link
                   href={`${leagueHref}/schedule`}
                   className={`${linkBase} ${active === "schedule" ? linkActive : ""}`}
                 >
                   Schedule
                 </Link>
+                {isOrganizer && (
+                  <Link
+                    href={`${leagueHref}/settings`}
+                    className={`${linkBase} ${active === "settings" ? linkActive : ""}`}
+                  >
+                    Settings
+                  </Link>
+                )}
               </>
             )}
             {eventHref && (

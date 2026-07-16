@@ -99,9 +99,15 @@ async function cleanup() {
 
 async function setupEvent(playerCount: number) {
   const slug = `${PREFIX}league`;
+  // Mint an organizer token so checkRoutes can exercise the cookie-unlock
+  // path against the manage/settings pages.
   const [league] = await db
     .insert(leagues)
-    .values({ slug, name: `${PREFIX}League` })
+    .values({
+      slug,
+      name: `${PREFIX}League`,
+      organizerToken: generateJoinToken(),
+    })
     .returning();
 
   const inserted = await db
@@ -1204,6 +1210,7 @@ async function runEndEarlyPass() {
 
 async function checkRoutes(
   eventId: string,
+  authz: { leagueId: string; organizerToken: string; joinToken: string },
   sched?: { leagueSlug: string; pollId: string }
 ) {
   // Probe the server first; skip silently if it isn't running OR if something
@@ -1234,7 +1241,16 @@ async function checkRoutes(
   }
 
   const leagueSlug = `${PREFIX}league`;
-  const checks: { path: string; mustInclude?: string[] }[] = [
+  // The organizer cookie the /leagues/[slug]/manage/[token] link would set —
+  // sending it directly exercises the token branch of the authz layer over
+  // real HTTP (the in-process action calls above bypass it by design).
+  const orgCookie = `mtg_org_${authz.leagueId}=${authz.organizerToken}`;
+  const checks: {
+    path: string;
+    mustInclude?: string[];
+    mustExclude?: string[];
+    cookie?: string;
+  }[] = [
     { path: "/", mustInclude: ["MTG"] },
     {
       path: `/leagues/${leagueSlug}`,
@@ -1244,12 +1260,36 @@ async function checkRoutes(
       path: `/leagues/${leagueSlug}/claim`,
       mustInclude: ["Create wizard", `${PREFIX}P1`],
     },
+    // Organizer surfaces: locked without credentials (and leaking no join
+    // tokens), unlocked by the organizer-token cookie.
     {
       path: `/leagues/${leagueSlug}/events/new`,
+      mustInclude: ["Organizer access required"],
+      mustExclude: ["Event name"],
+    },
+    {
+      path: `/leagues/${leagueSlug}/events/new`,
+      cookie: orgCookie,
       mustInclude: ["Event name", "Players"],
     },
     {
+      path: `/leagues/${leagueSlug}/settings`,
+      mustInclude: ["Organizer access required"],
+      mustExclude: [authz.organizerToken],
+    },
+    {
+      path: `/leagues/${leagueSlug}/settings`,
+      cookie: orgCookie,
+      mustInclude: ["Organizer link", "Manager invite link"],
+    },
+    {
       path: `/events/${eventId}/manage`,
+      mustInclude: ["Organizer access required"],
+      mustExclude: [authz.joinToken, "Standings"],
+    },
+    {
+      path: `/events/${eventId}/manage`,
+      cookie: orgCookie,
       mustInclude: [`${PREFIX}P1`, "Standings"],
     },
     {
@@ -1291,25 +1331,32 @@ async function checkRoutes(
   }
 
   for (const c of checks) {
+    const label = `GET ${c.path}${c.cookie ? " (organizer cookie)" : ""}`;
     try {
       const res = await fetch(`http://localhost:${VERIFY_PORT}${c.path}`, {
         cache: "no-store",
+        headers: c.cookie ? { cookie: c.cookie } : undefined,
       });
       if (res.status !== 200) {
-        fail(`GET ${c.path} → ${res.status}`);
+        fail(`${label} → ${res.status}`);
         continue;
       }
-      if (c.mustInclude) {
+      if (c.mustInclude || c.mustExclude) {
         const body = await res.text();
-        const missing = c.mustInclude.filter((m) => !body.includes(m));
+        const missing = (c.mustInclude ?? []).filter((m) => !body.includes(m));
         if (missing.length > 0) {
-          fail(`GET ${c.path} missing: ${missing.join(", ")}`);
+          fail(`${label} missing: ${missing.join(", ")}`);
+          continue;
+        }
+        const leaked = (c.mustExclude ?? []).filter((m) => body.includes(m));
+        if (leaked.length > 0) {
+          fail(`${label} leaked: ${leaked.join(", ")}`);
           continue;
         }
       }
-      ok(`GET ${c.path} → 200`);
+      ok(`${label} → 200`);
     } catch (e) {
-      fail(`GET ${c.path} threw`, e);
+      fail(`${label} threw`, e);
     }
   }
 }
@@ -1635,7 +1682,9 @@ async function main() {
   ok(`set up 8-player event ${event.id.slice(0, 8)} in league ${league.slug}`);
 
   await driveRound1ViaPhones(event.id);
-  ok("round 1 — game-by-game flow + life adjust");
+  // The organizer actions above run gated by requireOrganizer* — reaching
+  // here proves the no-request-scope allowance keeps the harness working.
+  ok("round 1 — game-by-game flow + life adjust (organizer gate: script scope allowed)");
 
   await driveRound2WithOverridesAndDraw(event.id);
   ok("round 2 — organizer overrides incl. a draw");
@@ -1721,7 +1770,20 @@ async function main() {
     );
   }
 
-  await checkRoutes(event.id, sched);
+  const [firstSeat] = await db
+    .select()
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, event.id))
+    .limit(1);
+  await checkRoutes(
+    event.id,
+    {
+      leagueId: league.id,
+      organizerToken: league.organizerToken!,
+      joinToken: firstSeat.joinToken,
+    },
+    sched
+  );
 
   // FLUX-backed wizardize: ~90s when the image-gen server is up. Run it on
   // the first test player so the avatar columns also get exercised.

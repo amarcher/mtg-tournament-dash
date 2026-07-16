@@ -30,6 +30,8 @@ import {
 import { qrDataUrl } from "@/lib/qr";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
+import { OrganizerGate } from "@/app/components/OrganizerGate";
+import { isLeagueOrganizer } from "@/lib/authz";
 import { EventNav } from "@/app/components/EventNav";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
@@ -42,14 +44,25 @@ export default async function ManagePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  // Reap stale wizardize jobs across the league before rendering the roster
-  // (manage view shows every player's spinner state).
-  await sweepStaleWizardJobs();
   const event = await getEvent(id);
   if (!event) notFound();
 
-  const [league, roster, rounds, standings, pendingRound] = await Promise.all([
-    getLeague(event.leagueId),
+  // Gate before any work: this page exposes per-player join-token QRs on top
+  // of the admin controls, so unauthorized visits shouldn't render (or write)
+  // anything.
+  const gatedLeague = await getLeague(event.leagueId);
+  if (!(await isLeagueOrganizer(event.leagueId))) {
+    return (
+      <OrganizerGate league={gatedLeague} next={`/events/${id}/manage`} />
+    );
+  }
+
+  // Reap stale wizardize jobs across the league before rendering the roster
+  // (manage view shows every player's spinner state).
+  await sweepStaleWizardJobs();
+
+  const league = gatedLeague;
+  const [roster, rounds, standings, pendingRound] = await Promise.all([
     getEventRoster(id),
     getEventRounds(id),
     getEventStandings(id),
@@ -166,9 +179,9 @@ export default async function ManagePage({
   };
 
   return (
-    <AppChrome league={league} currentEvent={event} active="manage">
+    <AppChrome league={league} currentEvent={event} isOrganizer active="manage">
       <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <EventNav event={event} league={league} active="manage" />
+        <EventNav event={event} league={league} isOrganizer active="manage" />
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-3">

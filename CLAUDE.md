@@ -20,6 +20,7 @@ npm run verify      # end-to-end harness — see scripts/verify.ts
 ## Conventions
 
 - **Identity is league-scoped.** Every `players` row belongs to a single `leagues` row. League membership is the unit of identity — the same person playing in two leagues is two separate `players` rows (portable identities are a future migration). `players.league_token` is the durable per-league session token; the per-event `event_players.join_token` is a finer-grained scope set when a player claims a seat in a specific event.
+- **Two identity layers, never mixed.** Players are the guest layer above — cookies + tokens, zero login, and it must stay that way (mid-game phones must never see a sign-in screen). *Organizers* are the account layer: better-auth magic-link sessions (`src/lib/user-auth.ts`, tables in `src/db/auth-schema.ts`) plus `league_members` roles and `leagues.owner_user_id`. Authorization decisions go through `src/lib/authz.ts` (`requireOrganizer`, `requireOrganizerForEvent/Round/Match`, `isLeagueOrganizer`); the pure decision logic lives in `src/lib/authz-core.ts` with unit tests. Access is granted by session membership **or** the `mtg_org_<leagueId>` cookie set by the no-login organizer link `/leagues/[slug]/manage/[token]` **or** no-request-scope (the verify harness driving actions in-process — unreachable over HTTP, same convention as the `revalidatePath` wrapper).
 - **Server actions** live in `src/app/events/actions.ts`. The file is `"use server"`, so it can only export async functions. Constants must live in non-`"use server"` modules — see `src/lib/wizard-types.ts` next to `src/lib/wizard.ts` for the established split when a constant has to be shared between client and server code.
 - **Client/server boundary**: anything importing `node:fs/promises`, `sharp`, or talking to FLUX must not be reachable from a Client Component. Pull constants/types into a separate `*-types.ts` module if both sides need them.
 - **DB access**: use the typed query helpers in `src/db/queries.ts` rather than ad-hoc Drizzle in components. The roster-shaped queries return all five tier URLs (`avatarUrl` / `avatarWoundedUrl` / `avatarCriticalUrl` / `avatarVictoryUrl` / `avatarDefeatUrl`) — extend them rather than duplicating the joins.
@@ -33,6 +34,7 @@ npm run verify      # end-to-end harness — see scripts/verify.ts
 - The `setPlayerCookie` / `getCurrentPlayer` cookie scheme (per-event) and the `setLeagueCookie` / `getCurrentLeaguePlayer` scheme (per-league, durable) in `src/lib/auth.ts`. The `/events/[id]/join/[token]` route, the `/events/[id]/claim` page, `/leagues/[slug]/claim`, and any future identity entry point funnel into one of these.
 - The `pickAvatarUrl` cascading fallback in `src/lib/avatar-tier.ts`. Players who only have a single `avatarUrl` (uploaded before the tiered system existed) still need to render correctly. Same for `pickMatchOutcomeAvatar`, which cascades victory→fresh and defeat→critical→wounded→fresh.
 - The `revalidatePath` wrapper at the top of `src/app/events/actions.ts` — it intentionally swallows `revalidatePath` errors so the verify script can drive server actions outside a request scope. Don't replace it with the raw `next/cache` import.
+- The no-request-scope allowance in `src/lib/authz.ts` (`hasRequestScope` try/catch around `cookies()`). It's what lets `npm run verify` drive the gated organizer actions in-process. Server actions invoked over HTTP always run inside a request scope, so it is not a security hole — don't "fix" it, and don't add an organizer gate to player self-service actions (claims, life taps, game reports, wizardize, poll create/vote).
 - The wizardize background-job pattern in `generateWizardAction`. The action sets `wizard_job_started_at` and returns in <1 s, then a fire-and-forget Promise does the ~2½ min FLUX work. This exists specifically because Cloudflare's free-tier 100 s HTTP timeout cuts long server-action responses; do not inline the work back into the action.
 - The `/files/[file]` proxy route — see "Generated image storage" above. It's the bridge that makes images written to the FLUX server visible through `mtg.capxun.com`.
 
@@ -55,10 +57,11 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 1. Add to `src/app/events/actions.ts` as an async export.
 2. Validate inputs at the top, throwing `Error` with a user-facing message on failure.
-3. Mutate the DB.
-4. Publish a typed `EventMessage` if any view should re-render in response.
-5. Call `revalidatePath` for any page route whose data changed.
-6. Add coverage to `scripts/verify.ts` so the action is exercised end-to-end.
+3. Decide which side of the authz line it sits on: organizer-mutating (pairings, round lifecycle, result overrides, roster edits, event/league admin) → call `requireOrganizer` / `requireOrganizerForEvent/Round/Match` from `src/lib/authz.ts` after input parsing; player self-service (claims, life taps, game reports, own-wizard regen, poll create/vote) → keep the guest-layer check it already has, never a login gate.
+4. Mutate the DB.
+5. Publish a typed `EventMessage` if any view should re-render in response.
+6. Call `revalidatePath` for any page route whose data changed.
+7. Add coverage to `scripts/verify.ts` so the action is exercised end-to-end.
 
 ## Running the LAN demo
 
@@ -86,4 +89,8 @@ Pull with `vercel env pull .env.local` after linking the project.
 - `FAL_KEY` — required when `IMAGE_GEN_PROVIDER=fal`. From [fal.ai dashboard](https://fal.ai/dashboard/keys). The SDK reads it directly; no `fal.config()` needed.
 - `BLOB_READ_WRITE_TOKEN` — set by the Vercel Blob marketplace integration. Required wherever the wizard action runs: `uploadPortrait` throws on missing token.
 - `KV_REST_API_URL` / `KV_REST_API_TOKEN` — set by the Upstash for Redis marketplace integration. Required in prod for cross-instance pub/sub via `@upstash/realtime`. When unset, `src/lib/pubsub.ts` falls back to an in-process `Map` (fine for `npm run dev` / `lan` / `verify`).
+- `BETTER_AUTH_SECRET` — session/token signing secret for better-auth (organizer accounts). Required in all Vercel envs; generate with `openssl rand -base64 32`. Local dev warns and falls back without it, but set one in `.env.local` anyway.
+- `BETTER_AUTH_URL` — canonical base URL for magic-link callbacks. **Production only** (`https://mtg.capxun.com`); previews fall back to `VERCEL_URL` automatically (per-deployment sessions on previews are expected, not a bug), local dev falls back to `http://localhost:3000`.
+- `RESEND_API_KEY` — sends magic-link sign-in emails via [Resend](https://resend.com). Requires a verified sending domain. When unset (local dev), the magic link is printed to the server console instead — the logged URL *is* the sign-in.
+- `EMAIL_FROM` — the From header for magic-link emails, e.g. `MTG Dash <signin@capxun.com>`. Must be on the Resend-verified domain. Defaults to Resend's onboarding sender (only delivers to the account owner's own inbox).
 - `NEXT_PUBLIC_GA4_MEASUREMENT_ID` — optional. `G-XXXXXXXXXX` from analytics.google.com. When set, the root layout embeds `@next/third-parties/google`'s `<GoogleAnalytics>` so pageviews show up in the [app-traffic dashboard](https://app-traffic.vercel.app/?project=mtg-dash). **Scoped to Production on Vercel** so preview pageviews don't pollute the prod GA4 stream. **Build-time inlined** (the `NEXT_PUBLIC_` prefix), so you have to rebuild after changing it. The matching numeric Property ID lives in the app-traffic project's Vercel env as `GA4_PROPERTY_ID_MTG_DASH`.

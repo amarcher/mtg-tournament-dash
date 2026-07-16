@@ -45,8 +45,18 @@ import {
   setLeagueCookie,
   setPlayerCookie,
 } from "@/lib/auth";
+import {
+  getSessionUser,
+  requireOrganizer,
+  requireOrganizerForEvent,
+  requireOrganizerForMatch,
+  requireOrganizerForRound,
+  setOrganizerCookie,
+} from "@/lib/authz";
+import { leagueMembers } from "@/db/schema";
 import { addPlayerToEventRoster } from "@/lib/event-roster";
 import { publish } from "@/lib/pubsub";
+import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
 import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
 import { startWizardGeneration } from "@/lib/wizard-job";
@@ -66,6 +76,7 @@ export async function createEventAction(formData: FormData) {
   if (!leagueId) throw new Error("League required");
   if (!name) throw new Error("Event name required");
   if (playerIds.length < 2) throw new Error("Need at least 2 players");
+  await requireOrganizer(leagueId);
 
   const leaguePlayers = await db
     .select()
@@ -103,6 +114,7 @@ export async function addPlayerAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!leagueId) throw new Error("League required");
   if (!name) throw new Error("Player name required");
+  await requireOrganizer(leagueId);
   await db.insert(players).values({
     leagueId,
     leagueToken: generateJoinToken(),
@@ -285,6 +297,8 @@ export async function generateWizardAction(formData: FormData) {
     );
   }
 
+  await checkWizardizeLimit(target.id, target.leagueId);
+
   await startWizardGeneration({ playerId, archetype, freeform, selfie });
 
   revalidatePath(`/players/${playerId}`);
@@ -303,8 +317,7 @@ export async function generateWizardAction(formData: FormData) {
  * `regeneratePendingPairingsAction` to refresh.
  */
 export async function previewNextRoundAction(eventId: string) {
-  const [event] = await db.select().from(events).where(eq(events.id, eventId));
-  if (!event) throw new Error("Event not found");
+  const event = await requireOrganizerForEvent(eventId);
   if (event.status === "complete") throw new Error("Event is already complete");
 
   const existingRounds = await db
@@ -355,8 +368,7 @@ export async function previewNextRoundAction(eventId: string) {
  * auto-resolve byes, and publish `round_started` so every phone advances.
  */
 export async function confirmRoundAction(eventId: string) {
-  const [event] = await db.select().from(events).where(eq(events.id, eventId));
-  if (!event) throw new Error("Event not found");
+  const event = await requireOrganizerForEvent(eventId);
   if (event.status === "complete") throw new Error("Event is already complete");
 
   const [pending] = await db
@@ -447,6 +459,7 @@ export async function confirmRoundAction(eventId: string) {
  * harness and any caller that doesn't want to step through the review UI.
  */
 export async function startNextRoundAction(eventId: string) {
+  await requireOrganizerForEvent(eventId);
   await previewNextRoundAction(eventId);
   await confirmRoundAction(eventId);
 }
@@ -456,6 +469,7 @@ export async function startNextRoundAction(eventId: string) {
  * when the organizer doesn't like the auto result and wants another draw.
  */
 export async function regeneratePendingPairingsAction(eventId: string) {
+  await requireOrganizerForEvent(eventId);
   const [pending] = await db
     .select()
     .from(rounds)
@@ -501,6 +515,7 @@ export async function swapMatchPlayersAction(args: {
     throw new Error("Can only revise pending pairings");
   if (mA.roundId !== mB.roundId)
     throw new Error("Matches must be in the same round");
+  const swapRound = await requireOrganizerForRound(mA.roundId);
 
   const aHas = args.sideA === "a" ? mA.playerAId : mA.playerBId;
   const bHas = args.sideB === "a" ? mB.playerAId : mB.playerBId;
@@ -516,11 +531,7 @@ export async function swapMatchPlayersAction(args: {
     .set(args.sideB === "a" ? { playerAId: aHas } : { playerBId: aHas })
     .where(eq(matches.id, mB.id));
 
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, mA.roundId));
-  if (round) revalidatePath(`/events/${round.eventId}/manage`);
+  revalidatePath(`/events/${swapRound.eventId}/manage`);
 }
 
 /**
@@ -537,14 +548,11 @@ export async function dropPendingMatchAction(args: { matchId: string }) {
   if (!m) throw new Error("Match not found");
   if (m.status !== "pending")
     throw new Error("Can only drop pending pairings");
+  const round = await requireOrganizerForRound(m.roundId);
 
   await db.delete(matches).where(eq(matches.id, m.id));
 
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, m.roundId));
-  if (round) revalidatePath(`/events/${round.eventId}/manage`);
+  revalidatePath(`/events/${round.eventId}/manage`);
 }
 
 /**
@@ -560,11 +568,7 @@ export async function addManualPairingAction(args: {
   if (args.playerAId === args.playerBId)
     throw new Error("Player can't be paired with themselves");
 
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, args.roundId));
-  if (!round) throw new Error("Round not found");
+  const round = await requireOrganizerForRound(args.roundId);
   if (round.status !== "pending")
     throw new Error("Can only edit pending rounds");
 
@@ -620,6 +624,7 @@ export async function addManualPairingAction(args: {
  * but they are discarded, which the UI copy says out loud.
  */
 export async function revertRoundToPairingsAction(eventId: string) {
+  await requireOrganizerForEvent(eventId);
   const [alreadyPending] = await db
     .select()
     .from(rounds)
@@ -713,6 +718,7 @@ export async function swapActiveMatchPlayersAction(args: {
   if (!mA || !mB) throw new Error("Match not found");
   if (mA.roundId !== mB.roundId)
     throw new Error("Matches must be in the same round");
+  await requireOrganizerForRound(mA.roundId);
   if (mA.status !== "in_progress" || mB.status !== "in_progress")
     throw new Error("Both matches must still be in progress");
   if (mA.playerBId === null || mB.playerBId === null)
@@ -770,6 +776,7 @@ export async function swapActiveMatchPlayersAction(args: {
 }
 
 export async function cancelPendingRoundAction(eventId: string) {
+  await requireOrganizerForEvent(eventId);
   const [pending] = await db
     .select()
     .from(rounds)
@@ -781,6 +788,7 @@ export async function cancelPendingRoundAction(eventId: string) {
 }
 
 export async function completeRoundAction(eventId: string) {
+  const event = await requireOrganizerForEvent(eventId);
   const round = await getCurrentRound(eventId);
   if (!round) throw new Error("No active round");
 
@@ -795,7 +803,6 @@ export async function completeRoundAction(eventId: string) {
     .set({ status: "complete", completedAt: new Date() })
     .where(eq(rounds.id, round.id));
 
-  const [event] = await db.select().from(events).where(eq(events.id, eventId));
   const completed = (
     await db.select().from(rounds).where(eq(rounds.eventId, eventId))
   ).filter((r) => r.status === "complete").length;
@@ -846,8 +853,7 @@ async function finalizeEvent(eventId: string) {
  * rank players on everything played so far and lock in placements.
  */
 export async function endEventAction(eventId: string) {
-  const [event] = await db.select().from(events).where(eq(events.id, eventId));
-  if (!event) throw new Error("Event not found");
+  const event = await requireOrganizerForEvent(eventId);
   if (event.status === "complete") throw new Error("Event is already complete");
 
   const round = await getCurrentRound(eventId);
@@ -899,8 +905,7 @@ export async function endEventAction(eventId: string) {
  * the event's `totalRounds` cap.
  */
 export async function reopenEventAction(eventId: string) {
-  const [event] = await db.select().from(events).where(eq(events.id, eventId));
-  if (!event) throw new Error("Event not found");
+  const event = await requireOrganizerForEvent(eventId);
   if (event.status !== "complete") throw new Error("Event is not complete");
 
   await db
@@ -926,8 +931,7 @@ export async function reopenEventAction(eventId: string) {
  * results and ELO carry over untouched.
  */
 export async function addRoundAction(eventId: string) {
-  const [event] = await db.select().from(events).where(eq(events.id, eventId));
-  if (!event) throw new Error("Event not found");
+  const event = await requireOrganizerForEvent(eventId);
   if (event.status !== "complete") throw new Error("Event is not complete");
 
   await db
@@ -1006,6 +1010,8 @@ export async function reportGameWinnerAction(args: {
 export async function setMatchResultAction(formData: FormData) {
   const matchId = String(formData.get("matchId") ?? "");
   const outcome = String(formData.get("outcome") ?? ""); // "a" | "b" | "draw"
+  if (!matchId) throw new Error("matchId required");
+  await requireOrganizerForMatch(matchId);
   await finalizeMatchOutcome({ matchId, outcome });
 }
 
@@ -1335,4 +1341,140 @@ export async function finalizeDatePollAction(formData: FormData) {
   revalidatePath(`/leagues/${league.slug}`);
   revalidatePath(`/leagues/${league.slug}/schedule`);
   revalidatePath(`/leagues/${league.slug}/schedule/${pollId}`);
+}
+
+/* ---- league management (organizer accounts) ---- */
+
+// "new" would shadow the static /leagues/new route; the rest are plausible
+// future static segments under /leagues/.
+const RESERVED_LEAGUE_SLUGS = new Set(["new", "join", "settings"]);
+
+export async function createLeagueAction(formData: FormData) {
+  const name = String(formData.get("name") ?? "").trim();
+  const slug = String(formData.get("slug") ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!name) throw new Error("League name required");
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(slug)) {
+    throw new Error(
+      "Slug must be 1–48 lowercase letters, numbers, or hyphens (no leading/trailing hyphen)"
+    );
+  }
+  if (RESERVED_LEAGUE_SLUGS.has(slug)) {
+    throw new Error("That slug is reserved — pick another");
+  }
+
+  const user = await getSessionUser();
+  if (!user) throw new Error("Sign in to create a league");
+
+  const [existing] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.slug, slug));
+  if (existing) throw new Error("That slug is taken — pick another");
+
+  // No transactions on the neon-http driver: insert the league (with owner
+  // set) first, membership row second. Losing the second write degrades
+  // gracefully — the owner check passes via owner_user_id alone.
+  const [league] = await db
+    .insert(leagues)
+    .values({
+      slug,
+      name,
+      ownerUserId: user.id,
+      organizerToken: generateJoinToken(),
+      managerInviteToken: generateJoinToken(),
+    })
+    .returning();
+  await db
+    .insert(leagueMembers)
+    .values({ leagueId: league.id, userId: user.id, role: "owner" })
+    .onConflictDoNothing();
+
+  revalidatePath("/");
+  redirect(`/leagues/${league.slug}`);
+}
+
+export async function acceptManagerInviteAction(formData: FormData) {
+  const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
+  const token = String(formData.get("token") ?? "").trim();
+  if (!leagueSlug || !token) throw new Error("Invalid invite link");
+
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.slug, leagueSlug));
+  if (!league || !league.managerInviteToken || league.managerInviteToken !== token) {
+    throw new Error("This invite link is no longer valid");
+  }
+
+  const user = await getSessionUser();
+  if (!user) throw new Error("Sign in to accept the invite");
+
+  await db
+    .insert(leagueMembers)
+    .values({ leagueId: league.id, userId: user.id, role: "organizer" })
+    .onConflictDoNothing();
+
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/leagues/${league.slug}/settings`);
+  revalidatePath("/");
+  redirect(`/leagues/${league.slug}`);
+}
+
+export async function rotateOrganizerTokenAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  if (!leagueId) throw new Error("League required");
+  await requireOrganizer(leagueId);
+
+  const token = generateJoinToken();
+  const [league] = await db
+    .update(leagues)
+    .set({ organizerToken: token })
+    .where(eq(leagues.id, leagueId))
+    .returning();
+  // Rotation kills every outstanding organizer link AND cookie at once. Keep
+  // the rotator themselves in — they may be here via the old cookie.
+  await setOrganizerCookie(leagueId, token);
+
+  revalidatePath(`/leagues/${league.slug}/settings`);
+}
+
+export async function rotateManagerInviteTokenAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  if (!leagueId) throw new Error("League required");
+  await requireOrganizer(leagueId);
+
+  const [league] = await db
+    .update(leagues)
+    .set({ managerInviteToken: generateJoinToken() })
+    .where(eq(leagues.id, leagueId))
+    .returning();
+
+  revalidatePath(`/leagues/${league.slug}/settings`);
+}
+
+export async function removeLeagueMemberAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  const userId = String(formData.get("userId") ?? "");
+  if (!leagueId || !userId) throw new Error("League and member required");
+  await requireOrganizer(leagueId);
+
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, leagueId));
+  if (!league) throw new Error("League not found");
+  if (league.ownerUserId === userId) {
+    throw new Error("The league owner can't be removed");
+  }
+
+  await db
+    .delete(leagueMembers)
+    .where(
+      and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, userId))
+    );
+
+  revalidatePath(`/leagues/${league.slug}/settings`);
 }

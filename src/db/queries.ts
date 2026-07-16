@@ -19,9 +19,11 @@ import {
   leagues,
   matches,
   players,
+  leagueMembers,
   pollOptions,
   pollVotes,
   rounds,
+  user,
   type PollVote,
 } from "./schema";
 import {
@@ -45,6 +47,56 @@ export async function getLeague(leagueId: string) {
     .from(leagues)
     .where(eq(leagues.id, leagueId));
   return row ?? null;
+}
+
+export async function getLeagueMembership(leagueId: string, userId: string) {
+  const [row] = await db
+    .select()
+    .from(leagueMembers)
+    .where(
+      and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, userId))
+    );
+  return row ?? null;
+}
+
+export async function listLeagueMembers(leagueId: string) {
+  return db
+    .select({
+      userId: leagueMembers.userId,
+      role: leagueMembers.role,
+      createdAt: leagueMembers.createdAt,
+      email: user.email,
+      name: user.name,
+    })
+    .from(leagueMembers)
+    .innerJoin(user, eq(user.id, leagueMembers.userId))
+    .where(eq(leagueMembers.leagueId, leagueId))
+    .orderBy(asc(leagueMembers.createdAt));
+}
+
+/** Leagues a signed-in user can manage: owned or joined as organizer. */
+export async function listLeaguesForUser(userId: string) {
+  const owned = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.ownerUserId, userId));
+  const memberRows = await db
+    .select({ league: leagues })
+    .from(leagueMembers)
+    .innerJoin(leagues, eq(leagues.id, leagueMembers.leagueId))
+    .where(eq(leagueMembers.userId, userId));
+  const byId = new Map(owned.map((l) => [l.id, l]));
+  for (const { league } of memberRows) byId.set(league.id, league);
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listLeaguesByIds(ids: string[]) {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(leagues)
+    .where(inArray(leagues.id, ids))
+    .orderBy(asc(leagues.name));
 }
 
 export async function listLeaguePlayers(leagueId: string) {

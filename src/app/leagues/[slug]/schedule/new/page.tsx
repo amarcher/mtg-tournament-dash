@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueBySlug } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { isLeagueOrganizer } from "@/lib/authz";
 import { createDatePollAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
 import { DateOptionsField } from "./DateOptionsField";
@@ -16,10 +17,13 @@ export default async function NewSchedulePollPage({
   const { slug } = await params;
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
-  const me = await getCurrentLeaguePlayer(league.id);
+  const [me, organizer] = await Promise.all([
+    getCurrentLeaguePlayer(league.id),
+    isLeagueOrganizer(league),
+  ]);
 
   return (
-    <AppChrome league={league} player={me} active="schedule">
+    <AppChrome league={league} player={me} isOrganizer={organizer} active="schedule">
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-8">
           <h1 className="text-3xl font-semibold tracking-tight">

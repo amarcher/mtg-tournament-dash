@@ -5,6 +5,7 @@ import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
 import { claimIdentityAction, joinEventAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
 import { EventNav } from "@/app/components/EventNav";
+import { isLeagueOrganizer } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +21,12 @@ export default async function ClaimPage({
   const event = await getEvent(id);
   if (!event) notFound();
 
-  const [league, roster, me, leagueMe] = await Promise.all([
+  const [league, roster, me, leagueMe, organizer] = await Promise.all([
     getLeague(event.leagueId),
     getEventRoster(id),
     getCurrentPlayer(id),
     getCurrentLeaguePlayer(event.leagueId),
+    isLeagueOrganizer(event.leagueId),
   ]);
 
   // "Switch player" toggle: when the user lands here already claimed, we show
@@ -38,9 +40,15 @@ export default async function ClaimPage({
     : null;
 
   return (
-    <AppChrome league={league} player={leagueMe} currentEvent={event} active="players">
+    <AppChrome
+      league={league}
+      player={leagueMe}
+      currentEvent={event}
+      isOrganizer={organizer}
+      active="players"
+    >
       <main className="mx-auto w-full max-w-3xl px-4 py-8">
-      <EventNav event={event} league={league} active="claim" />
+      <EventNav event={event} league={league} isOrganizer={organizer} active="claim" />
       <div className="mb-6">
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           {event.name}
