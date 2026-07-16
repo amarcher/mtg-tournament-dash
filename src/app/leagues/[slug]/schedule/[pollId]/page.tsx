@@ -24,6 +24,38 @@ import { pickLeadingOptionId, tallyResponses } from "@/lib/poll-tally";
 
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string; pollId: string }>;
+}) {
+  const { slug, pollId } = await params;
+  const [league, poll] = await Promise.all([
+    getLeagueBySlug(slug),
+    getDatePoll(pollId),
+  ]);
+  if (!league || !poll || poll.leagueId !== league.id) return {};
+
+  const options = await getPollDetail(poll.id);
+  const winner = poll.finalizedOptionId
+    ? options.find((o) => o.id === poll.finalizedOptionId)
+    : null;
+  const description = winner
+    ? `Draft night is set: ${formatPollDate(winner.startsAt)}.`
+    : `Vote on a date: ${options
+        .slice(0, 4)
+        .map((o) => formatPollDate(o.startsAt))
+        .join(" · ")}${options.length > 4 ? ` (+${options.length - 4} more)` : ""}`;
+
+  const title = `${poll.title} · ${league.name}`;
+  return {
+    title,
+    description,
+    openGraph: { title, description },
+    twitter: { card: "summary_large_image", title, description },
+  };
+}
+
 const responseTone: Record<PollResponseValue, string> = {
   yes: "ring-emerald-400",
   if_need_be: "ring-amber-400",
