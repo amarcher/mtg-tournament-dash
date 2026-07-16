@@ -72,18 +72,19 @@ export default async function HomePage() {
           </h2>
           <ol className="mt-4 space-y-3 text-sm text-zinc-400">
             <li>
-              <span className="font-semibold text-amber-400">1.</span> Create
-              a league — it&apos;s unlisted; sharing the link is the invite.
+              <span className="font-semibold text-amber-400">1.</span>{" "}
+              Create a league — it&apos;s unlisted; sharing the link is the
+              invite.
             </li>
             <li>
-              <span className="font-semibold text-amber-400">2.</span> Friends
-              scan a QR, type their name, and get a wizard portrait from a
-              selfie. No accounts, no passwords.
+              <span className="font-semibold text-amber-400">2.</span>{" "}
+              Friends scan a QR, type their name, and get a wizard portrait
+              from a selfie. No accounts, no passwords.
             </li>
             <li>
-              <span className="font-semibold text-amber-400">3.</span> Start
-              an event: Swiss pairings, life tracking on phones, standings on
-              the TV, ELO across the season.
+              <span className="font-semibold text-amber-400">3.</span>{" "}
+              Start an event: Swiss pairings, life tracking on phones,
+              standings on the TV, ELO across the season.
             </li>
           </ol>
           <p className="mt-6 text-xs text-zinc-500">
