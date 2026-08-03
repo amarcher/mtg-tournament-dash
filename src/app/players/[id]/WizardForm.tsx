@@ -20,6 +20,8 @@ type Props = {
   generating: boolean;
   /** Error message from the last failed background job, or null. */
   lastError: string | null;
+  /** Stored seed selfie from the last generation, reusable for regens. */
+  selfieUrl: string | null;
 };
 
 export function WizardForm({
@@ -28,6 +30,7 @@ export function WizardForm({
   defaultArchetype,
   generating,
   lastError,
+  selfieUrl,
 }: Props) {
   const router = useRouter();
 
@@ -66,6 +69,7 @@ export function WizardForm({
         hasWizard={hasWizard}
         defaultArchetype={defaultArchetype}
         generating={generating}
+        selfieUrl={selfieUrl}
       />
     </form>
   );
@@ -75,14 +79,17 @@ function FormBody({
   hasWizard,
   defaultArchetype,
   generating,
+  selfieUrl,
 }: {
   hasWizard: boolean;
   defaultArchetype: string | null;
   generating: boolean;
+  selfieUrl: string | null;
 }) {
   const { pending } = useFormStatus();
   const busy = pending || generating;
   const [theme, setTheme] = useState<PortraitTheme>(DEFAULT_PORTRAIT_THEME);
+  const [reuseSelfie, setReuseSelfie] = useState(Boolean(selfieUrl));
 
   const archetypes = THEME_ARCHETYPES[theme];
   const archetypeDefault =
@@ -99,17 +106,56 @@ function FormBody({
         className="contents disabled:opacity-60"
       >
         <div className="md:col-span-2">
-          <label htmlFor="wizard-selfie" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
             Selfie
-          </label>
-          <input
-            id="wizard-selfie"
-            name="selfie"
-            type="file"
-            required
-            accept="image/heic,image/heif,image/jpeg,image/png,image/webp,image/*"
-            className="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-zinc-950 hover:file:bg-amber-400 disabled:file:bg-zinc-700"
-          />
+          </span>
+          {selfieUrl && reuseSelfie ? (
+            <div className="flex items-center gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5">
+              <input type="hidden" name="useSavedSelfie" value="1" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={selfieUrl}
+                alt="Your saved selfie"
+                className="h-14 w-14 shrink-0 rounded-md object-cover"
+              />
+              <div className="min-w-0 text-sm">
+                <div className="font-medium text-emerald-200">
+                  Reusing your saved selfie
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReuseSelfie(false)}
+                  className="mt-0.5 text-xs text-amber-400 underline-offset-2 hover:text-amber-300 hover:underline"
+                >
+                  Upload a different photo instead
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <input
+                id="wizard-selfie"
+                name="selfie"
+                type="file"
+                required
+                accept="image/heic,image/heif,image/jpeg,image/png,image/webp,image/*"
+                aria-label="Selfie"
+                className="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-zinc-950 hover:file:bg-amber-400 disabled:file:bg-zinc-700"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Required — pick a photo of yourself (iPhone HEIC works).
+              </p>
+              {selfieUrl && (
+                <button
+                  type="button"
+                  onClick={() => setReuseSelfie(true)}
+                  className="mt-1 text-xs text-amber-400 underline-offset-2 hover:text-amber-300 hover:underline"
+                >
+                  Use my saved selfie instead
+                </button>
+              )}
+            </>
+          )}
         </div>
         <div>
           <label htmlFor="wizard-theme" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">

@@ -131,6 +131,28 @@ export function buildWizardPrompt(
   );
 }
 
+/**
+ * Load a previously stored seed selfie so a regen doesn't require
+ * re-uploading. Handles both absolute Blob URLs and legacy `/files/...`
+ * paths served by the image-gen server.
+ */
+export async function fetchStoredSelfie(url: string): Promise<File> {
+  const resolved = url.startsWith("http") ? url : `${IMAGE_GEN_URL}${url}`;
+  const res = await fetch(resolved, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(
+      `Couldn't load your saved selfie (HTTP ${res.status}) — upload a new one instead.`
+    );
+  }
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength < 1024) {
+    throw new Error(
+      "Your saved selfie looks corrupt — upload a new one instead."
+    );
+  }
+  return new File([buf], "saved-selfie.jpg", { type: "image/jpeg" });
+}
+
 export type WizardTier =
   | "fresh"
   | "wounded"
