@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getDatePoll,
+  getEventBySourcePoll,
   getLeagueBySlug,
   getPollDetail,
   listLeaguePlayers,
@@ -12,6 +13,7 @@ import { isLeagueOrganizer } from "@/lib/authz";
 import {
   castPollVotesAction,
   finalizeDatePollAction,
+  promoteDatePollAction,
 } from "@/app/events/actions";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import {
@@ -73,12 +75,14 @@ export default async function SchedulePollPage({
   const poll = await getDatePoll(pollId);
   if (!poll || poll.leagueId !== league.id) notFound();
 
-  const [options, leaguePlayers, me, organizer] = await Promise.all([
-    getPollDetail(poll.id),
-    listLeaguePlayers(league.id),
-    getCurrentLeaguePlayer(league.id),
-    isLeagueOrganizer(league),
-  ]);
+  const [options, leaguePlayers, me, organizer, promotedEvent] =
+    await Promise.all([
+      getPollDetail(poll.id),
+      listLeaguePlayers(league.id),
+      getCurrentLeaguePlayer(league.id),
+      isLeagueOrganizer(league),
+      getEventBySourcePoll(poll.id),
+    ]);
 
   const voterIds = new Set(
     options.flatMap((o) => o.votes.map((v) => v.playerId))
@@ -212,6 +216,41 @@ export default async function SchedulePollPage({
             <div className="mt-1 text-2xl font-semibold text-emerald-100">
               {formatPollDate(winner.startsAt)}
             </div>
+            {promotedEvent ? (
+              <Link
+                href={`/events/${promotedEvent.id}/manage`}
+                className="mt-3 inline-block rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+              >
+                Open event: {promotedEvent.name} →
+              </Link>
+            ) : organizer ? (
+              <form
+                action={promoteDatePollAction}
+                className="mt-4 flex flex-wrap items-center gap-2"
+              >
+                <input type="hidden" name="pollId" value={poll.id} />
+                <label htmlFor="promote-name" className="sr-only">
+                  Event name
+                </label>
+                <input
+                  id="promote-name"
+                  name="name"
+                  defaultValue={poll.title}
+                  placeholder="Event name"
+                  className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  className="rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+                >
+                  Create the event
+                </button>
+                <p className="w-full text-xs text-zinc-400">
+                  Pre-rosters everyone who answered ✅ or 🟡 for this date —
+                  you can rename it and trim the roster afterwards.
+                </p>
+              </form>
+            ) : null}
           </div>
         )}
 
@@ -257,17 +296,31 @@ export default async function SchedulePollPage({
                   className="flex items-center justify-between gap-4 rounded-md border border-zinc-800 bg-zinc-900/50 px-4 py-2 text-sm"
                 >
                   <span>{formatPollDate(o.startsAt)}</span>
-                  <form action={finalizeDatePollAction}>
-                    <input type="hidden" name="pollId" value={poll.id} />
-                    <input type="hidden" name="playerId" value={me.id} />
-                    <input type="hidden" name="optionId" value={o.id} />
-                    <button
-                      type="submit"
-                      className="rounded-md border border-zinc-700 px-3 py-1.5 font-medium text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-200"
-                    >
-                      Pick this date
-                    </button>
-                  </form>
+                  <div className="flex flex-wrap gap-2">
+                    <form action={finalizeDatePollAction}>
+                      <input type="hidden" name="pollId" value={poll.id} />
+                      <input type="hidden" name="playerId" value={me.id} />
+                      <input type="hidden" name="optionId" value={o.id} />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-zinc-700 px-3 py-1.5 font-medium text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-200"
+                      >
+                        Pick this date
+                      </button>
+                    </form>
+                    {organizer && (
+                      <form action={promoteDatePollAction}>
+                        <input type="hidden" name="pollId" value={poll.id} />
+                        <input type="hidden" name="optionId" value={o.id} />
+                        <button
+                          type="submit"
+                          className="rounded-md bg-emerald-500 px-3 py-1.5 font-semibold text-zinc-950 transition hover:bg-emerald-400"
+                        >
+                          Pick &amp; create event
+                        </button>
+                      </form>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

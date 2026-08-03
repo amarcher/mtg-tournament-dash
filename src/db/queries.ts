@@ -19,6 +19,7 @@ import {
   leagues,
   matches,
   players,
+  playerPortraits,
   leagueMembers,
   pollOptions,
   pollVotes,
@@ -729,6 +730,43 @@ export async function getPlayer(playerId: string) {
     .from(players)
     .where(eq(players.id, playerId));
   return row;
+}
+
+export async function listPlayerPortraits(playerId: string) {
+  return db
+    .select()
+    .from(playerPortraits)
+    .where(eq(playerPortraits.playerId, playerId))
+    .orderBy(desc(playerPortraits.createdAt));
+}
+
+/** The event (if any) already created by promoting this poll. */
+export async function getEventBySourcePoll(pollId: string) {
+  const [row] = await db
+    .select()
+    .from(events)
+    .where(eq(events.sourcePollId, pollId));
+  return row ?? null;
+}
+
+/**
+ * Latest not-yet-complete event carrying a portrait theme — offered on the
+ * wizardize form so players can opt into the upcoming draft's look.
+ */
+export async function getThemedEventForLeague(leagueId: string) {
+  const [row] = await db
+    .select()
+    .from(events)
+    .where(
+      and(
+        eq(events.leagueId, leagueId),
+        sql`${events.status} <> 'complete'`,
+        isNotNull(events.portraitTheme)
+      )
+    )
+    .orderBy(desc(events.createdAt))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function getDatePoll(pollId: string) {

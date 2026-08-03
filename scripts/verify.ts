@@ -42,6 +42,8 @@ import {
   endEventAction,
   finalizeDatePollAction,
   previewNextRoundAction,
+  promoteDatePollAction,
+  updateEventAction,
   reopenEventAction,
   regeneratePendingPairingsAction,
   revertRoundToPairingsAction,
@@ -52,12 +54,17 @@ import {
 } from "../src/app/events/actions";
 import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
 import { addPlayerToEventRoster } from "../src/lib/event-roster";
-import { startWizardGeneration } from "../src/lib/wizard-job";
+import {
+  applyPortraitToPlayer,
+  startWizardGeneration,
+} from "../src/lib/wizard-job";
 import { generateJoinToken } from "../src/lib/auth";
 import {
   getActiveMatchForPlayer,
   getCurrentRound,
   getDatePoll,
+  getEvent,
+  getEventBySourcePoll,
   getEventMatchHistory,
   getEventRoster,
   getEventRounds,
@@ -67,7 +74,7 @@ import {
   getRoundMatches,
 } from "../src/db/queries";
 import { pickLeadingOptionId } from "../src/lib/poll-tally";
-import { datePolls } from "../src/db/schema";
+import { datePolls, playerPortraits } from "../src/db/schema";
 
 const PREFIX = "_verify_";
 const VERIFY_PORT = process.env.VERIFY_PORT ?? "3002";
@@ -1666,6 +1673,103 @@ async function runSchedulingPollPass(): Promise<{
     fail("voting on a finalized poll should throw");
   } catch {
     ok("rejects votes once the poll is finalized");
+  }
+
+  // Promote the finalized poll into a real event. Winning option o2 has s1
+  // (if-need-be) and s3 (yes); s2 never voted on it, so the roster is 2.
+  try {
+    await promoteDatePollAction(
+      makeFormData({ pollId: poll.id, name: `${PREFIX}PromotedEvent` })
+    );
+    fail("promoteDatePollAction should redirect on success");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("promote redirects to the new event");
+    else throw e;
+  }
+  const promoted = await getEventBySourcePoll(poll.id);
+  assert(promoted, "promoted event exists and links back to the poll");
+  assert(
+    promoted!.name === `${PREFIX}PromotedEvent`,
+    "promoted event takes the provided name"
+  );
+  const winningOption = options.find((o) => o.id === o2.id)!;
+  assert(
+    promoted!.scheduledAt?.getTime() ===
+      new Date(winningOption.startsAt).getTime(),
+    "promoted event scheduledAt matches the winning date"
+  );
+  const promotedRoster = await getEventRoster(promoted!.id);
+  const promotedIds = new Set(promotedRoster.map((r) => r.playerId));
+  assert(
+    promotedRoster.length === 2 &&
+      promotedIds.has(s1.id) &&
+      promotedIds.has(s3.id),
+    "roster pre-seeded from yes/if-need-be voters on the winning date"
+  );
+
+  try {
+    await promoteDatePollAction(makeFormData({ pollId: poll.id }));
+    fail("re-promote should redirect to the existing event");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("re-promoting redirects instead of duplicating");
+    else throw e;
+  }
+  const eventsFromPoll = await db
+    .select()
+    .from(events)
+    .where(eq(events.sourcePollId, poll.id));
+  assert(eventsFromPoll.length === 1, "re-promote created no duplicate event");
+
+  // Rename + metadata edit.
+  await updateEventAction(
+    makeFormData({
+      eventId: promoted!.id,
+      name: `${PREFIX}Thonglord of the Rings`,
+      setName: "Tales of Middle-earth",
+      portraitTheme: "a character from The Lord of the Rings",
+    })
+  );
+  const renamed = await getEvent(promoted!.id);
+  assert(
+    renamed?.name === `${PREFIX}Thonglord of the Rings`,
+    "updateEventAction renames the event"
+  );
+  assert(
+    renamed?.setName === "Tales of Middle-earth" &&
+      renamed?.portraitTheme === "a character from The Lord of the Rings",
+    "updateEventAction records set + portrait theme"
+  );
+
+  // Portrait catalog: apply a cataloged set without needing FLUX.
+  const [catalogRow] = await db
+    .insert(playerPortraits)
+    .values({
+      playerId: s1.id,
+      archetype: "druid",
+      avatarUrl: "https://blob.test/fresh.jpg",
+      avatarWoundedUrl: "https://blob.test/wounded.jpg",
+      avatarCriticalUrl: "https://blob.test/critical.jpg",
+      avatarVictoryUrl: "https://blob.test/victory.jpg",
+      avatarDefeatUrl: "https://blob.test/defeat.jpg",
+      selfieUrl: "https://blob.test/selfie.jpg",
+    })
+    .returning();
+  await applyPortraitToPlayer(s1.id, catalogRow.id);
+  const [s1After] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, s1.id));
+  assert(
+    s1After.avatarUrl === "https://blob.test/fresh.jpg" &&
+      s1After.avatarDefeatUrl === "https://blob.test/defeat.jpg" &&
+      s1After.wizardArchetype === "druid",
+    "applyPortraitToPlayer re-applies all tiers + archetype"
+  );
+  try {
+    await applyPortraitToPlayer(s2.id, catalogRow.id);
+    fail("applying another player's portrait should throw");
+  } catch {
+    ok("rejects applying a portrait owned by another player");
   }
 
   return { leagueSlug: league.slug, pollId: poll.id };

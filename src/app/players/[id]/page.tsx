@@ -6,10 +6,13 @@ import { eloChanges, events, matches, players, rounds } from "@/db/schema";
 import {
   getLeague,
   getPlayer,
+  getThemedEventForLeague,
   listOpenEventsForPlayer,
+  listPlayerPortraits,
   sweepStaleWizardJobs,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { applyPortraitAction } from "@/app/events/actions";
 import { WizardForm } from "./WizardForm";
 import { WizardGallery } from "./WizardGallery";
 
@@ -31,6 +34,10 @@ export default async function PlayerPage({
   const openEvents = await listOpenEventsForPlayer(player.leagueId, player.id);
   const leagueMe = await getCurrentLeaguePlayer(player.leagueId);
   const canEdit = leagueMe?.id === player.id;
+  const [themedEvent, portraits] = await Promise.all([
+    getThemedEventForLeague(player.leagueId),
+    canEdit ? listPlayerPortraits(player.id) : Promise.resolve([]),
+  ]);
 
   const myMatches = await db
     .select({
@@ -163,6 +170,15 @@ export default async function PlayerPage({
             defaultArchetype={player.wizardArchetype}
             generating={Boolean(player.wizardJobStartedAt)}
             lastError={player.wizardJobError}
+            theme={
+              themedEvent?.portraitTheme
+                ? {
+                    eventId: themedEvent.id,
+                    label: themedEvent.setName ?? themedEvent.name,
+                    description: themedEvent.portraitTheme,
+                  }
+                : null
+            }
           />
         ) : (
           <div className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
@@ -191,6 +207,72 @@ export default async function PlayerPage({
           defeatUrl={player.avatarDefeatUrl}
         />
       </section>
+
+      {canEdit && portraits.length > 0 && (
+        <section className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+          <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-zinc-400">
+            Your wizard wardrobe
+          </h2>
+          <p className="mb-4 text-xs text-zinc-500">
+            Every set you&apos;ve generated is kept here. Re-apply an old look
+            any time — regenerating never deletes these.
+          </p>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+            {portraits.map((p) => {
+              const isActive = p.avatarUrl === player.avatarUrl;
+              return (
+                <li
+                  key={p.id}
+                  className={`overflow-hidden rounded-xl border bg-zinc-950 ${
+                    isActive
+                      ? "border-emerald-500/60 ring-2 ring-emerald-500/50"
+                      : "border-zinc-800"
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={p.avatarUrl}
+                    alt=""
+                    className="aspect-square w-full object-cover"
+                  />
+                  <div className="p-2.5">
+                    <div className="truncate text-xs font-medium text-zinc-300">
+                      {p.themeLabel ?? p.archetype ?? "wizard"}
+                    </div>
+                    <div className="text-[10px] text-zinc-500">
+                      {new Date(p.createdAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </div>
+                    {isActive ? (
+                      <div className="mt-2 text-center text-xs font-semibold uppercase tracking-wide text-emerald-300">
+                        Current
+                      </div>
+                    ) : (
+                      <form action={applyPortraitAction} className="mt-2">
+                        <input
+                          type="hidden"
+                          name="playerId"
+                          value={player.id}
+                        />
+                        <input type="hidden" name="portraitId" value={p.id} />
+                        <button
+                          type="submit"
+                          className="w-full rounded-md bg-amber-500 px-2 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400"
+                        >
+                          Use this one
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <section className="mb-10 grid grid-cols-3 gap-3">
         <Stat label="Wins" value={wins} />

@@ -1,7 +1,7 @@
 import { after } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { players } from "@/db/schema";
+import { playerPortraits, players } from "@/db/schema";
 import { generateWizardVariantsFromSelfie } from "@/lib/wizard";
 import type { WizardArchetype } from "@/lib/wizard-types";
 
@@ -24,17 +24,62 @@ function runInBackground(work: () => Promise<void>) {
     void work();
   }
 }
+
+/**
+ * Preserve the player's current avatar set in the catalog before a regen
+ * blanks it. Pre-catalog sets (written to the old un-versioned Blob keys)
+ * only exist in the players row, so without this snapshot a regen would be
+ * the last time anyone saw them. Idempotent via the avatarUrl check.
+ */
+async function snapshotCurrentPortrait(
+  player: typeof players.$inferSelect
+): Promise<void> {
+  if (!player.avatarUrl) return;
+  const [existing] = await db
+    .select({ id: playerPortraits.id })
+    .from(playerPortraits)
+    .where(
+      and(
+        eq(playerPortraits.playerId, player.id),
+        eq(playerPortraits.avatarUrl, player.avatarUrl)
+      )
+    );
+  if (existing) return;
+  await db.insert(playerPortraits).values({
+    playerId: player.id,
+    archetype: player.wizardArchetype,
+    selfieUrl: player.selfieUrl,
+    avatarUrl: player.avatarUrl,
+    avatarWoundedUrl: player.avatarWoundedUrl,
+    avatarCriticalUrl: player.avatarCriticalUrl,
+    avatarVictoryUrl: player.avatarVictoryUrl,
+    avatarDefeatUrl: player.avatarDefeatUrl,
+  });
+}
+
 export async function startWizardGeneration({
   playerId,
   archetype,
   freeform,
   selfie,
+  theme,
+  themeLabel,
 }: {
   playerId: string;
   archetype: WizardArchetype;
   freeform: string;
   selfie: File;
+  /** Costume/setting override from an event's portraitTheme. */
+  theme?: string;
+  /** Chooser label for the catalog row, e.g. the draft's set name. */
+  themeLabel?: string;
 }) {
+  const [current] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (current) await snapshotCurrentPortrait(current);
+
   // Mark "generation in progress" so the page can show a polling state.
   // We blank out the avatar columns so the UI doesn't show the stale wizard
   // while the new one is being generated. Clear any prior error so a retry
@@ -72,6 +117,7 @@ export async function startWizardGeneration({
         "selfie",
         { type: selfieType }
       );
+      const portraitId = crypto.randomUUID();
       const {
         selfiePath,
         freshPath,
@@ -81,10 +127,26 @@ export async function startWizardGeneration({
         defeatPath,
       } = await generateWizardVariantsFromSelfie({
         playerId,
+        portraitId,
         selfie: reconstituted,
         archetype,
         freeform,
+        theme,
         signal,
+      });
+      // Catalog row id doubles as the Blob key segment so a row always maps
+      // to the objects it references.
+      await db.insert(playerPortraits).values({
+        id: portraitId,
+        playerId,
+        archetype,
+        themeLabel: themeLabel ?? null,
+        selfieUrl: selfiePath,
+        avatarUrl: freshPath,
+        avatarWoundedUrl: woundedPath,
+        avatarCriticalUrl: criticalPath,
+        avatarVictoryUrl: victoryPath,
+        avatarDefeatUrl: defeatPath,
       });
       await db
         .update(players)
@@ -119,4 +181,37 @@ export async function startWizardGeneration({
         .where(eq(players.id, playerId));
     }
   });
+}
+
+/**
+ * Re-apply a cataloged portrait set as the player's active avatar. Domain
+ * core (no authz) — `applyPortraitAction` adds the owner check, the verify
+ * harness drives this directly.
+ */
+export async function applyPortraitToPlayer(
+  playerId: string,
+  portraitId: string
+): Promise<void> {
+  const [portrait] = await db
+    .select()
+    .from(playerPortraits)
+    .where(
+      and(
+        eq(playerPortraits.id, portraitId),
+        eq(playerPortraits.playerId, playerId)
+      )
+    );
+  if (!portrait) throw new Error("Portrait not found");
+  await db
+    .update(players)
+    .set({
+      avatarUrl: portrait.avatarUrl,
+      avatarWoundedUrl: portrait.avatarWoundedUrl,
+      avatarCriticalUrl: portrait.avatarCriticalUrl,
+      avatarVictoryUrl: portrait.avatarVictoryUrl,
+      avatarDefeatUrl: portrait.avatarDefeatUrl,
+      selfieUrl: portrait.selfieUrl,
+      wizardArchetype: portrait.archetype,
+    })
+    .where(eq(players.id, playerId));
 }

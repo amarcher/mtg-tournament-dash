@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AppChrome } from "@/app/components/AppChrome";
 import { OrganizerGate } from "@/app/components/OrganizerGate";
+import { SignOutButton } from "@/app/components/SignOutButton";
 import {
   removeLeagueMemberAction,
   rotateManagerInviteTokenAction,
@@ -56,9 +57,12 @@ export default async function LeagueSettingsPage({
         </p>
 
         <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
-            Managers
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
+              Managers
+            </h2>
+            {sessionUser && <SignOutButton email={sessionUser.email} />}
+          </div>
           <p className="mt-1 text-xs text-zinc-500">
             Signed-in accounts that can run events, pair rounds, and edit the
             roster. Players don&apos;t need any of this — they just tap their
