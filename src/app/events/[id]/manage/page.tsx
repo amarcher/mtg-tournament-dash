@@ -308,7 +308,7 @@ export default async function ManagePage({
                 id="edit-event-theme"
                 name="portraitTheme"
                 defaultValue={event.portraitTheme ?? ""}
-                placeholder="e.g. a character from The Lord of the Rings — hobbit, elf, dwarf, ranger, or wizard of Middle-earth"
+                placeholder="e.g. a character from The Lord of the Rings — hobbit, elf, dwarf, ranger, wizard, or even Sméagol"
                 className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
               />
               <p className="mt-1 text-xs text-zinc-500">
