@@ -19,6 +19,8 @@ export const LOTR_ARCHETYPES = [
   "wizard",
   "rider of Rohan",
   "king of Gondor",
+  "ent",
+  "orc",
   "Sméagol",
 ] as const;
 

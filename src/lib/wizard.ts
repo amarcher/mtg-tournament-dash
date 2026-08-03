@@ -103,6 +103,10 @@ const LOTR_DETAILS: Record<LotrArchetype, string> = {
     "a rider of Rohan: burnished scale-and-leather horse-lord armor with a horsehair-plumed helm tucked under one arm, braided hair, golden grass plains and distant mountains behind them",
   "king of Gondor":
     "a king of Gondor: a silver winged crown, black-and-silver royal regalia embroidered with a white tree, a fur-lined mantle, the white stone citadel of Minas Tirith behind them",
+  ent:
+    "an ent of Fangorn Forest: weathered bark-textured skin in mossy greens and browns, leafy twigs and small living branches growing from their hair and beard, deep wise amber eyes, ancient gnarled trees and dappled forest light behind them — keep their facial features clearly recognizable beneath the bark",
+  orc:
+    "an orc of Mordor: mottled green-grey weathered skin, pointed ears, jagged crude iron-and-leather armor with rough stitching, a few battle scars, smoky torchlight and dark crags behind them — fierce but family-friendly, keep their facial features clearly recognizable",
   Sméagol:
     "Sméagol: gaunt and pale with huge round pleading eyes, a few sparse strands of hair, a ragged simple garment, hunched posture, cradling a small golden ring in their hands, moonlit cave pool behind them — endearing and family-friendly, never frightening",
 };
