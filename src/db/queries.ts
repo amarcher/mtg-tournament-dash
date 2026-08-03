@@ -5,7 +5,6 @@ import {
   eq,
   inArray,
   isNotNull,
-  isNull,
   lt,
   sql,
 } from "drizzle-orm";
@@ -145,12 +144,11 @@ export async function sweepStaleWizardJobs(): Promise<number> {
       wizardJobError:
         "Generation timed out after 6 minutes. The image-gen server may have been unreachable — try again.",
     })
-    .where(
-      and(
-        lt(players.wizardJobStartedAt, cutoff),
-        isNull(players.avatarUrl)
-      )
-    )
+    // Any flag older than the cutoff is stale — success and failure paths
+    // both clear it promptly. No avatarUrl guard: a wardrobe re-apply during
+    // a doomed job can leave the flag set alongside a non-null avatar, and
+    // that row must still heal.
+    .where(lt(players.wizardJobStartedAt, cutoff))
     .returning({ id: players.id });
   return cleared.length;
 }

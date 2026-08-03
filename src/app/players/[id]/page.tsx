@@ -13,6 +13,7 @@ import {
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { applyPortraitAction } from "@/app/events/actions";
+import { LEAGUE_TIMEZONE } from "@/lib/schedule-types";
 import { WizardForm } from "./WizardForm";
 import { WizardGallery } from "./WizardGallery";
 
@@ -241,6 +242,7 @@ export default async function PlayerPage({
                     </div>
                     <div className="text-[10px] text-zinc-500">
                       {new Date(p.createdAt).toLocaleDateString("en-US", {
+                        timeZone: LEAGUE_TIMEZONE,
                         month: "short",
                         day: "numeric",
                         year: "numeric",
@@ -249,6 +251,10 @@ export default async function PlayerPage({
                     {isActive ? (
                       <div className="mt-2 text-center text-xs font-semibold uppercase tracking-wide text-emerald-300">
                         Current
+                      </div>
+                    ) : player.wizardJobStartedAt ? (
+                      <div className="mt-2 text-center text-xs text-zinc-500">
+                        Painting a new set…
                       </div>
                     ) : (
                       <form action={applyPortraitAction} className="mt-2">

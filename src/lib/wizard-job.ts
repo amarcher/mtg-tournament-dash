@@ -30,8 +30,9 @@ function runInBackground(work: () => Promise<void>) {
  * blanks it. Pre-catalog sets (written to the old un-versioned Blob keys)
  * only exist in the players row, so without this snapshot a regen would be
  * the last time anyone saw them. Idempotent via the avatarUrl check.
+ * Exported for the verify harness.
  */
-async function snapshotCurrentPortrait(
+export async function snapshotCurrentPortrait(
   player: typeof players.$inferSelect
 ): Promise<void> {
   if (!player.avatarUrl) return;
