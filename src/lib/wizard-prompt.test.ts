@@ -29,12 +29,28 @@ describe("buildWizardPrompt — lotr theme", () => {
   it("has a transformation clause for every character in the pack", () => {
     for (const character of LOTR_ARCHETYPES) {
       const prompt = buildWizardPrompt("lotr", character);
-      expect(prompt).toContain("Transform them into");
+      expect(prompt).toMatch(/transform (them|this person) into/i);
       expect(prompt).not.toContain("Dress them as a");
-      // Identity lock and style survive the theme swap.
-      expect(prompt).toContain("Keep this exact person");
       expect(prompt).toContain("painterly oil-painting style");
     }
+  });
+
+  it("keeps the strict identity lock for costume characters", () => {
+    for (const character of ["hobbit", "orc", "Sméagol"]) {
+      const prompt = buildWizardPrompt("lotr", character);
+      expect(prompt).toContain("Keep this exact person");
+      expect(prompt).toContain("must stay identical");
+    }
+  });
+
+  it("relaxes the identity lock for full transformations like the ent", () => {
+    const prompt = buildWizardPrompt("lotr", "ent");
+    // The strict lock overpowers the tree transformation — FLUX errs human —
+    // so the ent trades it for a carve-the-likeness instruction.
+    expect(prompt).not.toContain("must stay identical");
+    expect(prompt).not.toContain("Do not change their face");
+    expect(prompt).toContain("stays clearly recognizable");
+    expect(prompt).toContain("walking tree-being");
   });
 
   it("selects the requested character, not a generic description", () => {

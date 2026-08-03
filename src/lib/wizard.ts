@@ -104,12 +104,17 @@ const LOTR_DETAILS: Record<LotrArchetype, string> = {
   "king of Gondor":
     "a king of Gondor: a silver winged crown, black-and-silver royal regalia embroidered with a white tree, a fur-lined mantle, the white stone citadel of Minas Tirith behind them",
   ent:
-    "an ent of Fangorn Forest: weathered bark-textured skin in mossy greens and browns, leafy twigs and small living branches growing from their hair and beard, deep wise amber eyes, ancient gnarled trees and dappled forest light behind them — keep their facial features clearly recognizable beneath the bark",
+    "an ent of Fangorn Forest — a walking tree-being: their entire head and shoulders formed of ancient gnarled bark and living wood with deep cracks, knots, and patches of moss and lichen, a leafy branching canopy sprouting from their crown instead of hair, a long beard of twigs and hanging moss, deep-set glowing amber eyes in the wood, ancient forest and dappled light behind them",
   orc:
     "an orc of Mordor: mottled green-grey weathered skin, pointed ears, jagged crude iron-and-leather armor with rough stitching, a few battle scars, smoky torchlight and dark crags behind them — fierce but family-friendly, keep their facial features clearly recognizable",
   Sméagol:
     "Sméagol: gaunt and pale with huge round pleading eyes, a few sparse strands of hair, a ragged simple garment, hunched posture, cradling a small golden ring in their hands, moonlit cave pool behind them — endearing and family-friendly, never frightening",
 };
+
+// Characters whose transformation must rebuild the face itself (bark, not
+// skin). The strict identity lock overpowers the costume clause and FLUX
+// errs human, so these swap it for a softer carve-the-likeness instruction.
+const FULL_TRANSFORM_ARCHETYPES = new Set<string>(["ent"]);
 
 export function buildWizardPrompt(
   theme: PortraitTheme,
@@ -117,6 +122,17 @@ export function buildWizardPrompt(
   freeform?: string
 ): string {
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
+  const style =
+    `Shoulders-up portrait, painterly oil-painting style, dramatic chiaroscuro lighting.`;
+  if (theme === "lotr" && FULL_TRANSFORM_ARCHETYPES.has(archetype)) {
+    const details =
+      LOTR_DETAILS[archetype as LotrArchetype] ?? LOTR_DETAILS.wizard;
+    return (
+      `Fully transform this person into ${details}.${extra} ` +
+      `Carve their real facial structure, proportions, and expression into the wood so the person stays clearly recognizable. ` +
+      style
+    );
+  }
   const costume =
     theme === "lotr"
       ? `Transform them into ${
@@ -130,7 +146,7 @@ export function buildWizardPrompt(
   return (
     `Keep this exact person — their face, skin tone, hair, and expression must stay identical. ` +
     `${costume}${extra} ` +
-    `Shoulders-up portrait, painterly oil-painting style, dramatic chiaroscuro lighting. ` +
+    `${style} ` +
     `Do not change their face or facial features.`
   );
 }
