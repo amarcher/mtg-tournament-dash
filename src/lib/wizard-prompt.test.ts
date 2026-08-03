@@ -41,6 +41,8 @@ describe("buildWizardPrompt — lotr theme", () => {
     expect(buildWizardPrompt("lotr", "hobbit")).toContain("hobbit of the Shire");
     expect(buildWizardPrompt("lotr", "Sméagol")).toContain("Sméagol");
     expect(buildWizardPrompt("lotr", "dwarf")).toContain("dwarf of Erebor");
+    expect(buildWizardPrompt("lotr", "ent")).toContain("ent of Fangorn");
+    expect(buildWizardPrompt("lotr", "orc")).toContain("orc of Mordor");
   });
 
   it("keeps freeform detail alongside the character", () => {
