@@ -157,9 +157,10 @@ export default async function PlayerPage({
           {player.avatarUrl ? "Re-wizardize" : "Wizardize"}
         </h2>
         <p className="mb-4 text-xs text-zinc-500">
-          Upload a selfie (iPhone HEIC works) and pick an archetype. We&apos;ll
-          generate a fantasy portrait that becomes your avatar and the
-          backdrop of your life-total cell on the broadcast view.
+          Pick a theme and character — we&apos;ll reuse your saved selfie, or
+          upload a new one (iPhone HEIC works). The portrait becomes your
+          avatar and the backdrop of your life-total cell on the broadcast
+          view.
         </p>
         {canEdit ? (
           <WizardForm
@@ -168,6 +169,7 @@ export default async function PlayerPage({
             defaultArchetype={player.wizardArchetype}
             generating={Boolean(player.wizardJobStartedAt)}
             lastError={player.wizardJobError}
+            selfieUrl={player.selfieUrl}
           />
         ) : (
           <div className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">

@@ -60,6 +60,7 @@ import {
   snapshotCurrentPortrait,
   startWizardGeneration,
 } from "../src/lib/wizard-job";
+import { fetchStoredSelfie } from "../src/lib/wizard";
 import { generateJoinToken } from "../src/lib/auth";
 import {
   getActiveMatchForPlayer,
@@ -591,6 +592,18 @@ async function runWizardizeIntegrationTest(playerId: string) {
       bytes.length > 50_000,
       `${tier} variant > 50KB in storage (${bytes.length} B)`
     );
+  }
+
+  // The stored seed selfie must be re-fetchable — the "reuse saved selfie"
+  // regen path depends on it.
+  try {
+    const saved = await fetchStoredSelfie(row.selfieUrl!);
+    assert(
+      saved.size > 10_000,
+      `stored seed selfie re-fetchable for reuse (${saved.size} B)`
+    );
+  } catch (e) {
+    fail("stored seed selfie re-fetchable for reuse", e);
   }
 
   // Clean up the uploaded artifacts for this throwaway player. Keys are

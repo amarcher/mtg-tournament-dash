@@ -66,6 +66,7 @@ import {
   deletePortraitForPlayer,
   startWizardGeneration,
 } from "@/lib/wizard-job";
+import { fetchStoredSelfie } from "@/lib/wizard";
 import {
   DEFAULT_PORTRAIT_THEME,
   archetypeForTheme,
@@ -283,12 +284,14 @@ export async function generateWizardAction(formData: FormData) {
   const archetypeRaw = String(formData.get("archetype") ?? "");
   const freeform = String(formData.get("freeform") ?? "");
   const selfie = formData.get("selfie");
+  const useSavedSelfie = String(formData.get("useSavedSelfie") ?? "") === "1";
 
   if (!playerId) throw new Error("playerId required");
-  if (!(selfie instanceof File) || selfie.size === 0)
-    throw new Error("Selfie file required");
-  if (selfie.size > 12 * 1024 * 1024)
+  const uploaded = selfie instanceof File && selfie.size > 0 ? selfie : null;
+  if (uploaded && uploaded.size > 12 * 1024 * 1024)
     throw new Error("Selfie too large (max 12 MB)");
+  if (!uploaded && !useSavedSelfie)
+    throw new Error("Select a selfie file first.");
 
   const theme = isPortraitTheme(themeRaw) ? themeRaw : DEFAULT_PORTRAIT_THEME;
   const archetype = archetypeForTheme(theme, archetypeRaw);
@@ -311,7 +314,27 @@ export async function generateWizardAction(formData: FormData) {
 
   await checkWizardizeLimit(target.id, target.leagueId);
 
-  await startWizardGeneration({ playerId, theme, archetype, freeform, selfie });
+  // Reuse beats re-upload: the normalized seed selfie from the last
+  // generation is already stored, so a regen only needs a fresh file when
+  // the player wants a different photo.
+  let selfieFile: File;
+  if (uploaded) {
+    selfieFile = uploaded;
+  } else if (target.selfieUrl) {
+    selfieFile = await fetchStoredSelfie(target.selfieUrl);
+  } else {
+    throw new Error(
+      "No saved selfie yet — select a selfie file to generate your first portrait."
+    );
+  }
+
+  await startWizardGeneration({
+    playerId,
+    theme,
+    archetype,
+    freeform,
+    selfie: selfieFile,
+  });
 
   revalidatePath(`/players/${playerId}`);
 }
