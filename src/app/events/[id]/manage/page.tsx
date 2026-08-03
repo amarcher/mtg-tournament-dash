@@ -263,7 +263,7 @@ export default async function ManagePage({
 
         <details className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/70">
           <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium uppercase tracking-wide text-zinc-400 transition hover:text-zinc-200">
-            Event details — rename, set, portrait theme
+            Event details — rename, set
           </summary>
           <form action={updateEventAction} className="grid gap-4 p-4 pt-1">
             <input type="hidden" name="eventId" value={id} />
@@ -296,27 +296,6 @@ export default async function ManagePage({
                 placeholder="e.g. The Lord of the Rings: Tales of Middle-earth"
                 className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
               />
-            </div>
-            <div>
-              <label
-                htmlFor="edit-event-theme"
-                className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400"
-              >
-                Portrait theme (optional)
-              </label>
-              <input
-                id="edit-event-theme"
-                name="portraitTheme"
-                defaultValue={event.portraitTheme ?? ""}
-                maxLength={300}
-                placeholder="e.g. a character from The Lord of the Rings — hobbit, elf, dwarf, ranger, wizard, or even Sméagol"
-                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
-              />
-              <p className="mt-1 text-xs text-zinc-500">
-                When set, players see a &ldquo;match this draft&rdquo; option on
-                the wizardize form and their portraits use this description
-                instead of the wizard archetype.
-              </p>
             </div>
             <div>
               <button

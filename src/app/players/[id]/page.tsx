@@ -6,7 +6,6 @@ import { eloChanges, events, matches, players, rounds } from "@/db/schema";
 import {
   getLeague,
   getPlayer,
-  getThemedEventForLeague,
   listOpenEventsForPlayer,
   listPlayerPortraits,
   sweepStaleWizardJobs,
@@ -14,6 +13,7 @@ import {
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { applyPortraitAction } from "@/app/events/actions";
 import { LEAGUE_TIMEZONE } from "@/lib/schedule-types";
+import { DeletePortraitButton } from "./DeletePortraitButton";
 import { WizardForm } from "./WizardForm";
 import { WizardGallery } from "./WizardGallery";
 
@@ -35,10 +35,7 @@ export default async function PlayerPage({
   const openEvents = await listOpenEventsForPlayer(player.leagueId, player.id);
   const leagueMe = await getCurrentLeaguePlayer(player.leagueId);
   const canEdit = leagueMe?.id === player.id;
-  const [themedEvent, portraits] = await Promise.all([
-    getThemedEventForLeague(player.leagueId),
-    canEdit ? listPlayerPortraits(player.id) : Promise.resolve([]),
-  ]);
+  const portraits = canEdit ? await listPlayerPortraits(player.id) : [];
 
   const myMatches = await db
     .select({
@@ -171,15 +168,6 @@ export default async function PlayerPage({
             defaultArchetype={player.wizardArchetype}
             generating={Boolean(player.wizardJobStartedAt)}
             lastError={player.wizardJobError}
-            theme={
-              themedEvent?.portraitTheme
-                ? {
-                    eventId: themedEvent.id,
-                    label: themedEvent.setName ?? themedEvent.name,
-                    description: themedEvent.portraitTheme,
-                  }
-                : null
-            }
           />
         ) : (
           <div className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
@@ -257,20 +245,30 @@ export default async function PlayerPage({
                         Painting a new set…
                       </div>
                     ) : (
-                      <form action={applyPortraitAction} className="mt-2">
-                        <input
-                          type="hidden"
-                          name="playerId"
-                          value={player.id}
+                      <div className="mt-2 space-y-1.5">
+                        <form action={applyPortraitAction}>
+                          <input
+                            type="hidden"
+                            name="playerId"
+                            value={player.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="portraitId"
+                            value={p.id}
+                          />
+                          <button
+                            type="submit"
+                            className="w-full rounded-md bg-amber-500 px-2 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400"
+                          >
+                            Use this one
+                          </button>
+                        </form>
+                        <DeletePortraitButton
+                          playerId={player.id}
+                          portraitId={p.id}
                         />
-                        <input type="hidden" name="portraitId" value={p.id} />
-                        <button
-                          type="submit"
-                          className="w-full rounded-md bg-amber-500 px-2 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400"
-                        >
-                          Use this one
-                        </button>
-                      </form>
+                      </div>
                     )}
                   </div>
                 </li>

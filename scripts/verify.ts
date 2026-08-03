@@ -56,6 +56,7 @@ import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
 import { addPlayerToEventRoster } from "../src/lib/event-roster";
 import {
   applyPortraitToPlayer,
+  deletePortraitForPlayer,
   snapshotCurrentPortrait,
   startWizardGeneration,
 } from "../src/lib/wizard-job";
@@ -477,6 +478,7 @@ async function runWizardizeIntegrationTest(playerId: string) {
   // authorizes via the league cookie, which doesn't exist outside a request.
   await startWizardGeneration({
     playerId,
+    theme: "standard",
     archetype: "frost mage",
     freeform: "",
     selfie: new File([new Uint8Array(selfieBytes)], "test-selfie.jpg", {
@@ -1748,7 +1750,6 @@ async function runSchedulingPollPass(): Promise<{
       eventId: promoted!.id,
       name: `${PREFIX}Thonglord of the Rings`,
       setName: "Tales of Middle-earth",
-      portraitTheme: "a character from The Lord of the Rings",
     })
   );
   const renamed = await getEvent(promoted!.id);
@@ -1757,9 +1758,8 @@ async function runSchedulingPollPass(): Promise<{
     "updateEventAction renames the event"
   );
   assert(
-    renamed?.setName === "Tales of Middle-earth" &&
-      renamed?.portraitTheme === "a character from The Lord of the Rings",
-    "updateEventAction records set + portrait theme"
+    renamed?.setName === "Tales of Middle-earth",
+    "updateEventAction records the drafted set"
   );
 
   // Portrait catalog: apply a cataloged set without needing FLUX.
@@ -1793,6 +1793,36 @@ async function runSchedulingPollPass(): Promise<{
   } catch {
     ok("rejects applying a portrait owned by another player");
   }
+
+  // Wardrobe delete: the active set is protected, cross-player ids miss,
+  // and a non-active row actually goes away. (catalogRow is s1's ACTIVE set
+  // right now — applied just above.)
+  try {
+    await deletePortraitForPlayer(s1.id, catalogRow.id);
+    fail("deleting the active portrait should throw");
+  } catch {
+    ok("refuses to delete the active portrait set");
+  }
+  const [spareRow] = await db
+    .insert(playerPortraits)
+    .values({
+      playerId: s1.id,
+      archetype: "illusionist",
+      avatarUrl: "https://blob.test/spare-fresh.jpg",
+    })
+    .returning();
+  try {
+    await deletePortraitForPlayer(s2.id, spareRow.id);
+    fail("deleting another player's portrait should throw");
+  } catch {
+    ok("rejects deleting a portrait owned by another player");
+  }
+  await deletePortraitForPlayer(s1.id, spareRow.id);
+  const remaining = await db
+    .select()
+    .from(playerPortraits)
+    .where(eq(playerPortraits.id, spareRow.id));
+  assert(remaining.length === 0, "deletePortraitForPlayer removes the row");
 
   // Snapshot-before-regen: a current avatar set not yet in the catalog gets
   // preserved exactly once (dedupe by avatarUrl), so a regen can't be the
