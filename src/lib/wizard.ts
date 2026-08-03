@@ -13,7 +13,12 @@ const heicConvert = require("heic-convert") as (args: {
   format: "JPEG" | "PNG";
   quality?: number;
 }) => Promise<ArrayBufferLike>;
-import { WIZARD_ARCHETYPES, type WizardArchetype } from "./wizard-types";
+import {
+  WIZARD_ARCHETYPES,
+  type LotrArchetype,
+  type PortraitTheme,
+  type WizardArchetype,
+} from "./wizard-types";
 
 export { WIZARD_ARCHETYPES, type WizardArchetype };
 
@@ -80,18 +85,43 @@ const ARCHETYPE_DETAILS: Record<WizardArchetype, string> = {
     "ornate royal-blue robe trimmed with gold runes; glowing arcane sigils orbiting their head; warm golden light on their face; arcane library background",
 };
 
+// LOTR characters are full transformations, not just costumes, so each entry
+// is a complete noun phrase. Same additive framing as the wizard archetypes:
+// costume + setting only, the face stays locked. Family-friendly throughout.
+const LOTR_DETAILS: Record<LotrArchetype, string> = {
+  hobbit:
+    "a hobbit of the Shire: homespun waistcoat with brass buttons over a linen shirt, slightly pointed ears, warm afternoon sun, a round green hobbit-hole door and rolling green hills behind them",
+  elf:
+    "an elf of Rivendell: gracefully pointed ears, flowing silver-embroidered robes, a delicate circlet across their brow, ethereal golden light through autumn leaves and waterfalls behind them",
+  dwarf:
+    "a dwarf of Erebor: a magnificent thick braided beard with metal clasps, heavy fur-trimmed leather armor, a war axe resting on their shoulder, torch-lit carved stone halls behind them",
+  ranger:
+    "a ranger of the North: weathered dark-green hooded cloak, worn leather jerkin, a sword hilt visible at their shoulder, stubble and windswept hair, misty wilds and pines behind them",
+  wizard:
+    "a wizard of Middle-earth: long grey robes, a wide-brimmed pointed grey hat, a long flowing beard, a gnarled wooden staff in hand, warm pipe-smoke light in a cozy study behind them",
+  "rider of Rohan":
+    "a rider of Rohan: burnished scale-and-leather horse-lord armor with a horsehair-plumed helm tucked under one arm, braided hair, golden grass plains and distant mountains behind them",
+  "king of Gondor":
+    "a king of Gondor: a silver winged crown, black-and-silver royal regalia embroidered with a white tree, a fur-lined mantle, the white stone citadel of Minas Tirith behind them",
+  Sméagol:
+    "Sméagol: gaunt and pale with huge round pleading eyes, a few sparse strands of hair, a ragged simple garment, hunched posture, cradling a small golden ring in their hands, moonlit cave pool behind them — endearing and family-friendly, never frightening",
+};
+
 export function buildWizardPrompt(
-  archetype: WizardArchetype,
-  freeform?: string,
-  theme?: string
+  theme: PortraitTheme,
+  archetype: string,
+  freeform?: string
 ): string {
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
-  // An event portrait theme (e.g. "a character from The Lord of the Rings…")
-  // replaces the archetype costume clause entirely — themed drafts aren't
-  // limited to wizards.
-  const costume = theme?.trim()
-    ? `Transform them into ${theme.trim()}.`
-    : `Dress them as a ${archetype}: ${ARCHETYPE_DETAILS[archetype]}.`;
+  const costume =
+    theme === "lotr"
+      ? `Transform them into ${
+          LOTR_DETAILS[archetype as LotrArchetype] ?? LOTR_DETAILS.wizard
+        }.`
+      : `Dress them as a ${archetype}: ${
+          ARCHETYPE_DETAILS[archetype as WizardArchetype] ??
+          ARCHETYPE_DETAILS.archmage
+        }.`;
   // Instruction-style: identity lock first, then additive costume/setting.
   return (
     `Keep this exact person — their face, skin tone, hair, and expression must stay identical. ` +
@@ -127,12 +157,12 @@ const TIER_SUFFIX: Record<WizardTier, string> = {
  * stay the same so the three portraits are recognizably the same wizard.
  */
 export function buildVariantPrompt(
-  archetype: WizardArchetype,
+  theme: PortraitTheme,
+  archetype: string,
   freeform: string | undefined,
-  tier: WizardTier,
-  theme?: string
+  tier: WizardTier
 ): string {
-  return buildWizardPrompt(archetype, freeform, theme) + TIER_SUFFIX[tier];
+  return buildWizardPrompt(theme, archetype, freeform) + TIER_SUFFIX[tier];
 }
 
 export type WizardVariantResult = {
@@ -299,12 +329,12 @@ export async function generateWizardVariantsFromSelfie(args: {
    * portrait sets are never overwritten by a regen. */
   portraitId: string;
   selfie: File;
-  archetype: WizardArchetype;
+  theme: PortraitTheme;
+  archetype: string;
   freeform?: string;
-  theme?: string;
   signal?: AbortSignal;
 }): Promise<WizardVariantResult> {
-  const { playerId, portraitId, selfie, archetype, freeform, theme, signal } =
+  const { playerId, portraitId, selfie, theme, archetype, freeform, signal } =
     args;
 
   // Normalize whatever the phone uploaded (HEIC, JPEG, PNG, WebP, …) into a
@@ -344,7 +374,7 @@ export async function generateWizardVariantsFromSelfie(args: {
   const buffers: Record<WizardTier, Buffer> = {} as Record<WizardTier, Buffer>;
   const edit = getImageEditor();
   for (const tier of tiers) {
-    const prompt = buildVariantPrompt(archetype, freeform, tier, theme);
+    const prompt = buildVariantPrompt(theme, archetype, freeform, tier);
     buffers[tier] = await edit(selfieBuf, prompt, signal);
   }
 

@@ -3,7 +3,10 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { playerPortraits, players } from "@/db/schema";
 import { generateWizardVariantsFromSelfie } from "@/lib/wizard";
-import type { WizardArchetype } from "@/lib/wizard-types";
+import {
+  PORTRAIT_THEME_LABELS,
+  type PortraitTheme,
+} from "@/lib/wizard-types";
 
 /**
  * Domain core for wizard-portrait generation, deliberately un-authorized:
@@ -60,21 +63,21 @@ export async function snapshotCurrentPortrait(
 
 export async function startWizardGeneration({
   playerId,
+  theme,
   archetype,
   freeform,
   selfie,
-  theme,
-  themeLabel,
 }: {
   playerId: string;
-  archetype: WizardArchetype;
+  theme: PortraitTheme;
+  /** Already validated against the theme's pack by the caller. */
+  archetype: string;
   freeform: string;
   selfie: File;
-  /** Costume/setting override from an event's portraitTheme. */
-  theme?: string;
-  /** Chooser label for the catalog row, e.g. the draft's set name. */
-  themeLabel?: string;
 }) {
+  // Wardrobe chooser label: themed sets get the theme name, plain wizard
+  // sets rely on the archetype alone.
+  const themeLabel = theme === "standard" ? null : PORTRAIT_THEME_LABELS[theme];
   const [current] = await db
     .select()
     .from(players)
@@ -130,9 +133,9 @@ export async function startWizardGeneration({
         playerId,
         portraitId,
         selfie: reconstituted,
+        theme,
         archetype,
         freeform,
-        theme,
         signal,
       });
       // Catalog row id doubles as the Blob key segment so a row always maps
@@ -141,7 +144,7 @@ export async function startWizardGeneration({
         id: portraitId,
         playerId,
         archetype,
-        themeLabel: themeLabel ?? null,
+        themeLabel,
         selfieUrl: selfiePath,
         avatarUrl: freshPath,
         avatarWoundedUrl: woundedPath,
@@ -215,4 +218,59 @@ export async function applyPortraitToPlayer(
       wizardArchetype: portrait.archetype,
     })
     .where(eq(players.id, playerId));
+}
+
+/**
+ * Delete a cataloged portrait set: the row, then its Blob objects. Domain
+ * core (no authz) — `deletePortraitAction` adds the owner check.
+ *
+ * The active set is refused server-side (not just hidden in the UI): its
+ * URLs are live in the players row, so deleting the blobs would break the
+ * avatar everywhere it renders. Blob deletion is best-effort and only for
+ * https URLs — legacy `/files/` rows just drop the catalog row.
+ */
+export async function deletePortraitForPlayer(
+  playerId: string,
+  portraitId: string
+): Promise<void> {
+  const [portrait] = await db
+    .select()
+    .from(playerPortraits)
+    .where(
+      and(
+        eq(playerPortraits.id, portraitId),
+        eq(playerPortraits.playerId, playerId)
+      )
+    );
+  if (!portrait) throw new Error("Portrait not found");
+  const [player] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (player?.avatarUrl && player.avatarUrl === portrait.avatarUrl) {
+    throw new Error(
+      "This is your current wizard — apply a different one before deleting it."
+    );
+  }
+
+  await db
+    .delete(playerPortraits)
+    .where(eq(playerPortraits.id, portraitId));
+
+  const blobUrls = [
+    portrait.avatarUrl,
+    portrait.avatarWoundedUrl,
+    portrait.avatarCriticalUrl,
+    portrait.avatarVictoryUrl,
+    portrait.avatarDefeatUrl,
+    portrait.selfieUrl,
+  ]
+    .filter((u): u is string => Boolean(u?.startsWith("https://")))
+    .map((u) => u.split("?")[0]);
+  if (blobUrls.length > 0 && process.env.BLOB_READ_WRITE_TOKEN) {
+    const { del } = await import("@vercel/blob");
+    await del(blobUrls).catch((err) =>
+      console.error("[wardrobe] blob cleanup failed:", err)
+    );
+  }
 }

@@ -63,11 +63,13 @@ import { isMatchParticipant } from "@/lib/match-authz";
 import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
 import {
   applyPortraitToPlayer,
+  deletePortraitForPlayer,
   startWizardGeneration,
 } from "@/lib/wizard-job";
 import {
-  WIZARD_ARCHETYPES,
-  type WizardArchetype,
+  DEFAULT_PORTRAIT_THEME,
+  archetypeForTheme,
+  isPortraitTheme,
 } from "@/lib/wizard-types";
 import { isPollResponse, parseDateTimeLocal } from "@/lib/schedule-types";
 
@@ -77,12 +79,6 @@ export async function createEventAction(formData: FormData) {
   const totalRounds = Number(formData.get("totalRounds") ?? 3);
   const startingLife = Number(formData.get("startingLife") ?? 20);
   const setName = String(formData.get("setName") ?? "").trim();
-  // Capped so the theme + tier suffix + freeform stays inside the FLUX text
-  // encoder's window — an over-long theme would silently truncate every
-  // player's prompt.
-  const portraitTheme = String(formData.get("portraitTheme") ?? "")
-    .trim()
-    .slice(0, 300);
   const playerIds = formData.getAll("playerId").map(String).filter(Boolean);
 
   if (!leagueId) throw new Error("League required");
@@ -109,7 +105,6 @@ export async function createEventAction(formData: FormData) {
       totalRounds,
       startingLife,
       setName: setName || null,
-      portraitTheme: portraitTheme || null,
     })
     .returning();
 
@@ -284,9 +279,9 @@ export async function claimLeaguePlayerAction(formData: FormData) {
 
 export async function generateWizardAction(formData: FormData) {
   const playerId = String(formData.get("playerId") ?? "");
-  const archetypeRaw = String(formData.get("archetype") ?? "archmage");
+  const themeRaw = String(formData.get("theme") ?? "");
+  const archetypeRaw = String(formData.get("archetype") ?? "");
   const freeform = String(formData.get("freeform") ?? "");
-  const themeEventId = String(formData.get("themeEventId") ?? "");
   const selfie = formData.get("selfie");
 
   if (!playerId) throw new Error("playerId required");
@@ -295,11 +290,8 @@ export async function generateWizardAction(formData: FormData) {
   if (selfie.size > 12 * 1024 * 1024)
     throw new Error("Selfie too large (max 12 MB)");
 
-  const archetype = (
-    WIZARD_ARCHETYPES as readonly string[]
-  ).includes(archetypeRaw)
-    ? (archetypeRaw as WizardArchetype)
-    : ("archmage" as WizardArchetype);
+  const theme = isPortraitTheme(themeRaw) ? themeRaw : DEFAULT_PORTRAIT_THEME;
+  const archetype = archetypeForTheme(theme, archetypeRaw);
 
   // Only the wizard's owner may regenerate their portrait — the very first
   // step blanks the existing avatar tiers, so an unauthenticated POST could
@@ -319,33 +311,7 @@ export async function generateWizardAction(formData: FormData) {
 
   await checkWizardizeLimit(target.id, target.leagueId);
 
-  // The theme text comes from the event row, never the client — the form
-  // only names the event it wants to match.
-  let theme: string | undefined;
-  let themeLabel: string | undefined;
-  if (themeEventId) {
-    const [themedEvent] = await db
-      .select()
-      .from(events)
-      .where(eq(events.id, themeEventId));
-    if (
-      themedEvent &&
-      themedEvent.leagueId === target.leagueId &&
-      themedEvent.portraitTheme
-    ) {
-      theme = themedEvent.portraitTheme;
-      themeLabel = themedEvent.setName ?? themedEvent.name;
-    }
-  }
-
-  await startWizardGeneration({
-    playerId,
-    archetype,
-    freeform,
-    selfie,
-    theme,
-    themeLabel,
-  });
+  await startWizardGeneration({ playerId, theme, archetype, freeform, selfie });
 
   revalidatePath(`/players/${playerId}`);
 }
@@ -378,6 +344,34 @@ export async function applyPortraitAction(formData: FormData) {
   }
 
   await applyPortraitToPlayer(playerId, portraitId);
+  revalidatePath(`/players/${playerId}`);
+}
+
+/** Delete one of the player's cataloged portrait sets (never the active one). */
+export async function deletePortraitAction(formData: FormData) {
+  const playerId = String(formData.get("playerId") ?? "");
+  const portraitId = String(formData.get("portraitId") ?? "");
+  if (!playerId) throw new Error("playerId required");
+  if (!portraitId) throw new Error("portraitId required");
+
+  const [target] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!target) throw new Error("Player not found");
+  const caller = await getCurrentLeaguePlayer(target.leagueId);
+  if (!caller || caller.id !== target.id) {
+    throw new Error(
+      `Only ${target.displayName} can edit this wardrobe. Claim this wizard from the league page first.`
+    );
+  }
+  if (target.wizardJobStartedAt) {
+    throw new Error(
+      "A portrait is being generated right now — wait for it to finish first."
+    );
+  }
+
+  await deletePortraitForPlayer(playerId, portraitId);
   revalidatePath(`/players/${playerId}`);
 }
 
@@ -1521,15 +1515,11 @@ export async function promoteDatePollAction(formData: FormData) {
   redirect(`/events/${created.id}/manage`);
 }
 
-/** Rename an event and edit its display metadata (set, portrait theme). */
+/** Rename an event and edit its display metadata (drafted set). */
 export async function updateEventAction(formData: FormData) {
   const eventId = String(formData.get("eventId") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   const setName = String(formData.get("setName") ?? "").trim();
-  // Same prompt-budget cap as createEventAction.
-  const portraitTheme = String(formData.get("portraitTheme") ?? "")
-    .trim()
-    .slice(0, 300);
 
   if (!eventId) throw new Error("Event required");
   if (!name) throw new Error("Event name required");
@@ -1540,7 +1530,6 @@ export async function updateEventAction(formData: FormData) {
     .set({
       name,
       setName: setName || null,
-      portraitTheme: portraitTheme || null,
     })
     .where(eq(events.id, eventId));
 

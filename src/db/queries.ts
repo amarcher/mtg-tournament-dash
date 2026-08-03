@@ -747,26 +747,6 @@ export async function getEventBySourcePoll(pollId: string) {
   return row ?? null;
 }
 
-/**
- * Latest not-yet-complete event carrying a portrait theme — offered on the
- * wizardize form so players can opt into the upcoming draft's look.
- */
-export async function getThemedEventForLeague(leagueId: string) {
-  const [row] = await db
-    .select()
-    .from(events)
-    .where(
-      and(
-        eq(events.leagueId, leagueId),
-        sql`${events.status} <> 'complete'`,
-        isNotNull(events.portraitTheme)
-      )
-    )
-    .orderBy(desc(events.createdAt))
-    .limit(1);
-  return row ?? null;
-}
-
 export async function getDatePoll(pollId: string) {
   const [row] = await db
     .select()
