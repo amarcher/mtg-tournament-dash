@@ -86,6 +86,30 @@ export default async function NewLeagueEventPage({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
+            <label htmlFor="event-set" className="mb-1 block text-sm font-medium text-zinc-300">
+              Set being drafted (optional)
+            </label>
+            <input
+              id="event-set"
+              name="setName"
+              placeholder="e.g. Tales of Middle-earth"
+              autoComplete="off"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 focus:border-amber-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label htmlFor="event-theme" className="mb-1 block text-sm font-medium text-zinc-300">
+              Portrait theme (optional)
+            </label>
+            <input
+              id="event-theme"
+              name="portraitTheme"
+              placeholder="e.g. a Lord of the Rings character"
+              autoComplete="off"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 focus:border-amber-500 focus:outline-none"
+            />
+          </div>
+          <div>
             <label htmlFor="total-rounds" className="mb-1 block text-sm font-medium text-zinc-300">
               Total rounds
             </label>

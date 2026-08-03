@@ -155,6 +155,19 @@ export const events = pgTable(
     totalRounds: integer("total_rounds").notNull().default(3),
     startingLife: integer("starting_life").notNull().default(20),
     roundDurationSec: integer("round_duration_sec").notNull().default(3000),
+    // When the night actually happens — set by promoting a date poll, or
+    // left null for events created directly.
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    // The MTG set being drafted, e.g. "The Lord of the Rings: Tales of
+    // Middle-earth". Display-only metadata.
+    setName: text("set_name"),
+    // Free-text portrait theme for this draft. When set, wizardize runs that
+    // opt into it swap the archetype costume clause for this description —
+    // e.g. LOTR characters instead of generic wizards.
+    portraitTheme: text("portrait_theme"),
+    sourcePollId: uuid("source_poll_id").references(() => datePolls.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -296,6 +309,36 @@ export const pollVotes = pgTable(
   })
 );
 
+// Catalog of every wizard set a player has generated. `players.avatar*Url`
+// stays the "active" set; these rows let a player re-apply an older look.
+// Blob keys are versioned per row (avatars/<playerId>/<portraitId>/<tier>.jpg)
+// so regenerating never overwrites a cataloged image.
+export const playerPortraits = pgTable(
+  "player_portraits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    archetype: text("archetype"),
+    // Short human label for the chooser, e.g. a draft's set name when the
+    // portrait was generated under an event theme.
+    themeLabel: text("theme_label"),
+    selfieUrl: text("selfie_url"),
+    avatarUrl: text("avatar_url").notNull(),
+    avatarWoundedUrl: text("avatar_wounded_url"),
+    avatarCriticalUrl: text("avatar_critical_url"),
+    avatarVictoryUrl: text("avatar_victory_url"),
+    avatarDefeatUrl: text("avatar_defeat_url"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    playerIdx: index("player_portraits_player_idx").on(t.playerId),
+  })
+);
+
 export const eloChanges = pgTable("elo_changes", {
   id: uuid("id").primaryKey().defaultRandom(),
   matchId: uuid("match_id")
@@ -323,6 +366,7 @@ export type Round = typeof rounds.$inferSelect;
 export type Match = typeof matches.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type EloChange = typeof eloChanges.$inferSelect;
+export type PlayerPortrait = typeof playerPortraits.$inferSelect;
 export type DatePoll = typeof datePolls.$inferSelect;
 export type PollOption = typeof pollOptions.$inferSelect;
 export type PollVote = typeof pollVotes.$inferSelect;

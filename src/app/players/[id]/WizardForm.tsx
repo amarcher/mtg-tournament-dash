@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { generateWizardAction } from "@/app/events/actions";
 import { WIZARD_ARCHETYPES } from "@/lib/wizard-types";
+
+export type WizardTheme = {
+  /** Event whose portraitTheme the server re-reads on submit. */
+  eventId: string;
+  /** Short label for the checkbox, e.g. the draft's set name. */
+  label: string;
+  /** The theme description itself, shown so players know what they get. */
+  description: string;
+};
 
 type Props = {
   playerId: string;
@@ -14,6 +23,8 @@ type Props = {
   generating: boolean;
   /** Error message from the last failed background job, or null. */
   lastError: string | null;
+  /** Upcoming draft's portrait theme, when its event has one. */
+  theme?: WizardTheme | null;
 };
 
 export function WizardForm({
@@ -22,6 +33,7 @@ export function WizardForm({
   defaultArchetype,
   generating,
   lastError,
+  theme = null,
 }: Props) {
   const router = useRouter();
 
@@ -60,6 +72,7 @@ export function WizardForm({
         hasWizard={hasWizard}
         defaultArchetype={defaultArchetype}
         generating={generating}
+        theme={theme}
       />
     </form>
   );
@@ -69,13 +82,16 @@ function FormBody({
   hasWizard,
   defaultArchetype,
   generating,
+  theme,
 }: {
   hasWizard: boolean;
   defaultArchetype: string | null;
   generating: boolean;
+  theme: WizardTheme | null;
 }) {
   const { pending } = useFormStatus();
   const busy = pending || generating;
+  const [useTheme, setUseTheme] = useState(theme !== null);
 
   return (
     <>
@@ -96,14 +112,39 @@ function FormBody({
             className="block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-amber-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-zinc-950 hover:file:bg-amber-400 disabled:file:bg-zinc-700"
           />
         </div>
-        <div>
+        {theme && (
+          <div className="md:col-span-2">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+              <input
+                type="checkbox"
+                checked={useTheme}
+                onChange={(e) => setUseTheme(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-amber-500"
+              />
+              {useTheme && (
+                <input type="hidden" name="themeEventId" value={theme.eventId} />
+              )}
+              <span className="min-w-0 text-sm">
+                <span className="font-semibold text-amber-200">
+                  Match this draft: {theme.label}
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-400">
+                  Your portrait becomes {theme.description} — instead of the
+                  wizard archetype below.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
+        <div className={useTheme ? "opacity-40" : undefined}>
           <label htmlFor="wizard-archetype" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
-            Archetype
+            Archetype{useTheme ? " (unused with draft theme)" : ""}
           </label>
           <select
             id="wizard-archetype"
             name="archetype"
             defaultValue={defaultArchetype ?? "archmage"}
+            disabled={useTheme}
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
           >
             {WIZARD_ARCHETYPES.map((a) => (

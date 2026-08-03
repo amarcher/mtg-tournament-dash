@@ -82,14 +82,20 @@ const ARCHETYPE_DETAILS: Record<WizardArchetype, string> = {
 
 export function buildWizardPrompt(
   archetype: WizardArchetype,
-  freeform?: string
+  freeform?: string,
+  theme?: string
 ): string {
-  const details = ARCHETYPE_DETAILS[archetype];
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
+  // An event portrait theme (e.g. "a character from The Lord of the Rings…")
+  // replaces the archetype costume clause entirely — themed drafts aren't
+  // limited to wizards.
+  const costume = theme?.trim()
+    ? `Transform them into ${theme.trim()}.`
+    : `Dress them as a ${archetype}: ${ARCHETYPE_DETAILS[archetype]}.`;
   // Instruction-style: identity lock first, then additive costume/setting.
   return (
     `Keep this exact person — their face, skin tone, hair, and expression must stay identical. ` +
-    `Dress them as a ${archetype}: ${details}.${extra} ` +
+    `${costume}${extra} ` +
     `Shoulders-up portrait, painterly oil-painting style, dramatic chiaroscuro lighting. ` +
     `Do not change their face or facial features.`
   );
@@ -123,9 +129,10 @@ const TIER_SUFFIX: Record<WizardTier, string> = {
 export function buildVariantPrompt(
   archetype: WizardArchetype,
   freeform: string | undefined,
-  tier: WizardTier
+  tier: WizardTier,
+  theme?: string
 ): string {
-  return buildWizardPrompt(archetype, freeform) + TIER_SUFFIX[tier];
+  return buildWizardPrompt(archetype, freeform, theme) + TIER_SUFFIX[tier];
 }
 
 export type WizardVariantResult = {
@@ -254,10 +261,10 @@ function getImageEditor(): ImageEditor {
 /**
  * Persist a generated JPEG to Vercel Blob and return the DB-bound URL.
  *
- * Stable key (`avatars/<playerId>/<tier>.jpg`) + `allowOverwrite: true` →
- * regenerating a wizard reuses the same Blob object so `players.avatar*Url`
- * rows never go stale. A query-string cache buster forces browsers to drop
- * their old copy on regen.
+ * Keys are versioned per generation (see keyPrefix at the call site), so
+ * `allowOverwrite` only matters for a retried upload of the same generation.
+ * The query-string cache buster forces browsers to drop a stale copy when a
+ * player re-applies a cataloged set whose URL they've seen before.
  */
 async function uploadPortrait(blobKey: string, buf: Buffer): Promise<string> {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
@@ -288,12 +295,17 @@ async function uploadPortrait(blobKey: string, buf: Buffer): Promise<string> {
  */
 export async function generateWizardVariantsFromSelfie(args: {
   playerId: string;
+  /** Versioned Blob-key segment — one per generation, so older cataloged
+   * portrait sets are never overwritten by a regen. */
+  portraitId: string;
   selfie: File;
   archetype: WizardArchetype;
   freeform?: string;
+  theme?: string;
   signal?: AbortSignal;
 }): Promise<WizardVariantResult> {
-  const { playerId, selfie, archetype, freeform, signal } = args;
+  const { playerId, portraitId, selfie, archetype, freeform, theme, signal } =
+    args;
 
   // Normalize whatever the phone uploaded (HEIC, JPEG, PNG, WebP, …) into a
   // 1024² JPEG. We persist this normalized copy and feed it to FLUX as-is
@@ -332,22 +344,22 @@ export async function generateWizardVariantsFromSelfie(args: {
   const buffers: Record<WizardTier, Buffer> = {} as Record<WizardTier, Buffer>;
   const edit = getImageEditor();
   for (const tier of tiers) {
-    const prompt = buildVariantPrompt(archetype, freeform, tier);
+    const prompt = buildVariantPrompt(archetype, freeform, tier, theme);
     buffers[tier] = await edit(selfieBuf, prompt, signal);
   }
 
-  // Stable keys per (player, tier). Blob writes with allowOverwrite so the
-  // URL prefix never changes — only the cache-buster suffix does.
-  const selfiePath = await uploadPortrait(
-    `avatars/${playerId}/selfie.jpg`,
-    selfieBuf
-  );
+  // Versioned keys per generation: the portraitId segment means a regen
+  // writes fresh Blob objects, so every set in the player_portraits catalog
+  // keeps rendering forever. (Pre-catalog sets live at the old un-versioned
+  // avatars/<playerId>/<tier>.jpg keys, which nothing writes to anymore.)
+  const keyPrefix = `avatars/${playerId}/${portraitId}`;
+  const selfiePath = await uploadPortrait(`${keyPrefix}/selfie.jpg`, selfieBuf);
   const tierPaths = await Promise.all(
     tiers.map(
       async (tier) =>
         [
           tier,
-          await uploadPortrait(`avatars/${playerId}/${tier}.jpg`, buffers[tier]),
+          await uploadPortrait(`${keyPrefix}/${tier}.jpg`, buffers[tier]),
         ] as const
     )
   );

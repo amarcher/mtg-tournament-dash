@@ -47,6 +47,13 @@ export const auth = betterAuth({
     // to sequential statements when this is off.
     transaction: false,
   }),
+  // 30-day sliding window (same policy as storybook-studio): anyone active at
+  // least monthly never sees another magic-link email. updateAge bounds the
+  // renewal write to ~once per 15 days per active user.
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24 * 15,
+  },
   plugins: [
     magicLink({ sendMagicLink }),
     // Must stay last: rewrites Set-Cookie handling for server actions.

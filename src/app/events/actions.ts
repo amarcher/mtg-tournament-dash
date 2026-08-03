@@ -30,6 +30,7 @@ import {
 import {
   getCurrentRound,
   getDatePoll,
+  getEventBySourcePoll,
   getEventStandings,
   getPairingInputs,
   getRoundMatches,
@@ -59,7 +60,10 @@ import { publish } from "@/lib/pubsub";
 import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
 import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
-import { startWizardGeneration } from "@/lib/wizard-job";
+import {
+  applyPortraitToPlayer,
+  startWizardGeneration,
+} from "@/lib/wizard-job";
 import {
   WIZARD_ARCHETYPES,
   type WizardArchetype,
@@ -71,6 +75,8 @@ export async function createEventAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const totalRounds = Number(formData.get("totalRounds") ?? 3);
   const startingLife = Number(formData.get("startingLife") ?? 20);
+  const setName = String(formData.get("setName") ?? "").trim();
+  const portraitTheme = String(formData.get("portraitTheme") ?? "").trim();
   const playerIds = formData.getAll("playerId").map(String).filter(Boolean);
 
   if (!leagueId) throw new Error("League required");
@@ -91,7 +97,14 @@ export async function createEventAction(formData: FormData) {
 
   const [created] = await db
     .insert(events)
-    .values({ leagueId, name, totalRounds, startingLife })
+    .values({
+      leagueId,
+      name,
+      totalRounds,
+      startingLife,
+      setName: setName || null,
+      portraitTheme: portraitTheme || null,
+    })
     .returning();
 
   const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
@@ -267,6 +280,7 @@ export async function generateWizardAction(formData: FormData) {
   const playerId = String(formData.get("playerId") ?? "");
   const archetypeRaw = String(formData.get("archetype") ?? "archmage");
   const freeform = String(formData.get("freeform") ?? "");
+  const themeEventId = String(formData.get("themeEventId") ?? "");
   const selfie = formData.get("selfie");
 
   if (!playerId) throw new Error("playerId required");
@@ -299,8 +313,57 @@ export async function generateWizardAction(formData: FormData) {
 
   await checkWizardizeLimit(target.id, target.leagueId);
 
-  await startWizardGeneration({ playerId, archetype, freeform, selfie });
+  // The theme text comes from the event row, never the client — the form
+  // only names the event it wants to match.
+  let theme: string | undefined;
+  let themeLabel: string | undefined;
+  if (themeEventId) {
+    const [themedEvent] = await db
+      .select()
+      .from(events)
+      .where(eq(events.id, themeEventId));
+    if (
+      themedEvent &&
+      themedEvent.leagueId === target.leagueId &&
+      themedEvent.portraitTheme
+    ) {
+      theme = themedEvent.portraitTheme;
+      themeLabel = themedEvent.setName ?? themedEvent.name;
+    }
+  }
 
+  await startWizardGeneration({
+    playerId,
+    archetype,
+    freeform,
+    selfie,
+    theme,
+    themeLabel,
+  });
+
+  revalidatePath(`/players/${playerId}`);
+}
+
+/** Re-apply one of the player's cataloged portrait sets as their avatar. */
+export async function applyPortraitAction(formData: FormData) {
+  const playerId = String(formData.get("playerId") ?? "");
+  const portraitId = String(formData.get("portraitId") ?? "");
+  if (!playerId) throw new Error("playerId required");
+  if (!portraitId) throw new Error("portraitId required");
+
+  const [target] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, playerId));
+  if (!target) throw new Error("Player not found");
+  const caller = await getCurrentLeaguePlayer(target.leagueId);
+  if (!caller || caller.id !== target.id) {
+    throw new Error(
+      `Only ${target.displayName} can change this portrait. Claim this wizard from the league page first.`
+    );
+  }
+
+  await applyPortraitToPlayer(playerId, portraitId);
   revalidatePath(`/players/${playerId}`);
 }
 
@@ -1341,6 +1404,117 @@ export async function finalizeDatePollAction(formData: FormData) {
   revalidatePath(`/leagues/${league.slug}`);
   revalidatePath(`/leagues/${league.slug}/schedule`);
   revalidatePath(`/leagues/${league.slug}/schedule/${pollId}`);
+}
+
+/**
+ * Turn a date poll into a real event. Uses the finalized date (finalizing the
+ * poll first if the organizer picked a date on an open poll), pre-rosters
+ * everyone who answered yes / if-need-be for that date, and stamps the event
+ * with the poll's date + a back-link. Idempotent: a poll that already spawned
+ * an event just redirects to it.
+ */
+export async function promoteDatePollAction(formData: FormData) {
+  const pollId = String(formData.get("pollId") ?? "");
+  const optionIdRaw = String(formData.get("optionId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+
+  if (!pollId) throw new Error("Poll required");
+  const poll = await getDatePoll(pollId);
+  if (!poll) throw new Error("Poll not found");
+  if (poll.status === "canceled") throw new Error("This poll was canceled");
+  const league = await requirePollLeague(poll.leagueId);
+  await requireOrganizer(poll.leagueId);
+
+  const existing = await getEventBySourcePoll(pollId);
+  if (existing) redirect(`/events/${existing.id}/manage`);
+
+  const optionId = optionIdRaw || poll.finalizedOptionId;
+  if (!optionId) throw new Error("Pick a date to promote first");
+  const [option] = await db
+    .select()
+    .from(pollOptions)
+    .where(and(eq(pollOptions.id, optionId), eq(pollOptions.pollId, pollId)));
+  if (!option) throw new Error("Date not found in this poll");
+
+  const leaguePlayers = await db
+    .select()
+    .from(players)
+    .where(eq(players.leagueId, poll.leagueId));
+  const votes = await db
+    .select()
+    .from(pollVotes)
+    .where(eq(pollVotes.optionId, optionId));
+  const leagueIds = new Set(leaguePlayers.map((p) => p.id));
+  let rosterIds = votes
+    .filter((v) => v.response !== "no" && leagueIds.has(v.playerId))
+    .map((v) => v.playerId);
+  // A thin poll shouldn't block the night — seed the whole league and let the
+  // organizer trim the roster on the manage page.
+  if (rosterIds.length < 2) {
+    rosterIds = leaguePlayers.map((p) => p.id);
+  }
+  if (rosterIds.length < 2) throw new Error("Need at least 2 players");
+
+  const [created] = await db
+    .insert(events)
+    .values({
+      leagueId: poll.leagueId,
+      name: name || poll.title,
+      scheduledAt: option.startsAt,
+      sourcePollId: poll.id,
+    })
+    .returning();
+
+  const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
+  await db.insert(eventPlayers).values(
+    rosterIds.map((pid, idx) => ({
+      eventId: created.id,
+      playerId: pid,
+      seed: idx + 1,
+      startingElo: eloByPlayer.get(pid) ?? 1200,
+      joinToken: generateJoinToken(),
+    }))
+  );
+
+  if (poll.status === "open") {
+    await db
+      .update(datePolls)
+      .set({ status: "finalized", finalizedOptionId: optionId })
+      .where(eq(datePolls.id, pollId));
+  }
+
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/leagues/${league.slug}/schedule`);
+  revalidatePath(`/leagues/${league.slug}/schedule/${pollId}`);
+  redirect(`/events/${created.id}/manage`);
+}
+
+/** Rename an event and edit its display metadata (set, portrait theme). */
+export async function updateEventAction(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  const setName = String(formData.get("setName") ?? "").trim();
+  const portraitTheme = String(formData.get("portraitTheme") ?? "").trim();
+
+  if (!eventId) throw new Error("Event required");
+  if (!name) throw new Error("Event name required");
+  const event = await requireOrganizerForEvent(eventId);
+
+  await db
+    .update(events)
+    .set({
+      name,
+      setName: setName || null,
+      portraitTheme: portraitTheme || null,
+    })
+    .where(eq(events.id, eventId));
+
+  const league = await requirePollLeague(event.leagueId);
+  revalidatePath(`/leagues/${league.slug}`);
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/play`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/claim`);
 }
 
 /* ---- league management (organizer accounts) ---- */

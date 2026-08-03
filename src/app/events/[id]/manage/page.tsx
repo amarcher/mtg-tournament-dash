@@ -26,9 +26,11 @@ import {
   setMatchResultAction,
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
+  updateEventAction,
 } from "@/app/events/actions";
 import { qrDataUrl } from "@/lib/qr";
 import { getPublicBaseUrl } from "@/lib/public-url";
+import { formatPollDate } from "@/lib/schedule-types";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { OrganizerGate } from "@/app/components/OrganizerGate";
 import { isLeagueOrganizer } from "@/lib/authz";
@@ -190,6 +192,8 @@ export default async function ManagePage({
             </div>
             <p className="mt-1 text-sm text-zinc-500">
               {event.format} · {event.totalRounds} rounds · life {event.startingLife}
+              {event.setName && <> · {event.setName}</>}
+              {event.scheduledAt && <> · {formatPollDate(event.scheduledAt)}</>}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -256,6 +260,73 @@ export default async function ManagePage({
             </p>
           )}
         </section>
+
+        <details className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/70">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium uppercase tracking-wide text-zinc-400 transition hover:text-zinc-200">
+            Event details — rename, set, portrait theme
+          </summary>
+          <form action={updateEventAction} className="grid gap-4 p-4 pt-1">
+            <input type="hidden" name="eventId" value={id} />
+            <div>
+              <label
+                htmlFor="edit-event-name"
+                className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400"
+              >
+                Event name
+              </label>
+              <input
+                id="edit-event-name"
+                name="name"
+                required
+                defaultValue={event.name}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="edit-event-set"
+                className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400"
+              >
+                Set being drafted (optional)
+              </label>
+              <input
+                id="edit-event-set"
+                name="setName"
+                defaultValue={event.setName ?? ""}
+                placeholder="e.g. The Lord of the Rings: Tales of Middle-earth"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="edit-event-theme"
+                className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400"
+              >
+                Portrait theme (optional)
+              </label>
+              <input
+                id="edit-event-theme"
+                name="portraitTheme"
+                defaultValue={event.portraitTheme ?? ""}
+                placeholder="e.g. a character from The Lord of the Rings — hobbit, elf, dwarf, ranger, or wizard of Middle-earth"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                When set, players see a &ldquo;match this draft&rdquo; option on
+                the wizardize form and their portraits use this description
+                instead of the wizard archetype.
+              </p>
+            </div>
+            <div>
+              <button
+                type="submit"
+                className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400"
+              >
+                Save details
+              </button>
+            </div>
+          </form>
+        </details>
 
       {isComplete ? (
         <section className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
