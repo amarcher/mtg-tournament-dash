@@ -48,6 +48,19 @@ export async function getSessionUser(): Promise<{
   };
 }
 
+/**
+ * Drop every no-login organizer grant on this device. Sign-out must call
+ * this alongside the better-auth signOut: the `mtg_org_*` cookies are
+ * checked before any session lookup, so leaving them behind would keep the
+ * device fully authorized after "Sign out".
+ */
+export async function clearOrganizerCookies() {
+  const store = await cookies();
+  for (const c of store.getAll()) {
+    if (c.name.startsWith(ORGANIZER_COOKIE_PREFIX)) store.delete(c.name);
+  }
+}
+
 export async function setOrganizerCookie(leagueId: string, token: string) {
   const store = await cookies();
   store.set(organizerCookieName(leagueId), token, {

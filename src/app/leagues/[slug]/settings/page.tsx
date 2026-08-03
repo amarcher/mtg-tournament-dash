@@ -61,7 +61,7 @@ export default async function LeagueSettingsPage({
             <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
               Managers
             </h2>
-            {sessionUser && <SignOutButton email={sessionUser.email} />}
+            <SignOutButton email={sessionUser?.email} />
           </div>
           <p className="mt-1 text-xs text-zinc-500">
             Signed-in accounts that can run events, pair rounds, and edit the

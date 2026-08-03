@@ -246,8 +246,9 @@ export default async function SchedulePollPage({
                   Create the event
                 </button>
                 <p className="w-full text-xs text-zinc-400">
-                  Pre-rosters everyone who answered ✅ or 🟡 for this date —
-                  you can rename it and trim the roster afterwards.
+                  Pre-rosters everyone who answered ✅ or 🟡 for this date
+                  (or the whole league if fewer than two did) — you can
+                  rename it and trim the roster afterwards.
                 </p>
               </form>
             ) : null}
@@ -282,7 +283,7 @@ export default async function SchedulePollPage({
           <ul className="space-y-3">{optionCards}</ul>
         )}
 
-        {me && isOpen && (
+        {(me || organizer) && isOpen && (
           <section className="mt-12">
             <h2 className="text-lg font-medium text-zinc-300">Lock it in</h2>
             <p className="mt-1 text-xs text-zinc-500">
@@ -297,17 +298,19 @@ export default async function SchedulePollPage({
                 >
                   <span>{formatPollDate(o.startsAt)}</span>
                   <div className="flex flex-wrap gap-2">
-                    <form action={finalizeDatePollAction}>
-                      <input type="hidden" name="pollId" value={poll.id} />
-                      <input type="hidden" name="playerId" value={me.id} />
-                      <input type="hidden" name="optionId" value={o.id} />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-zinc-700 px-3 py-1.5 font-medium text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-200"
-                      >
-                        Pick this date
-                      </button>
-                    </form>
+                    {me && (
+                      <form action={finalizeDatePollAction}>
+                        <input type="hidden" name="pollId" value={poll.id} />
+                        <input type="hidden" name="playerId" value={me.id} />
+                        <input type="hidden" name="optionId" value={o.id} />
+                        <button
+                          type="submit"
+                          className="rounded-md border border-zinc-700 px-3 py-1.5 font-medium text-zinc-200 transition hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-200"
+                        >
+                          Pick this date
+                        </button>
+                      </form>
+                    )}
                     {organizer && (
                       <form action={promoteDatePollAction}>
                         <input type="hidden" name="pollId" value={poll.id} />

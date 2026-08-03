@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "events_source_poll_idx" ON "events" USING btree ("source_poll_id");

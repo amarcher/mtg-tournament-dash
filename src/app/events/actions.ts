@@ -47,6 +47,7 @@ import {
   setPlayerCookie,
 } from "@/lib/auth";
 import {
+  clearOrganizerCookies,
   getSessionUser,
   requireOrganizer,
   requireOrganizerForEvent,
@@ -76,7 +77,12 @@ export async function createEventAction(formData: FormData) {
   const totalRounds = Number(formData.get("totalRounds") ?? 3);
   const startingLife = Number(formData.get("startingLife") ?? 20);
   const setName = String(formData.get("setName") ?? "").trim();
-  const portraitTheme = String(formData.get("portraitTheme") ?? "").trim();
+  // Capped so the theme + tier suffix + freeform stays inside the FLUX text
+  // encoder's window — an over-long theme would silently truncate every
+  // player's prompt.
+  const portraitTheme = String(formData.get("portraitTheme") ?? "")
+    .trim()
+    .slice(0, 300);
   const playerIds = formData.getAll("playerId").map(String).filter(Boolean);
 
   if (!leagueId) throw new Error("League required");
@@ -360,6 +366,14 @@ export async function applyPortraitAction(formData: FormData) {
   if (!caller || caller.id !== target.id) {
     throw new Error(
       `Only ${target.displayName} can change this portrait. Claim this wizard from the league page first.`
+    );
+  }
+  // An in-flight generation will overwrite whatever gets applied here — and a
+  // non-null avatarUrl used to hide the row from the stale-job sweeper.
+  // Refuse instead of racing the background job.
+  if (target.wizardJobStartedAt) {
+    throw new Error(
+      "A portrait is being generated right now — wait for it to finish before switching."
     );
   }
 
@@ -1428,7 +1442,14 @@ export async function promoteDatePollAction(formData: FormData) {
   const existing = await getEventBySourcePoll(pollId);
   if (existing) redirect(`/events/${existing.id}/manage`);
 
-  const optionId = optionIdRaw || poll.finalizedOptionId;
+  // A finalized poll's date is settled — ignore any client-supplied option
+  // (e.g. a stale "Pick & create event" button rendered before someone else
+  // locked the poll) so the event can never land on a date the poll doesn't
+  // announce.
+  const optionId =
+    poll.status === "finalized"
+      ? poll.finalizedOptionId
+      : optionIdRaw || null;
   if (!optionId) throw new Error("Pick a date to promote first");
   const [option] = await db
     .select()
@@ -1455,6 +1476,19 @@ export async function promoteDatePollAction(formData: FormData) {
   }
   if (rosterIds.length < 2) throw new Error("Need at least 2 players");
 
+  // No transactions on the Neon HTTP driver, so order the writes by
+  // recoverability: finalize the poll first (harmless alone — promoting a
+  // finalized poll just resumes), then the event, then the roster with a
+  // compensating delete so a mid-flight failure can't strand an event the
+  // idempotence check would then refuse to rebuild. The unique index on
+  // events.source_poll_id closes the concurrent double-promote race.
+  if (poll.status === "open") {
+    await db
+      .update(datePolls)
+      .set({ status: "finalized", finalizedOptionId: optionId })
+      .where(eq(datePolls.id, pollId));
+  }
+
   const [created] = await db
     .insert(events)
     .values({
@@ -1466,21 +1500,19 @@ export async function promoteDatePollAction(formData: FormData) {
     .returning();
 
   const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
-  await db.insert(eventPlayers).values(
-    rosterIds.map((pid, idx) => ({
-      eventId: created.id,
-      playerId: pid,
-      seed: idx + 1,
-      startingElo: eloByPlayer.get(pid) ?? 1200,
-      joinToken: generateJoinToken(),
-    }))
-  );
-
-  if (poll.status === "open") {
-    await db
-      .update(datePolls)
-      .set({ status: "finalized", finalizedOptionId: optionId })
-      .where(eq(datePolls.id, pollId));
+  try {
+    await db.insert(eventPlayers).values(
+      rosterIds.map((pid, idx) => ({
+        eventId: created.id,
+        playerId: pid,
+        seed: idx + 1,
+        startingElo: eloByPlayer.get(pid) ?? 1200,
+        joinToken: generateJoinToken(),
+      }))
+    );
+  } catch (err) {
+    await db.delete(events).where(eq(events.id, created.id));
+    throw err;
   }
 
   revalidatePath(`/leagues/${league.slug}`);
@@ -1494,7 +1526,10 @@ export async function updateEventAction(formData: FormData) {
   const eventId = String(formData.get("eventId") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   const setName = String(formData.get("setName") ?? "").trim();
-  const portraitTheme = String(formData.get("portraitTheme") ?? "").trim();
+  // Same prompt-budget cap as createEventAction.
+  const portraitTheme = String(formData.get("portraitTheme") ?? "")
+    .trim()
+    .slice(0, 300);
 
   if (!eventId) throw new Error("Event required");
   if (!name) throw new Error("Event name required");
@@ -1509,12 +1544,33 @@ export async function updateEventAction(formData: FormData) {
     })
     .where(eq(events.id, eventId));
 
+  // Connected broadcast/play clients don't refetch on revalidation, so a
+  // mid-tournament rename needs a structural poke. event_state_changed with
+  // the unchanged status is exactly that: clients hard-reload and pick up
+  // the new name. Draft events have no live clients (and the message schema
+  // only admits active/complete), so skip them.
+  if (event.status === "active" || event.status === "complete") {
+    await publish(eventId, {
+      type: "event_state_changed",
+      status: event.status,
+    });
+  }
+
   const league = await requirePollLeague(event.leagueId);
   revalidatePath(`/leagues/${league.slug}`);
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/play`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/claim`);
+}
+
+/**
+ * Revoke the no-login organizer grants held by this browser. Paired with
+ * authClient.signOut() in SignOutButton so "Sign out" actually de-authorizes
+ * the device — the mtg_org_* cookies outrank the session in authz.ts.
+ */
+export async function deauthorizeDeviceAction() {
+  await clearOrganizerCookies();
 }
 
 /* ---- league management (organizer accounts) ---- */

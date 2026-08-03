@@ -136,6 +136,9 @@ function FormBody({
             </label>
           </div>
         )}
+        {/* Dimmed but never disabled while themed: a disabled select doesn't
+            submit, which would silently reset the stored archetype to the
+            server-side "archmage" fallback. */}
         <div className={useTheme ? "opacity-40" : undefined}>
           <label htmlFor="wizard-archetype" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
             Archetype{useTheme ? " (unused with draft theme)" : ""}
@@ -144,7 +147,6 @@ function FormBody({
             id="wizard-archetype"
             name="archetype"
             defaultValue={defaultArchetype ?? "archmage"}
-            disabled={useTheme}
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
           >
             {WIZARD_ARCHETYPES.map((a) => (

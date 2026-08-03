@@ -174,6 +174,10 @@ export const events = pgTable(
   },
   (t) => ({
     leagueIdx: index("events_league_idx").on(t.leagueId),
+    // One event per poll: closes the check-then-insert race in
+    // promoteDatePollAction (Postgres treats NULLs as distinct, so direct
+    // event creation is unaffected).
+    sourcePollIdx: uniqueIndex("events_source_poll_idx").on(t.sourcePollId),
   })
 );
 

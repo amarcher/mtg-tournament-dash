@@ -56,6 +56,7 @@ import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
 import { addPlayerToEventRoster } from "../src/lib/event-roster";
 import {
   applyPortraitToPlayer,
+  snapshotCurrentPortrait,
   startWizardGeneration,
 } from "../src/lib/wizard-job";
 import { generateJoinToken } from "../src/lib/auth";
@@ -72,6 +73,7 @@ import {
   getPendingRound,
   getPollDetail,
   getRoundMatches,
+  sweepStaleWizardJobs,
 } from "../src/db/queries";
 import { pickLeadingOptionId } from "../src/lib/poll-tally";
 import { datePolls, playerPortraits } from "../src/db/schema";
@@ -519,8 +521,9 @@ async function runWizardizeIntegrationTest(playerId: string) {
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   ok(`startWizardGeneration completed end-to-end against FLUX (${elapsed}s)`);
   // Storage shape depends on env: with BLOB_READ_WRITE_TOKEN the pipeline
-  // writes absolute Vercel Blob URLs keyed `avatars/<playerId>/<tier>.jpg`;
-  // without it, the legacy PUT-to-image-gen path stores `/files/wizard-...`.
+  // writes absolute Vercel Blob URLs with per-generation versioned keys
+  // `avatars/<playerId>/<portraitId>/<tier>.jpg`; without it, the legacy
+  // PUT-to-image-gen path stores `/files/wizard-...`.
   const blobMode = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
   const tiers = {
     fresh: row.avatarUrl,
@@ -529,22 +532,39 @@ async function runWizardizeIntegrationTest(playerId: string) {
     victory: row.avatarVictoryUrl,
     defeat: row.avatarDefeatUrl,
   } as const;
+  const versionedKey = (tier: string) =>
+    new RegExp(`avatars/${playerId}/[0-9a-f-]{36}/${tier}\\.jpg`);
   for (const [tier, url] of Object.entries(tiers)) {
-    const expected = blobMode
-      ? `avatars/${playerId}/${tier}.jpg`
-      : `wizard-${playerId}-${tier}.jpg`;
+    const matches = blobMode
+      ? versionedKey(tier).test(url ?? "")
+      : url?.includes(`wizard-${playerId}-${tier}.jpg`);
     assert(
-      url?.includes(expected),
-      `${tier} URL written to players.avatar_*_url (${expected})`
+      matches,
+      `${tier} URL written to players.avatar_*_url (versioned key)`
     );
   }
   assert(
-    row.selfieUrl?.includes(
-      blobMode ? `avatars/${playerId}/selfie.jpg` : `selfie-${playerId}.jpg`
-    ),
+    blobMode
+      ? versionedKey("selfie").test(row.selfieUrl ?? "")
+      : row.selfieUrl?.includes(`selfie-${playerId}.jpg`),
     "selfie URL persisted"
   );
   assert(row.wizardArchetype === "frost mage", "wizardArchetype persisted");
+
+  // The generation must also land in the wardrobe catalog, with the row id
+  // matching the versioned segment of the Blob key.
+  const catalogRows = await db
+    .select()
+    .from(playerPortraits)
+    .where(eq(playerPortraits.playerId, playerId));
+  const generated = catalogRows.find((c) => c.avatarUrl === row.avatarUrl);
+  assert(generated, "generation wrote a player_portraits catalog row");
+  if (blobMode) {
+    assert(
+      row.avatarUrl?.includes(`avatars/${playerId}/${generated!.id}/`),
+      "catalog row id matches the Blob key's versioned segment"
+    );
+  }
   if (blobMode) {
     assert(
       row.avatarUrl?.startsWith("https://"),
@@ -571,13 +591,15 @@ async function runWizardizeIntegrationTest(playerId: string) {
     );
   }
 
-  // Clean up the uploaded artifacts for this throwaway player.
+  // Clean up the uploaded artifacts for this throwaway player. Keys are
+  // versioned per generation, so derive them from the stored URLs (del()
+  // accepts absolute Blob URLs; strip the ?v= cache buster first).
   if (blobMode) {
     const { del } = await import("@vercel/blob");
-    const keys = [...Object.keys(tiers), "selfie"].map(
-      (t) => `avatars/${playerId}/${t}.jpg`
-    );
-    await del(keys).catch(() => undefined);
+    const urls = [...Object.values(tiers), row.selfieUrl]
+      .filter((u): u is string => Boolean(u))
+      .map((u) => u.split("?")[0]);
+    await del(urls).catch(() => undefined);
   } else {
     const token = process.env.IMAGEGEN_FILES_TOKEN ?? "";
     for (const name of [
@@ -1771,6 +1793,138 @@ async function runSchedulingPollPass(): Promise<{
   } catch {
     ok("rejects applying a portrait owned by another player");
   }
+
+  // Snapshot-before-regen: a current avatar set not yet in the catalog gets
+  // preserved exactly once (dedupe by avatarUrl), so a regen can't be the
+  // last time anyone sees the old wizard.
+  await db
+    .update(players)
+    .set({
+      avatarUrl: "https://blob.test/legacy-fresh.jpg",
+      avatarWoundedUrl: "https://blob.test/legacy-wounded.jpg",
+      wizardArchetype: "necromancer",
+    })
+    .where(eq(players.id, s1.id));
+  const [s1Legacy] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, s1.id));
+  await snapshotCurrentPortrait(s1Legacy);
+  await snapshotCurrentPortrait(s1Legacy);
+  const snapshots = await db
+    .select()
+    .from(playerPortraits)
+    .where(eq(playerPortraits.avatarUrl, "https://blob.test/legacy-fresh.jpg"));
+  assert(
+    snapshots.length === 1 &&
+      snapshots[0].playerId === s1.id &&
+      snapshots[0].archetype === "necromancer" &&
+      snapshots[0].avatarWoundedUrl === "https://blob.test/legacy-wounded.jpg",
+    "snapshotCurrentPortrait catalogs the outgoing set exactly once"
+  );
+
+  // Thin-poll fallback: promoting a winning date with <2 non-no voters seeds
+  // the whole league instead of blocking the night.
+  let thinPollId = "";
+  try {
+    await createDatePollAction(
+      makeFormData({
+        leagueId: league.id,
+        playerId: s1.id,
+        title: `${PREFIX}thin poll`,
+        optionDate: ["2026-09-04T19:00", "2026-09-11T19:00"],
+      })
+    );
+  } catch (e) {
+    if (!isNextRedirect(e)) throw e;
+  }
+  const [thinPoll] = await db
+    .select()
+    .from(datePolls)
+    .where(eq(datePolls.title, `${PREFIX}thin poll`));
+  thinPollId = thinPoll.id;
+  const thinOptions = await getPollDetail(thinPollId);
+  try {
+    await promoteDatePollAction(
+      makeFormData({ pollId: thinPollId, optionId: thinOptions[0].id })
+    );
+    fail("thin-poll promote should redirect");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("thin-poll promote redirects");
+    else throw e;
+  }
+  const thinEvent = await getEventBySourcePoll(thinPollId);
+  const thinPollAfter = await getDatePoll(thinPollId);
+  assert(
+    thinPollAfter?.status === "finalized" &&
+      thinPollAfter?.finalizedOptionId === thinOptions[0].id,
+    "promoting an open poll finalizes it on the chosen date"
+  );
+  const thinRoster = thinEvent ? await getEventRoster(thinEvent.id) : [];
+  assert(
+    thinRoster.length === 3,
+    "zero-voter promote falls back to seeding the whole league"
+  );
+
+  // Date integrity: promoting a FINALIZED poll must ignore a client-supplied
+  // optionId (stale "Pick & create event" button) and use the locked date.
+  try {
+    await createDatePollAction(
+      makeFormData({
+        leagueId: league.id,
+        playerId: s1.id,
+        title: `${PREFIX}locked poll`,
+        optionDate: ["2026-10-02T19:00", "2026-10-09T19:00"],
+      })
+    );
+  } catch (e) {
+    if (!isNextRedirect(e)) throw e;
+  }
+  const [lockedPoll] = await db
+    .select()
+    .from(datePolls)
+    .where(eq(datePolls.title, `${PREFIX}locked poll`));
+  const lockedOptions = await getPollDetail(lockedPoll.id);
+  await finalizeDatePollAction(
+    makeFormData({
+      pollId: lockedPoll.id,
+      playerId: s1.id,
+      optionId: lockedOptions[0].id,
+    })
+  );
+  try {
+    await promoteDatePollAction(
+      makeFormData({ pollId: lockedPoll.id, optionId: lockedOptions[1].id })
+    );
+    fail("locked-poll promote should redirect");
+  } catch (e) {
+    if (!isNextRedirect(e)) throw e;
+  }
+  const lockedEvent = await getEventBySourcePoll(lockedPoll.id);
+  assert(
+    lockedEvent?.scheduledAt?.getTime() ===
+      new Date(lockedOptions[0].startsAt).getTime(),
+    "promote of a finalized poll ignores a stale client optionId"
+  );
+
+  // Sweeper self-healing: a stale wizardJobStartedAt must clear even when
+  // avatarUrl is non-null (a wardrobe apply raced a doomed job).
+  await db
+    .update(players)
+    .set({
+      wizardJobStartedAt: new Date(Date.now() - 10 * 60_000),
+      avatarUrl: "https://blob.test/raced.jpg",
+    })
+    .where(eq(players.id, s2.id));
+  await sweepStaleWizardJobs();
+  const [s2Swept] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, s2.id));
+  assert(
+    s2Swept.wizardJobStartedAt === null,
+    "stale job flag clears even with a non-null avatarUrl"
+  );
 
   return { leagueSlug: league.slug, pollId: poll.id };
 }
