@@ -14,8 +14,11 @@ const heicConvert = require("heic-convert") as (args: {
   quality?: number;
 }) => Promise<ArrayBufferLike>;
 import {
+  THEME_FALLBACK_ARCHETYPE,
   WIZARD_ARCHETYPES,
+  type HobbitArchetype,
   type LotrArchetype,
+  type MarvelArchetype,
   type PortraitTheme,
   type WizardArchetype,
 } from "./wizard-types";
@@ -111,10 +114,78 @@ const LOTR_DETAILS: Record<LotrArchetype, string> = {
     "Sméagol: gaunt and pale with huge round pleading eyes, a few sparse strands of hair, a ragged simple garment, hunched posture, cradling a small golden ring in their hands, moonlit cave pool behind them — endearing and family-friendly, never frightening",
 };
 
-// Characters whose transformation must rebuild the face itself (bark, not
-// skin). The strict identity lock overpowers the costume clause and FLUX
-// errs human, so these swap it for a softer carve-the-likeness instruction.
-const FULL_TRANSFORM_ARCHETYPES = new Set<string>(["ent"]);
+// Marvel heroes are named by power-set, not by trademarked character name —
+// same additive costume framing as the LOTR pack: full noun phrase, face
+// stays locked. Family-friendly throughout.
+const MARVEL_DETAILS: Record<MarvelArchetype, string> = {
+  "web-slinger":
+    "a web-slinging masked hero: a skintight red-and-blue costume with a black web pattern and a stylized spider emblem on the chest, a form-fitting mask pushed back to reveal their face, wrist web-shooters, swinging between skyscrapers at golden hour behind them",
+  "armored genius":
+    "an armored genius inventor: sleek red-and-gold powered battle armor with a glowing chest reactor, the faceplate raised to reveal their face, a high-tech workshop with glowing holographic schematics behind them",
+  "super soldier":
+    "a shield-bearing super soldier: a form-fitting star-spangled blue-and-red uniform with a white star on the chest, a round shield slung on one arm, short cropped hair, a war-torn city skyline behind them",
+  "thunder god":
+    "an Asgardian thunder god: gleaming silver-pauldroned armor with a flowing red cape, a coiled leather-wrapped hammer resting on one shoulder, crackling blue lightning arcing through storm clouds behind them",
+  "gamma titan":
+    "a towering gamma-powered titan — a hulking green-skinned giant: bulging muscled physique bursting from the seams of torn purple trousers, veins glowing faintly with barely-contained energy, a crumbling cityscape behind them — powerful but family-friendly, keep their facial features clearly recognizable",
+  "master of the mystic arts":
+    "a master of the mystic arts: a flowing blue tunic and a crimson cloak billowing behind them as if alive, a rune-etched amulet at their throat, glowing orange mystic circles spiraling around their hands, a swirling astral portal behind them",
+  "master assassin":
+    "an elite master assassin: a sleek black tactical bodysuit with a utility harness, twin sidearms holstered at the hips, a rain-slicked rooftop city skyline behind them",
+  "clawed mutant":
+    "a clawed mutant hero: a rugged brown-and-tan bodysuit, three gleaming claws extended from each fist, a wild tousled hairstyle, a smoky forest battlefield behind them — fierce but family-friendly, keep their facial features clearly recognizable",
+  "weather witch":
+    "a weather-commanding mutant hero: a flowing white-and-gold cloak billowing as if caught in wind, a lightning-bolt circlet across their brow, eyes glowing storm-white, swirling clouds and crackling lightning behind them",
+  "cosmic guardian":
+    "a roguish cosmic guardian: a worn red leather jacket over a tactical vest, twin blaster pistols holstered at the hips, a retro headset around their neck, a starfield and distant nebula behind them",
+};
+
+// The Hobbit swaps orcs for goblins and adds Mirkwood's giant spiders; no
+// ents here. Same additive framing as the other packs, full noun phrases,
+// family-friendly throughout.
+const HOBBIT_DETAILS: Record<HobbitArchetype, string> = {
+  "hobbit burglar":
+    "a hobbit burglar of Bag End: a patched brown waistcoat with brass buttons over a linen shirt, a small dagger at their belt, slightly pointed ears, curly hair, warm firelight from a round green door and garden behind them",
+  "dwarf of the Company":
+    "a dwarf of a wandering company: a thick braided beard, layered leather-and-mail armor under a hooded travel cloak, a war-hammer slung across their back, misty mountain foothills behind them",
+  "grey wizard":
+    "a grey wizard of the wandering folk: long grey robes and a tall pointed grey hat, a gnarled wooden staff topped with a faint blue glow, a long grey beard, warm pipe-smoke light in a cozy hobbit-hole behind them",
+  "elf of Mirkwood":
+    "a woodland elf of Mirkwood: dark green-and-brown leaf-mail armor, a recurve bow slung across their back, gracefully pointed ears, a silver circlet, shadowy dense forest with shafts of green light behind them",
+  "man of Lake-town":
+    "a bowman of Lake-town: a weathered grey cloak over a fisherman's tunic, a longbow and quiver of black-fletched arrows on their back, windswept hair, wooden stilt-houses and grey lake water behind them",
+  "goblin of the Misty Mountains":
+    "a goblin of the Misty Mountains: sallow grey-green mottled skin, jagged yellowed teeth in a wide grin, ragged leather scraps and bone trinkets, torch-lit cave tunnels behind them — mischievous but family-friendly, keep their facial features clearly recognizable",
+  "giant spider":
+    "a giant spider of Mirkwood — a monstrous many-legged spider-being: a swollen bulbous abdomen covered in coarse bristling black hair with pale markings, several gleaming clustered eyes arranged across their brow, sharp curved mandibles framing their mouth, thick spindly legs sprouting from their shoulders, dense spider-webbed forest shadows behind them",
+  "mountain troll":
+    "a mountain troll: a hulking boulder-like frame, craggy grey stone-textured skin cracked with lichen and moss, small beady deep-set eyes, blunt worn tusks, a massive club slung over one shoulder, misty dawn-lit hillside behind them",
+  "skin-changer":
+    "a skin-changer of the Vale, part man and part bear: a towering brawny figure, coarse black fur covering muscled forearms and shoulders, a heavy bear-like brow and nose, sharp claws in place of fingernails, a massive log-built hall and honeycombs behind them",
+  "dragon of the Lonely Mountain":
+    "a dragon of the Lonely Mountain, part-drake: burnished copper-red scales creeping across their cheeks and brow, faint smoke curling from their nostrils, a hoard of gold coins and jewels glowing behind them in molten firelight",
+};
+
+// Characters whose transformation must rebuild the face itself (bark, fur,
+// scales, chitin — not skin). The strict identity lock overpowers the
+// costume clause and FLUX errs human, so these swap it for a softer
+// carve-the-likeness instruction. Scoped per theme since archetype strings
+// aren't unique across packs.
+const FULL_TRANSFORM_ARCHETYPES: Record<PortraitTheme, ReadonlySet<string>> = {
+  standard: new Set(),
+  lotr: new Set(["ent"]),
+  marvel: new Set(["gamma titan"]),
+  hobbit: new Set(["giant spider", "mountain troll", "skin-changer", "dragon of the Lonely Mountain"]),
+};
+
+const TRANSFORM_THEME_DETAILS: Record<
+  Exclude<PortraitTheme, "standard">,
+  Record<string, string>
+> = {
+  lotr: LOTR_DETAILS,
+  marvel: MARVEL_DETAILS,
+  hobbit: HOBBIT_DETAILS,
+};
 
 export function buildWizardPrompt(
   theme: PortraitTheme,
@@ -124,24 +195,28 @@ export function buildWizardPrompt(
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
   const style =
     `Shoulders-up portrait, painterly oil-painting style, dramatic chiaroscuro lighting.`;
-  if (theme === "lotr" && FULL_TRANSFORM_ARCHETYPES.has(archetype)) {
-    const details =
-      LOTR_DETAILS[archetype as LotrArchetype] ?? LOTR_DETAILS.wizard;
+  if (theme !== "standard") {
+    const details = TRANSFORM_THEME_DETAILS[theme];
+    const detail =
+      details[archetype] ?? details[THEME_FALLBACK_ARCHETYPE[theme]];
+    if (FULL_TRANSFORM_ARCHETYPES[theme].has(archetype)) {
+      return (
+        `Fully transform this person into ${detail}.${extra} ` +
+        `Carve their real facial structure, proportions, and expression into the transformation so the person stays clearly recognizable. ` +
+        style
+      );
+    }
     return (
-      `Fully transform this person into ${details}.${extra} ` +
-      `Carve their real facial structure, proportions, and expression into the wood so the person stays clearly recognizable. ` +
-      style
+      `Keep this exact person — their face, skin tone, hair, and expression must stay identical. ` +
+      `Transform them into ${detail}.${extra} ` +
+      `${style} ` +
+      `Do not change their face or facial features.`
     );
   }
-  const costume =
-    theme === "lotr"
-      ? `Transform them into ${
-          LOTR_DETAILS[archetype as LotrArchetype] ?? LOTR_DETAILS.wizard
-        }.`
-      : `Dress them as a ${archetype}: ${
-          ARCHETYPE_DETAILS[archetype as WizardArchetype] ??
-          ARCHETYPE_DETAILS.archmage
-        }.`;
+  const costume = `Dress them as a ${archetype}: ${
+    ARCHETYPE_DETAILS[archetype as WizardArchetype] ??
+    ARCHETYPE_DETAILS.archmage
+  }.`;
   // Instruction-style: identity lock first, then additive costume/setting.
   return (
     `Keep this exact person — their face, skin tone, hair, and expression must stay identical. ` +

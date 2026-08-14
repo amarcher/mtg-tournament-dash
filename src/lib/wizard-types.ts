@@ -26,29 +26,71 @@ export const LOTR_ARCHETYPES = [
 
 export type LotrArchetype = (typeof LOTR_ARCHETYPES)[number];
 
+// Power-set archetypes rather than literal character names — mirrors how the
+// standard pack uses "pyromancer" instead of a specific named wizard — for
+// the hero types well represented in the Marvel set.
+export const MARVEL_ARCHETYPES = [
+  "web-slinger",
+  "armored genius",
+  "super soldier",
+  "thunder god",
+  "gamma titan",
+  "master of the mystic arts",
+  "master assassin",
+  "clawed mutant",
+  "weather witch",
+  "cosmic guardian",
+] as const;
+
+export type MarvelArchetype = (typeof MARVEL_ARCHETYPES)[number];
+
+// The Hobbit swaps in goblins for orcs and adds Mirkwood's giant spiders;
+// it predates the Ents joining the story, so no ent here.
+export const HOBBIT_ARCHETYPES = [
+  "hobbit burglar",
+  "dwarf of the Company",
+  "grey wizard",
+  "elf of Mirkwood",
+  "man of Lake-town",
+  "goblin of the Misty Mountains",
+  "giant spider",
+  "mountain troll",
+  "skin-changer",
+  "dragon of the Lonely Mountain",
+] as const;
+
+export type HobbitArchetype = (typeof HOBBIT_ARCHETYPES)[number];
+
 // A theme is a themed pack of selectable archetypes; the player picks the
 // theme first, then a character within it.
-export const PORTRAIT_THEMES = ["standard", "lotr"] as const;
+export const PORTRAIT_THEMES = ["standard", "lotr", "marvel", "hobbit"] as const;
 
 export type PortraitTheme = (typeof PORTRAIT_THEMES)[number];
 
 export const PORTRAIT_THEME_LABELS: Record<PortraitTheme, string> = {
   standard: "Standard",
   lotr: "Lord of the Rings",
+  marvel: "Marvel Super Heroes",
+  hobbit: "The Hobbit",
 };
 
 export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
   standard: WIZARD_ARCHETYPES,
   lotr: LOTR_ARCHETYPES,
+  marvel: MARVEL_ARCHETYPES,
+  hobbit: HOBBIT_ARCHETYPES,
 };
 
 // What the wizardize form pre-selects. Hardcoded to the current draft's set
-// for now — TBD whether this later derives from the upcoming event.
-export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "lotr";
+// for now — TBD whether this later derives from the upcoming event. Set to
+// Marvel for the Monday draft night.
+export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "marvel";
 
-const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
+export const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
   standard: "archmage",
   lotr: "wizard",
+  marvel: "armored genius",
+  hobbit: "hobbit burglar",
 };
 
 export function isPortraitTheme(value: unknown): value is PortraitTheme {

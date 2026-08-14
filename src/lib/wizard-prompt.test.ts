@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildVariantPrompt, buildWizardPrompt } from "./wizard";
 import {
+  HOBBIT_ARCHETYPES,
   LOTR_ARCHETYPES,
+  MARVEL_ARCHETYPES,
+  PORTRAIT_THEMES,
   THEME_ARCHETYPES,
   archetypeForTheme,
   isPortraitTheme,
@@ -73,6 +76,85 @@ describe("buildWizardPrompt — lotr theme", () => {
   });
 });
 
+describe("buildWizardPrompt — marvel theme", () => {
+  it("has a transformation clause for every hero in the pack", () => {
+    for (const hero of MARVEL_ARCHETYPES) {
+      const prompt = buildWizardPrompt("marvel", hero);
+      expect(prompt).toMatch(/transform (them|this person) into/i);
+      expect(prompt).toContain("painterly oil-painting style");
+    }
+  });
+
+  it("relaxes the identity lock for the gamma titan's skin change", () => {
+    const prompt = buildWizardPrompt("marvel", "gamma titan");
+    expect(prompt).not.toContain("must stay identical");
+    expect(prompt).toContain("stays clearly recognizable");
+    expect(prompt).toContain("green-skinned giant");
+  });
+
+  it("selects the requested hero, not a generic description", () => {
+    expect(buildWizardPrompt("marvel", "web-slinger")).toContain(
+      "web-slinging masked hero"
+    );
+    expect(buildWizardPrompt("marvel", "thunder god")).toContain(
+      "Asgardian thunder god"
+    );
+  });
+
+  it("falls back to the armored genius for an unknown value", () => {
+    const prompt = buildWizardPrompt("marvel", "definitely-not-real");
+    expect(prompt).toContain("armored genius inventor");
+  });
+});
+
+describe("buildWizardPrompt — hobbit theme", () => {
+  it("has a transformation clause for every character in the pack", () => {
+    for (const character of HOBBIT_ARCHETYPES) {
+      const prompt = buildWizardPrompt("hobbit", character);
+      expect(prompt).toMatch(/transform (them|this person) into/i);
+      expect(prompt).toContain("painterly oil-painting style");
+    }
+  });
+
+  it("keeps the strict identity lock for costume characters", () => {
+    for (const character of [
+      "hobbit burglar",
+      "goblin of the Misty Mountains",
+    ]) {
+      const prompt = buildWizardPrompt("hobbit", character);
+      expect(prompt).toContain("Keep this exact person");
+      expect(prompt).toContain("must stay identical");
+    }
+  });
+
+  it("relaxes the identity lock for full transformations", () => {
+    for (const character of [
+      "giant spider",
+      "mountain troll",
+      "skin-changer",
+      "dragon of the Lonely Mountain",
+    ]) {
+      const prompt = buildWizardPrompt("hobbit", character);
+      expect(prompt).not.toContain("must stay identical");
+      expect(prompt).toContain("stays clearly recognizable");
+    }
+  });
+
+  it("selects the requested character, not a generic description", () => {
+    expect(buildWizardPrompt("hobbit", "goblin of the Misty Mountains")).toContain(
+      "goblin of the Misty Mountains"
+    );
+    expect(buildWizardPrompt("hobbit", "giant spider")).toContain(
+      "many-legged spider-being"
+    );
+  });
+
+  it("falls back to the hobbit burglar for an unknown value", () => {
+    const prompt = buildWizardPrompt("hobbit", "balrog");
+    expect(prompt).toContain("hobbit burglar of Bag End");
+  });
+});
+
 describe("buildVariantPrompt", () => {
   it("threads the theme through to tier variants", () => {
     const prompt = buildVariantPrompt("lotr", "hobbit", undefined, "victory");
@@ -85,6 +167,8 @@ describe("theme helpers", () => {
   it("isPortraitTheme accepts only known themes", () => {
     expect(isPortraitTheme("lotr")).toBe(true);
     expect(isPortraitTheme("standard")).toBe(true);
+    expect(isPortraitTheme("marvel")).toBe(true);
+    expect(isPortraitTheme("hobbit")).toBe(true);
     expect(isPortraitTheme("starwars")).toBe(false);
     expect(isPortraitTheme("")).toBe(false);
   });
@@ -94,10 +178,14 @@ describe("theme helpers", () => {
     expect(archetypeForTheme("lotr", "pyromancer")).toBe("wizard");
     expect(archetypeForTheme("standard", "pyromancer")).toBe("pyromancer");
     expect(archetypeForTheme("standard", "hobbit")).toBe("archmage");
+    expect(archetypeForTheme("marvel", "thunder god")).toBe("thunder god");
+    expect(archetypeForTheme("marvel", "pyromancer")).toBe("armored genius");
+    expect(archetypeForTheme("hobbit", "giant spider")).toBe("giant spider");
+    expect(archetypeForTheme("hobbit", "orc")).toBe("hobbit burglar");
   });
 
   it("every pack member produces a distinct prompt", () => {
-    for (const theme of ["standard", "lotr"] as const) {
+    for (const theme of PORTRAIT_THEMES) {
       const prompts = THEME_ARCHETYPES[theme].map((a) =>
         buildWizardPrompt(theme, a)
       );
