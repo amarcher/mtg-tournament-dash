@@ -9,6 +9,7 @@ import {
   PORTRAIT_THEMES,
   PORTRAIT_THEME_LABELS,
   THEME_ARCHETYPES,
+  THEME_FALLBACK_ARCHETYPE,
   type PortraitTheme,
 } from "@/lib/wizard-types";
 
@@ -95,9 +96,7 @@ function FormBody({
   const archetypeDefault =
     defaultArchetype && archetypes.includes(defaultArchetype)
       ? defaultArchetype
-      : theme === "lotr"
-        ? "wizard"
-        : "archmage";
+      : THEME_FALLBACK_ARCHETYPE[theme];
 
   return (
     <>
@@ -177,7 +176,7 @@ function FormBody({
         </div>
         <div>
           <label htmlFor="wizard-archetype" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
-            {theme === "lotr" ? "Character" : "Archetype"}
+            {theme === "standard" ? "Archetype" : "Character"}
           </label>
           {/* key={theme} remounts the select when the theme flips so the
               defaultValue re-resolves against the new pack. */}
