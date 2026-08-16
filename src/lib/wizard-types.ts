@@ -44,18 +44,23 @@ export const MARVEL_ARCHETYPES = [
 
 export type MarvelArchetype = (typeof MARVEL_ARCHETYPES)[number];
 
-// The Hobbit swaps in goblins for orcs and adds Mirkwood's giant spiders;
-// it predates the Ents joining the story, so no ent here.
+// The Hobbit adds Mirkwood's giant spiders and keeps orcs alongside goblins
+// (the real set treats them as distinct tribes); it predates the Ents
+// joining the story, so no ent here.
 export const HOBBIT_ARCHETYPES = [
   "hobbit burglar",
   "dwarf of the Company",
   "grey wizard",
   "elf of Mirkwood",
-  "man of Lake-town",
+  "bard of Lake-town",
   "goblin of the Misty Mountains",
+  "orc raider",
+  "warg-rider",
+  "Gollum, Riddle Master",
   "giant spider",
   "mountain troll",
   "skin-changer",
+  "giant eagle",
   "dragon of the Lonely Mountain",
 ] as const;
 
@@ -83,8 +88,8 @@ export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
 
 // What the wizardize form pre-selects. Hardcoded to the current draft's set
 // for now — TBD whether this later derives from the upcoming event. Set to
-// Marvel for the Monday draft night.
-export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "marvel";
+// The Hobbit for the "Hobbit-ual Drafters" draft night (Aug 17).
+export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "hobbit";
 
 export const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
   standard: "archmage",
