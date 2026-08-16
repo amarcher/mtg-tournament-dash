@@ -17,3 +17,16 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
+
+/* iOS Safari auto-zooms the viewport when a focused form field renders
+   below 16px, then leaves the page zoomed in (causing horizontal scroll)
+   until the player manually zooms back out. Force 16px on form fields
+   below the `md` breakpoint, where that auto-zoom behavior applies,
+   without touching how they render on desktop. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
