@@ -120,6 +120,9 @@ describe("buildWizardPrompt — hobbit theme", () => {
     for (const character of [
       "hobbit burglar",
       "goblin of the Misty Mountains",
+      "orc raider",
+      "warg-rider",
+      "Gollum, Riddle Master",
     ]) {
       const prompt = buildWizardPrompt("hobbit", character);
       expect(prompt).toContain("Keep this exact person");
@@ -132,6 +135,7 @@ describe("buildWizardPrompt — hobbit theme", () => {
       "giant spider",
       "mountain troll",
       "skin-changer",
+      "giant eagle",
       "dragon of the Lonely Mountain",
     ]) {
       const prompt = buildWizardPrompt("hobbit", character);
@@ -146,6 +150,21 @@ describe("buildWizardPrompt — hobbit theme", () => {
     );
     expect(buildWizardPrompt("hobbit", "giant spider")).toContain(
       "many-legged spider-being"
+    );
+    expect(buildWizardPrompt("hobbit", "bard of Lake-town")).toContain(
+      "bard of Lake-town"
+    );
+    expect(buildWizardPrompt("hobbit", "Gollum, Riddle Master")).toContain(
+      "Riddle Master"
+    );
+    expect(buildWizardPrompt("hobbit", "giant eagle")).toContain(
+      "Great Eagle"
+    );
+    expect(buildWizardPrompt("hobbit", "orc raider")).toContain(
+      "orc raider of Gundabad"
+    );
+    expect(buildWizardPrompt("hobbit", "warg-rider")).toContain(
+      "goblin warg-rider"
     );
   });
 

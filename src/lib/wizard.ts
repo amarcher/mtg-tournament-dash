@@ -140,9 +140,10 @@ const MARVEL_DETAILS: Record<MarvelArchetype, string> = {
     "a roguish cosmic guardian: a worn red leather jacket over a tactical vest, twin blaster pistols holstered at the hips, a retro headset around their neck, a starfield and distant nebula behind them",
 };
 
-// The Hobbit swaps orcs for goblins and adds Mirkwood's giant spiders; no
-// ents here. Same additive framing as the other packs, full noun phrases,
-// family-friendly throughout.
+// The Hobbit adds Mirkwood's giant spiders and keeps orcs alongside goblins
+// (the real set treats them as distinct tribes); no ents here. Same
+// additive framing as the other packs, full noun phrases, family-friendly
+// throughout.
 const HOBBIT_DETAILS: Record<HobbitArchetype, string> = {
   "hobbit burglar":
     "a hobbit burglar of Bag End: a patched brown waistcoat with brass buttons over a linen shirt, a small dagger at their belt, slightly pointed ears, curly hair, warm firelight from a round green door and garden behind them",
@@ -152,30 +153,44 @@ const HOBBIT_DETAILS: Record<HobbitArchetype, string> = {
     "a grey wizard of the wandering folk: long grey robes and a tall pointed grey hat, a gnarled wooden staff topped with a faint blue glow, a long grey beard, warm pipe-smoke light in a cozy hobbit-hole behind them",
   "elf of Mirkwood":
     "a woodland elf of Mirkwood: dark green-and-brown leaf-mail armor, a recurve bow slung across their back, gracefully pointed ears, a silver circlet, shadowy dense forest with shafts of green light behind them",
-  "man of Lake-town":
-    "a bowman of Lake-town: a weathered grey cloak over a fisherman's tunic, a longbow and quiver of black-fletched arrows on their back, windswept hair, wooden stilt-houses and grey lake water behind them",
+  "bard of Lake-town":
+    "a bard of Lake-town, its famed bowman: a weathered grey cloak over a fisherman's tunic, a longbow and quiver of black-fletched arrows slung on their back, windswept hair, wooden stilt-houses and grey lake water behind them",
   "goblin of the Misty Mountains":
     "a goblin of the Misty Mountains: sallow grey-green mottled skin, jagged yellowed teeth in a wide grin, ragged leather scraps and bone trinkets, torch-lit cave tunnels behind them — mischievous but family-friendly, keep their facial features clearly recognizable",
+  "orc raider":
+    "an orc raider of Gundabad: mottled grey-green weathered skin, jagged crude armor scavenged from broken steel, a wicked curved blade at their hip, torch-lit mountain passes behind them — fierce but family-friendly, keep their facial features clearly recognizable",
+  "warg-rider":
+    "a goblin warg-rider: rough leather riding gear, a spiked collar and reins gripped in one hand, perched astride a snarling grey warg, wind-torn banners and rocky crags behind them",
+  "Gollum, Riddle Master":
+    "Gollum, Riddle Master: gaunt and pale skin, huge round calculating eyes, a few sparse strands of hair, a tattered ragged garment, hunched posture, perched on a rock beside a dark underground riddle-cave pool with faint glimmers of gold nearby — eerie but family-friendly, never frightening, keep their facial features clearly recognizable",
   "giant spider":
     "a giant spider of Mirkwood — a monstrous many-legged spider-being: a swollen bulbous abdomen covered in coarse bristling black hair with pale markings, several gleaming clustered eyes arranged across their brow, sharp curved mandibles framing their mouth, thick spindly legs sprouting from their shoulders, dense spider-webbed forest shadows behind them",
   "mountain troll":
     "a mountain troll: a hulking boulder-like frame, craggy grey stone-textured skin cracked with lichen and moss, small beady deep-set eyes, blunt worn tusks, a massive club slung over one shoulder, misty dawn-lit hillside behind them",
   "skin-changer":
     "a skin-changer of the Vale, part man and part bear: a towering brawny figure, coarse black fur covering muscled forearms and shoulders, a heavy bear-like brow and nose, sharp claws in place of fingernails, a massive log-built hall and honeycombs behind them",
+  "giant eagle":
+    "a Great Eagle of the Misty Mountains, part eagle: powerful russet-and-gold feathers cloaking their shoulders and arms in place of sleeves, sharp keen amber eyes, a proud hooked-beak brow, wind-swept mountain peaks and open sky behind them",
   "dragon of the Lonely Mountain":
     "a dragon of the Lonely Mountain, part-drake: burnished copper-red scales creeping across their cheeks and brow, faint smoke curling from their nostrils, a hoard of gold coins and jewels glowing behind them in molten firelight",
 };
 
 // Characters whose transformation must rebuild the face itself (bark, fur,
-// scales, chitin — not skin). The strict identity lock overpowers the
-// costume clause and FLUX errs human, so these swap it for a softer
+// scales, feathers, chitin — not skin). The strict identity lock overpowers
+// the costume clause and FLUX errs human, so these swap it for a softer
 // carve-the-likeness instruction. Scoped per theme since archetype strings
 // aren't unique across packs.
 const FULL_TRANSFORM_ARCHETYPES: Record<PortraitTheme, ReadonlySet<string>> = {
   standard: new Set(),
   lotr: new Set(["ent"]),
   marvel: new Set(["gamma titan"]),
-  hobbit: new Set(["giant spider", "mountain troll", "skin-changer", "dragon of the Lonely Mountain"]),
+  hobbit: new Set([
+    "giant spider",
+    "mountain troll",
+    "skin-changer",
+    "giant eagle",
+    "dragon of the Lonely Mountain",
+  ]),
 };
 
 const TRANSFORM_THEME_DETAILS: Record<
