@@ -56,7 +56,10 @@ import {
   setOrganizerCookie,
 } from "@/lib/authz";
 import { leagueMembers } from "@/db/schema";
-import { addPlayerToEventRoster } from "@/lib/event-roster";
+import {
+  addPlayerToEventRoster,
+  removePlayerFromEventRoster,
+} from "@/lib/event-roster";
 import { publish } from "@/lib/pubsub";
 import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
@@ -153,6 +156,43 @@ export async function addPlayerAction(formData: FormData) {
     revalidatePath(`/leagues/${league.slug}/events/new`);
   }
   revalidatePath("/");
+}
+
+/**
+ * Organizer roster amendment: put an existing league wizard on the event's
+ * roster. Works on draft AND active events (a late arrival slots into the
+ * next round's pairings); re-adding a dropped player reinstates them.
+ */
+export async function addExistingPlayerToEventAction(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "").trim();
+  const playerId = String(formData.get("playerId") ?? "").trim();
+  if (!eventId) throw new Error("eventId required");
+  if (!playerId) throw new Error("playerId required");
+  await requireOrganizerForEvent(eventId);
+  await addPlayerToEventRoster({ eventId, playerId, organizerOverride: true });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/claim`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/play`);
+}
+
+/**
+ * Organizer roster amendment: take a player off the event. Draft events
+ * delete the seat; active events drop the player — completed results stand,
+ * future pairings skip them, unfinished matches become byes for the
+ * opponent. See removePlayerFromEventRoster for the full semantics.
+ */
+export async function removeEventPlayerAction(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "").trim();
+  const playerId = String(formData.get("playerId") ?? "").trim();
+  if (!eventId) throw new Error("eventId required");
+  if (!playerId) throw new Error("playerId required");
+  await requireOrganizerForEvent(eventId);
+  await removePlayerFromEventRoster({ eventId, playerId });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/claim`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+  revalidatePath(`/events/${eventId}/play`);
 }
 
 /**

@@ -194,6 +194,10 @@ export const eventPlayers = pgTable(
     startingElo: integer("starting_elo").notNull(),
     finalStanding: integer("final_standing"),
     joinToken: text("join_token").notNull(),
+    // Mid-event drop: the player keeps every completed result (standings,
+    // ELO) but is excluded from future pairings; their unfinished matches
+    // convert to byes for the opponent. Null = active on the roster.
+    droppedAt: timestamp("dropped_at", { withTimezone: true }),
   },
   (t) => ({
     pk: uniqueIndex("event_players_pk").on(t.eventId, t.playerId),
