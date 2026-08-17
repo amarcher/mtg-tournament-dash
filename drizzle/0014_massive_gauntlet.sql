@@ -1,0 +1,1 @@
+ALTER TABLE "event_players" ADD COLUMN "dropped_at" timestamp with time zone;

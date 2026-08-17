@@ -59,7 +59,10 @@ import {
   joinBonusGame,
   startAnotherBonusGame,
 } from "../src/lib/bonus-game";
-import { addPlayerToEventRoster } from "../src/lib/event-roster";
+import {
+  addPlayerToEventRoster,
+  removePlayerFromEventRoster,
+} from "../src/lib/event-roster";
 import {
   applyPortraitToPlayer,
   deletePortraitForPlayer,
@@ -1259,6 +1262,227 @@ async function runEndEarlyPass() {
   ok("post-clean end-early rows");
 }
 
+async function runRosterAmendmentPass() {
+  console.log("\n--- roster amendment pass ---");
+
+  const [league] = await db
+    .insert(leagues)
+    .values({ slug: `${PREFIX}roster`, name: `${PREFIX}RosterLeague` })
+    .returning();
+  const inserted = await db
+    .insert(players)
+    .values(
+      ["RA", "RB", "RC", "RD", "RE"].map((n) => ({
+        leagueId: league.id,
+        leagueToken: generateJoinToken(),
+        displayName: `${PREFIX}${n}`,
+      }))
+    )
+    .returning();
+  const [pA, pB, pC, pD, pE] = inserted;
+  const [event] = await db
+    .insert(events)
+    .values({ leagueId: league.id, name: `${PREFIX}roster-event`, totalRounds: 4 })
+    .returning();
+  // Roster A–D; E stays a league wizard for the mid-event add below.
+  await db.insert(eventPlayers).values(
+    [pA, pB, pC, pD].map((p, i) => ({
+      eventId: event.id,
+      playerId: p.id,
+      seed: i + 1,
+      startingElo: p.currentElo,
+      joinToken: generateJoinToken(),
+    }))
+  );
+
+  // Draft-phase removal deletes the seat outright; re-adding restores it.
+  const draftRemove = await removePlayerFromEventRoster({
+    eventId: event.id,
+    playerId: pD.id,
+  });
+  assert(draftRemove.mode === "removed", "draft removal deletes the seat");
+  assert(
+    (await getEventRoster(event.id)).length === 3,
+    "roster shrinks after draft removal"
+  );
+  await addPlayerToEventRoster({ eventId: event.id, playerId: pD.id });
+  assert(
+    (await getEventRoster(event.id)).length === 4,
+    "re-adding during draft restores the seat"
+  );
+
+  // Round 1: A–D play; record both results and close the round.
+  await startNextRoundAction(event.id);
+  const round1 = await getCurrentRound(event.id);
+  assert(round1, "roster pass round 1 active");
+  const r1Matches = await getRoundMatches(round1!.id);
+  for (const { match } of r1Matches) {
+    await applyGameWinner({ matchId: match.id, winnerId: match.playerAId });
+    await applyGameWinner({ matchId: match.id, winnerId: match.playerAId });
+  }
+  await completeRoundAction(event.id);
+
+  // Round 2 pairings on the table, then D drops before the round starts:
+  // their pending match becomes a pending bye that confirm auto-resolves.
+  await previewNextRoundAction(event.id);
+  const dropRes = await removePlayerFromEventRoster({
+    eventId: event.id,
+    playerId: pD.id,
+  });
+  assert(
+    dropRes.mode === "dropped" && dropRes.byesGranted === 1,
+    "mid-event drop converts the pending match to a bye"
+  );
+  const pending2 = await getPendingRound(event.id);
+  assert(pending2, "round 2 still pending after the drop");
+  const pending2Matches = await getRoundMatches(pending2!.id);
+  assert(
+    pending2Matches.every(
+      ({ match }) =>
+        match.playerAId !== pD.id && match.playerBId !== pD.id
+    ),
+    "dropped player is out of the pending pairings"
+  );
+  const pendingBye = pending2Matches.find(({ match }) => !match.playerBId);
+  assert(pendingBye, "their opponent now holds a pending bye");
+  await confirmRoundAction(event.id);
+  const [resolvedBye] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, pendingBye!.match.id));
+  assert(
+    resolvedBye.status === "complete" &&
+      resolvedBye.winnerId === resolvedBye.playerAId,
+    "round confirm auto-resolves the converted bye"
+  );
+  const byeElo = await db
+    .select()
+    .from(eloChanges)
+    .where(eq(eloChanges.matchId, resolvedBye.id));
+  assert(byeElo.length === 0, "the converted bye moves no ELO");
+
+  // Close round 2's real match, then check the ledger held for everyone.
+  const round2 = await getCurrentRound(event.id);
+  const r2Real = (await getRoundMatches(round2!.id)).filter(
+    ({ match }) => match.playerBId && match.status !== "complete"
+  );
+  for (const { match } of r2Real) {
+    await applyGameWinner({ matchId: match.id, winnerId: match.playerAId });
+    await applyGameWinner({ matchId: match.id, winnerId: match.playerAId });
+  }
+  await completeRoundAction(event.id);
+  const standings = await getEventStandings(event.id);
+  const dRow = standings.find((s) => s.playerId === pD.id);
+  assert(
+    dRow && dRow.droppedAt !== null,
+    "dropped player still appears in standings, flagged"
+  );
+  assert(
+    dRow!.wins + dRow!.losses + dRow!.draws === 1,
+    "dropped player's completed round still counts"
+  );
+  const byeWinner = standings.find(
+    (s) => s.playerId === resolvedBye.playerAId
+  );
+  assert(
+    byeWinner!.matchPoints >= 6,
+    "bye counts as a match win in the standings"
+  );
+  const dElo = await db
+    .select()
+    .from(eloChanges)
+    .where(eq(eloChanges.playerId, pD.id));
+  assert(dElo.length === 1, "dropped player keeps round-1 ELO history");
+
+  // Late arrival: the organizer adds E mid-event; next pairings include E
+  // and exclude the dropped D.
+  await addPlayerToEventRoster({
+    eventId: event.id,
+    playerId: pE.id,
+    organizerOverride: true,
+  });
+  await previewNextRoundAction(event.id);
+  const pending3 = await getPendingRound(event.id);
+  const p3Ids = new Set(
+    (await getRoundMatches(pending3!.id)).flatMap(({ match }) =>
+      [match.playerAId, match.playerBId].filter(Boolean)
+    )
+  );
+  assert(p3Ids.has(pE.id), "late-added player joins the next pairings");
+  assert(!p3Ids.has(pD.id), "dropped player stays out of new pairings");
+
+  // Reinstate D; a re-roll puts all five back in the pool.
+  await addPlayerToEventRoster({ eventId: event.id, playerId: pD.id });
+  const [dSeat] = await db
+    .select()
+    .from(eventPlayers)
+    .where(
+      and(
+        eq(eventPlayers.eventId, event.id),
+        eq(eventPlayers.playerId, pD.id)
+      )
+    );
+  assert(dSeat.droppedAt === null, "re-adding a dropped player reinstates them");
+  await regeneratePendingPairingsAction(event.id);
+  const p3bIds = new Set(
+    (await getRoundMatches((await getPendingRound(event.id))!.id)).flatMap(
+      ({ match }) => [match.playerAId, match.playerBId].filter(Boolean)
+    )
+  );
+  assert(p3bIds.has(pD.id), "reinstated player returns to the pairings");
+
+  // Drop mid-ACTIVE-round: the live match flips to a completed bye on the
+  // spot so the round can still close.
+  await confirmRoundAction(event.id);
+  const round3 = await getCurrentRound(event.id);
+  const r3Matches = await getRoundMatches(round3!.id);
+  const liveMatch = r3Matches.find(
+    ({ match }) => match.playerBId && match.status === "in_progress"
+  );
+  assert(liveMatch, "round 3 has a live two-player match");
+  const victim = liveMatch!.match.playerAId;
+  const survivor = liveMatch!.match.playerBId!;
+  const liveDrop = await removePlayerFromEventRoster({
+    eventId: event.id,
+    playerId: victim,
+  });
+  assert(liveDrop.mode === "dropped", "dropping mid-active-round works");
+  const [flipped] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, liveMatch!.match.id));
+  assert(
+    flipped.status === "complete" &&
+      flipped.playerAId === survivor &&
+      flipped.playerBId === null &&
+      flipped.winnerId === survivor,
+    "live match flips to a completed bye for the opponent"
+  );
+  const flippedGames = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, flipped.id));
+  assert(flippedGames.length === 0, "the dead match's game rows are cleared");
+
+  // The round can still close, and the event can still end with everyone
+  // (dropped included) placed.
+  for (const { match } of r3Matches) {
+    if (match.id === flipped.id) continue;
+    const [m] = await db.select().from(matches).where(eq(matches.id, match.id));
+    if (m.status === "complete" || !m.playerBId) continue;
+    await applyGameWinner({ matchId: m.id, winnerId: m.playerAId });
+    await applyGameWinner({ matchId: m.id, winnerId: m.playerAId });
+  }
+  await completeRoundAction(event.id);
+  await endEventAction(event.id);
+  const finalRoster = await getEventRoster(event.id);
+  assert(
+    finalRoster.length === 5 &&
+      finalRoster.every((p) => p.finalStanding !== null),
+    "event ends with every player placed, dropped included"
+  );
+}
+
 async function runBonusGamePass() {
   console.log("\n--- bonus game pass ---");
 
@@ -2263,6 +2487,7 @@ async function main() {
   await runReviewFlowPass();
   await runEndEarlyPass();
   await runBonusGamePass();
+  await runRosterAmendmentPass();
 
   await cleanup();
   ok("post-clean test rows");

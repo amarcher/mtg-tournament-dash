@@ -9,9 +9,11 @@ import {
   getPendingRound,
   getRoundMatches,
   getEventStandings,
+  listLeaguePlayers,
   sweepStaleWizardJobs,
 } from "@/db/queries";
 import {
+  addExistingPlayerToEventAction,
   addManualPairingAction,
   addRoundAction,
   cancelPendingRoundAction,
@@ -21,6 +23,7 @@ import {
   endEventAction,
   previewNextRoundAction,
   regeneratePendingPairingsAction,
+  removeEventPlayerAction,
   reopenEventAction,
   revertRoundToPairingsAction,
   setMatchResultAction,
@@ -64,12 +67,16 @@ export default async function ManagePage({
   await sweepStaleWizardJobs();
 
   const league = gatedLeague;
-  const [roster, rounds, standings, pendingRound] = await Promise.all([
-    getEventRoster(id),
-    getEventRounds(id),
-    getEventStandings(id),
-    getPendingRound(id),
-  ]);
+  const [roster, rounds, standings, pendingRound, leaguePlayers] =
+    await Promise.all([
+      getEventRoster(id),
+      getEventRounds(id),
+      getEventStandings(id),
+      getPendingRound(id),
+      listLeaguePlayers(event.leagueId),
+    ]);
+  const rosterIds = new Set(roster.map((p) => p.playerId));
+  const addablePlayers = leaguePlayers.filter((p) => !rosterIds.has(p.id));
 
   const pendingMatches = pendingRound
     ? await getRoundMatches(pendingRound.id)
@@ -80,7 +87,7 @@ export default async function ManagePage({
     if (match.playerBId) pairedIds.add(match.playerBId);
   }
   const unpaired = pendingRound
-    ? roster.filter((p) => !pairedIds.has(p.playerId))
+    ? roster.filter((p) => !pairedIds.has(p.playerId) && !p.droppedAt)
     : [];
 
   // Use the same LAN-aware base URL helper as the broadcast view so the QRs
@@ -485,6 +492,43 @@ export default async function ManagePage({
             Open shared claim grid
           </Link>
         </div>
+        {event.status !== "complete" && addablePlayers.length > 0 && (
+          <form
+            action={addExistingPlayerToEventAction}
+            className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
+          >
+            <input type="hidden" name="eventId" value={id} />
+            <label
+              htmlFor="add-roster-player"
+              className="text-xs uppercase tracking-wide text-zinc-500"
+            >
+              Add player
+            </label>
+            <select
+              id="add-roster-player"
+              name="playerId"
+              className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base sm:text-sm"
+            >
+              {addablePlayers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.displayName}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            >
+              Add to event
+            </button>
+            {event.status === "active" && (
+              <p className="w-full text-xs text-zinc-500">
+                Late additions join the next round&apos;s pairings with no
+                history.
+              </p>
+            )}
+          </form>
+        )}
         <ul className="grid gap-3 sm:grid-cols-2">
           {roster.map((p, i) => (
             <li
@@ -509,12 +553,19 @@ export default async function ManagePage({
                   </Link>
                 )}
                 <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/players/${p.playerId}`}
-                    className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                  >
-                    {p.displayName}
-                  </Link>
+                  <span className="flex items-center gap-2">
+                    <Link
+                      href={`/players/${p.playerId}`}
+                      className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                    >
+                      {p.displayName}
+                    </Link>
+                    {p.droppedAt && (
+                      <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-rose-300">
+                        Dropped
+                      </span>
+                    )}
+                  </span>
                   <code className="mt-1 hidden truncate rounded bg-zinc-950 px-2 py-1 font-mono text-[0.65rem] text-zinc-500 sm:block">
                     {rosterJoinUrls[i]}
                   </code>
@@ -535,6 +586,43 @@ export default async function ManagePage({
                 >
                   Open
                 </Link>
+                {event.status !== "complete" &&
+                  (p.droppedAt ? (
+                    <form action={addExistingPlayerToEventAction}>
+                      <input type="hidden" name="eventId" value={id} />
+                      <input
+                        type="hidden"
+                        name="playerId"
+                        value={p.playerId}
+                      />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-emerald-500/50 px-3 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                      >
+                        Reinstate
+                      </button>
+                    </form>
+                  ) : (
+                    <form action={removeEventPlayerAction}>
+                      <input type="hidden" name="eventId" value={id} />
+                      <input
+                        type="hidden"
+                        name="playerId"
+                        value={p.playerId}
+                      />
+                      <button
+                        type="submit"
+                        title={
+                          event.status === "draft"
+                            ? "Take this player off the roster"
+                            : "Completed rounds keep counting; future opponents get byes"
+                        }
+                        className="rounded-md border border-rose-500/40 px-3 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
+                      >
+                        {event.status === "draft" ? "Remove" : "Drop"}
+                      </button>
+                    </form>
+                  ))}
               </div>
             </li>
           ))}
@@ -846,7 +934,14 @@ export default async function ManagePage({
                   className="border-t border-zinc-800 hover:bg-zinc-900"
                 >
                   <td className="px-3 py-2 font-mono text-zinc-500">{i + 1}</td>
-                  <td className="px-3 py-2 font-medium">{s.displayName}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {s.displayName}
+                    {s.droppedAt && (
+                      <span className="ml-2 rounded bg-rose-500/15 px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-rose-300">
+                        Dropped
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right font-mono">
                     {s.wins}-{s.losses}-{s.draws}
                   </td>

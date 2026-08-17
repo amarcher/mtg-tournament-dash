@@ -308,9 +308,11 @@ export default async function PlayPage({
           <p className="mt-3 font-medium text-amber-300">{resultLine}</p>
         )}
         <p className="mt-3 text-zinc-400">
-          {match
-            ? "Hang tight while the other tables finish — this page will jump to your next pairing automatically."
-            : "No active match for you right now. This page will jump to your seat as soon as the organizer starts the next round."}
+          {me.droppedAt
+            ? "You've dropped from this event — everything you finished still counts in the standings. Up for a bonus game while the others play?"
+            : match
+              ? "Hang tight while the other tables finish — this page will jump to your next pairing automatically."
+              : "No active match for you right now. This page will jump to your seat as soon as the organizer starts the next round."}
         </p>
         {league && (
           <BonusGameSection

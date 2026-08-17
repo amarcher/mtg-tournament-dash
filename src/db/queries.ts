@@ -176,6 +176,7 @@ export async function getEventRoster(eventId: string) {
       startingElo: eventPlayers.startingElo,
       finalStanding: eventPlayers.finalStanding,
       joinToken: eventPlayers.joinToken,
+      droppedAt: eventPlayers.droppedAt,
       displayName: players.displayName,
       currentElo: players.currentElo,
       avatarUrl: players.avatarUrl,
@@ -278,7 +279,9 @@ export async function getMatchIdsWithRecordedGames(roundId: string) {
  * the event regardless of its round's status.
  */
 export async function getPairingInputs(eventId: string) {
-  const roster = await getEventRoster(eventId);
+  // Dropped players keep their standings record but never appear in a new
+  // round's pairings.
+  const roster = (await getEventRoster(eventId)).filter((p) => !p.droppedAt);
   const completedMatches = await db
     .select({ match: matches })
     .from(matches)
@@ -343,6 +346,7 @@ export async function getEventStandings(eventId: string) {
     return roster.map((p) => ({
       playerId: p.playerId,
       displayName: p.displayName,
+      droppedAt: p.droppedAt,
       matchPoints: 0,
       wins: 0,
       losses: 0,
@@ -445,6 +449,7 @@ export async function getEventStandings(eventId: string) {
       return {
         playerId: p.playerId,
         displayName: p.displayName,
+        droppedAt: p.droppedAt,
         matchPoints: t.matchPoints,
         wins: r.matchWins + r.byes,
         losses: r.matchLosses,
@@ -511,6 +516,7 @@ export async function getEventPlayerByToken(token: string) {
       eventId: eventPlayers.eventId,
       playerId: eventPlayers.playerId,
       displayName: players.displayName,
+      droppedAt: eventPlayers.droppedAt,
     })
     .from(eventPlayers)
     .innerJoin(players, eq(players.id, eventPlayers.playerId))
