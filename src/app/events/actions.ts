@@ -62,6 +62,14 @@ import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
 import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
 import {
+  createBonusGame,
+  endBonusGame,
+  getBonusGameCallerId,
+  joinBonusGame,
+  startAnotherBonusGame,
+} from "@/lib/bonus-game";
+import type { Round } from "@/db/schema";
+import {
   applyPortraitToPlayer,
   deletePortraitForPlayer,
   startWizardGeneration,
@@ -156,6 +164,7 @@ export async function createLeaguePlayerAction(formData: FormData) {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const eventId = String(formData.get("eventId") ?? "").trim();
+  const next = safeNextPath(formData);
   if (!leagueSlug) throw new Error("League required");
   if (!name) throw new Error("Display name required");
 
@@ -195,7 +204,17 @@ export async function createLeaguePlayerAction(formData: FormData) {
     }
   }
 
-  redirect(`/players/${player.id}`);
+  redirect(next ?? `/players/${player.id}`);
+}
+
+/**
+ * In-app relative path to return to after a claim (e.g. the bonus-game page
+ * whose QR sent an unrecognized phone through claim first). Anything that
+ * isn't a same-origin absolute path is discarded.
+ */
+function safeNextPath(formData: FormData): string | null {
+  const next = String(formData.get("next") ?? "").trim();
+  return next.startsWith("/") && !next.startsWith("//") ? next : null;
 }
 
 /**
@@ -234,6 +253,7 @@ export async function joinEventAction(formData: FormData) {
 export async function claimLeaguePlayerAction(formData: FormData) {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const playerId = String(formData.get("playerId") ?? "").trim();
+  const next = safeNextPath(formData);
   if (!leagueSlug) throw new Error("League required");
   if (!playerId) throw new Error("Player required");
 
@@ -250,6 +270,10 @@ export async function claimLeaguePlayerAction(formData: FormData) {
   if (!player) throw new Error("Player is not in this league");
 
   await setLeagueCookie(league.id, player.leagueToken);
+
+  // An explicit return target (e.g. a bonus-game QR that routed through
+  // claim) wins over the open-event convenience redirect below.
+  if (next) redirect(next);
 
   // If this wizard has a seat in an open event, continue straight into it —
   // set the event cookie and land on the scorekeeper instead of dumping the
@@ -812,7 +836,7 @@ export async function swapActiveMatchPlayersAction(args: {
   if (!mA || !mB) throw new Error("Match not found");
   if (mA.roundId !== mB.roundId)
     throw new Error("Matches must be in the same round");
-  await requireOrganizerForRound(mA.roundId);
+  const round = await requireOrganizerForRound(mA.roundId);
   if (mA.status !== "in_progress" || mB.status !== "in_progress")
     throw new Error("Both matches must still be in progress");
   if (mA.playerBId === null || mB.playerBId === null)
@@ -829,10 +853,6 @@ export async function swapActiveMatchPlayersAction(args: {
     );
   }
 
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, mA.roundId));
   const [event] = await db
     .select()
     .from(events)
@@ -1056,6 +1076,14 @@ async function authorizeMatchParticipant(matchId: string) {
     .from(matches)
     .where(eq(matches.id, matchId));
   if (!match) throw new Error("Match not found");
+  if (!match.roundId) {
+    // Bonus game — identity is the durable league cookie, with the event
+    // cookie as a fallback for players who only ever joined via a deep link.
+    const playerId = await getBonusGameCallerId(match);
+    if (!isMatchParticipant(playerId, match.playerAId, match.playerBId))
+      throw new Error("Not a participant in this bonus game");
+    return { match, round: null };
+  }
   const [round] = await db
     .select()
     .from(rounds)
@@ -1063,7 +1091,7 @@ async function authorizeMatchParticipant(matchId: string) {
   const me = await getCurrentPlayer(round.eventId);
   if (!isMatchParticipant(me?.playerId, match.playerAId, match.playerBId))
     throw new Error("Not a participant in this match");
-  return { match, round, me };
+  return { match, round: round as Round | null };
 }
 
 export async function adjustLifeAction(args: {
@@ -1085,14 +1113,18 @@ export async function reportGameWinnerAction(args: {
   /** The game the client believed it was reporting — see applyGameWinner. */
   gameId: string;
 }) {
-  const { round } = await authorizeMatchParticipant(args.matchId);
+  const { match, round } = await authorizeMatchParticipant(args.matchId);
   await applyGameWinner(args);
   // Revalidation lives in the action wrapper (not the domain core) so the
   // request-scoped swallowing `revalidatePath` above is used — trusted callers
   // like the verify harness drive `applyGameWinner` directly, outside a request.
-  revalidatePath(`/events/${round.eventId}/play`);
-  revalidatePath(`/events/${round.eventId}/broadcast`);
-  revalidatePath(`/events/${round.eventId}/manage`);
+  if (round) {
+    revalidatePath(`/events/${round.eventId}/play`);
+    revalidatePath(`/events/${round.eventId}/broadcast`);
+    revalidatePath(`/events/${round.eventId}/manage`);
+  } else {
+    revalidatePath(`/matches/${match.id}`);
+  }
 }
 
 /**
@@ -1115,8 +1147,94 @@ export async function setMatchResultAction(formData: FormData) {
  * FormData payload.
  */
 export async function reportMatchDrawAction(args: { matchId: string }) {
-  await authorizeMatchParticipant(args.matchId);
+  const { round } = await authorizeMatchParticipant(args.matchId);
+  if (!round)
+    throw new Error("Bonus games don't have draws — end the game instead");
   await finalizeMatchOutcome({ matchId: args.matchId, outcome: "draw" });
+}
+
+/* ---- bonus games (casual head-to-head, player self-service) ---- */
+
+export async function createBonusGameAction(formData: FormData) {
+  const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
+  const rawEventId = String(formData.get("eventId") ?? "").trim();
+  const startingLife = Number(formData.get("startingLife") ?? 20);
+  if (!leagueSlug) throw new Error("League required");
+
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.slug, leagueSlug));
+  if (!league) throw new Error("League not found");
+
+  let caller = await getCurrentLeaguePlayer(league.id);
+  if (!caller && rawEventId) {
+    // Deep-link-only device: the event cookie still proves who this is.
+    const ep = await getCurrentPlayer(rawEventId);
+    if (ep) {
+      const [p] = await db
+        .select()
+        .from(players)
+        .where(eq(players.id, ep.playerId));
+      if (p && p.leagueId === league.id) caller = p;
+    }
+  }
+  if (!caller)
+    throw new Error("Claim your wizard in this league first");
+
+  let eventId: string | null = null;
+  if (rawEventId) {
+    const [ev] = await db
+      .select()
+      .from(events)
+      .where(eq(events.id, rawEventId));
+    if (ev && ev.leagueId === league.id) eventId = ev.id;
+  }
+
+  const match = await createBonusGame({
+    leagueId: league.id,
+    playerAId: caller.id,
+    eventId,
+    startingLife,
+  });
+  redirect(`/matches/${match.id}`);
+}
+
+export async function joinBonusGameAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "").trim();
+  if (!matchId) throw new Error("matchId required");
+
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, matchId));
+  if (!match || match.roundId) throw new Error("Bonus game not found");
+
+  const callerId = await getBonusGameCallerId(match);
+  if (!callerId)
+    throw new Error("Claim your wizard in this league first");
+
+  await joinBonusGame({ matchId, playerBId: callerId });
+  revalidatePath(`/matches/${matchId}`);
+  redirect(`/matches/${matchId}`);
+}
+
+export async function endBonusGameAction(args: { matchId: string }) {
+  const { round } = await authorizeMatchParticipant(args.matchId);
+  if (round) throw new Error("Not a bonus game");
+  await endBonusGame({ matchId: args.matchId });
+  revalidatePath(`/matches/${args.matchId}`);
+}
+
+export async function startAnotherBonusGameAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "").trim();
+  if (!matchId) throw new Error("matchId required");
+  const { match, round } = await authorizeMatchParticipant(matchId);
+  if (round) throw new Error("Not a bonus game");
+  if (match.status !== "complete")
+    throw new Error("This bonus game is still going");
+  const next = await startAnotherBonusGame({ matchId: match.id });
+  redirect(`/matches/${next.id}`);
 }
 
 async function finalizeMatchOutcome(args: {
@@ -1131,6 +1249,8 @@ async function finalizeMatchOutcome(args: {
 
   const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
   if (!match) throw new Error("Match not found");
+  if (!match.roundId)
+    throw new Error("Bonus games have no match result to finalize");
   if (match.status === "complete")
     throw new Error("Match is already complete");
   if (match.playerBId === null)

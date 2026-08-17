@@ -16,13 +16,16 @@ export default async function LeagueClaimPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ switch?: string; event?: string }>;
+  searchParams: Promise<{ switch?: string; event?: string; next?: string }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
   // Carried from an event claim page (the TV QR): after creating a wizard,
   // createLeaguePlayerAction also grabs a seat in this event if still draft.
   const returnEventId = sp.event ?? "";
+  // Return target after claiming (e.g. the bonus-game page whose QR routed
+  // an unrecognized phone through here). Validated server-side in actions.
+  const returnPath = sp.next ?? "";
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
@@ -80,6 +83,9 @@ export default async function LeagueClaimPage({
           {returnEventId && (
             <input type="hidden" name="eventId" value={returnEventId} />
           )}
+          {returnPath && (
+            <input type="hidden" name="next" value={returnPath} />
+          )}
           <label htmlFor="league-claim-name" className="sr-only">
             Your name
           </label>
@@ -115,6 +121,9 @@ export default async function LeagueClaimPage({
                     value={league.slug}
                   />
                   <input type="hidden" name="playerId" value={p.id} />
+                  {returnPath && (
+                    <input type="hidden" name="next" value={returnPath} />
+                  )}
                   <button
                     type="submit"
                     aria-label={`Claim ${p.displayName}`}

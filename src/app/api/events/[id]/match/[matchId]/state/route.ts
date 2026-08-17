@@ -41,10 +41,9 @@ export async function GET(
     });
   }
 
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, match.roundId));
+  const [round] = match.roundId
+    ? await db.select().from(rounds).where(eq(rounds.id, match.roundId))
+    : [undefined];
   if (!round || round.eventId !== id) {
     return new Response(JSON.stringify({ error: "match not in event" }), {
       status: 404,

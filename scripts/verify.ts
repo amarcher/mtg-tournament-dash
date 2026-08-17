@@ -53,6 +53,12 @@ import {
   swapMatchPlayersAction,
 } from "../src/app/events/actions";
 import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
+import {
+  createBonusGame,
+  endBonusGame,
+  joinBonusGame,
+  startAnotherBonusGame,
+} from "../src/lib/bonus-game";
 import { addPlayerToEventRoster } from "../src/lib/event-roster";
 import {
   applyPortraitToPlayer,
@@ -75,10 +81,11 @@ import {
   getPendingRound,
   getPollDetail,
   getRoundMatches,
+  listOpenBonusGamesForEvent,
   sweepStaleWizardJobs,
 } from "../src/db/queries";
 import { pickLeadingOptionId } from "../src/lib/poll-tally";
-import { datePolls, playerPortraits } from "../src/db/schema";
+import { datePolls, eloChanges, playerPortraits } from "../src/db/schema";
 
 const PREFIX = "_verify_";
 const VERIFY_PORT = process.env.VERIFY_PORT ?? "3002";
@@ -1252,6 +1259,168 @@ async function runEndEarlyPass() {
   ok("post-clean end-early rows");
 }
 
+async function runBonusGamePass() {
+  console.log("\n--- bonus game pass ---");
+
+  const [league] = await db
+    .insert(leagues)
+    .values({ slug: `${PREFIX}bonus`, name: `${PREFIX}BonusLeague` })
+    .returning();
+  const [pa, pb, pc] = await db
+    .insert(players)
+    .values(
+      ["BonusA", "BonusB", "BonusC"].map((n) => ({
+        leagueId: league.id,
+        leagueToken: generateJoinToken(),
+        displayName: `${PREFIX}${n}`,
+      }))
+    )
+    .returning();
+  const [event] = await db
+    .insert(events)
+    .values({ leagueId: league.id, name: `${PREFIX}bonus-event` })
+    .returning();
+
+  const match = await createBonusGame({
+    leagueId: league.id,
+    playerAId: pa.id,
+    eventId: event.id,
+    startingLife: 40,
+  });
+  assert(
+    match.status === "pending" && match.roundId === null,
+    "bonus game opens pending with no round"
+  );
+
+  const dup = await createBonusGame({ leagueId: league.id, playerAId: pa.id });
+  assert(dup.id === match.id, "second create returns the existing open game");
+
+  const open = await listOpenBonusGamesForEvent(event.id);
+  assert(
+    open.some((g) => g.matchId === match.id),
+    "open bonus game shows in the event's join list"
+  );
+
+  let selfJoinBlocked = false;
+  try {
+    await joinBonusGame({ matchId: match.id, playerBId: pa.id });
+  } catch {
+    selfJoinBlocked = true;
+  }
+  assert(selfJoinBlocked, "creator can't take the opposing seat");
+
+  const started = await joinBonusGame({ matchId: match.id, playerBId: pb.id });
+  assert(
+    started.status === "in_progress" && started.playerBId === pb.id,
+    "join claims seat B and starts the game"
+  );
+
+  let doubleJoinBlocked = false;
+  try {
+    await joinBonusGame({ matchId: match.id, playerBId: pc.id });
+  } catch {
+    doubleJoinBlocked = true;
+  }
+  assert(doubleJoinBlocked, "third wizard can't take a filled seat");
+
+  const [g1] = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, match.id));
+  assert(
+    g1 && g1.playerALife === 40 && g1.playerBLife === 40,
+    "game 1 dealt at the chosen starting life"
+  );
+
+  const lifeRes = await applyLifeAdjust({
+    matchId: match.id,
+    side: "a",
+    delta: -3,
+    gameId: g1.id,
+    expectedLife: 40,
+  });
+  assert(
+    lifeRes.ok && lifeRes.life === 37,
+    "life taps flow through the shared CAS path"
+  );
+
+  // Two wins for A then one for B — a best-of-3 would have completed at
+  // A's second win.
+  await applyGameWinner({ matchId: match.id, winnerId: pa.id, gameId: g1.id });
+  await applyGameWinner({ matchId: match.id, winnerId: pa.id });
+  await applyGameWinner({ matchId: match.id, winnerId: pb.id });
+  const [midMatch] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, match.id));
+  assert(
+    midMatch.status === "in_progress",
+    "bonus game keeps going past two wins"
+  );
+  const allGames = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, match.id))
+    .orderBy(games.gameNumber);
+  assert(allGames.length === 4, "every game win deals a fresh game");
+  const openGame = allGames[allGames.length - 1];
+  assert(
+    openGame.winnerId === null &&
+      openGame.playerALife === 40 &&
+      openGame.playerBLife === 40,
+    "fresh game resets both players to starting life"
+  );
+
+  let outsiderBlocked = false;
+  try {
+    await applyGameWinner({ matchId: match.id, winnerId: pc.id });
+  } catch {
+    outsiderBlocked = true;
+  }
+  assert(outsiderBlocked, "an outsider can't be reported as game winner");
+
+  const eloRows = await db
+    .select()
+    .from(eloChanges)
+    .where(eq(eloChanges.matchId, match.id));
+  assert(eloRows.length === 0, "bonus games never write ELO changes");
+  const [paAfter] = await db.select().from(players).where(eq(players.id, pa.id));
+  assert(paAfter.currentElo === pa.currentElo, "player ELO untouched");
+
+  const hist = await getEventMatchHistory(event.id);
+  assert(
+    Object.keys(hist).length === 0,
+    "bonus games invisible to tournament match history"
+  );
+
+  await endBonusGame({ matchId: match.id });
+  const [ended] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, match.id));
+  assert(
+    ended.status === "complete" && ended.winnerId === null,
+    "End Bonus Game completes with no winner"
+  );
+  await endBonusGame({ matchId: match.id });
+  ok("ending twice is a no-op");
+
+  const next = await startAnotherBonusGame({ matchId: match.id });
+  assert(
+    next.id !== match.id &&
+      next.status === "in_progress" &&
+      next.playerAId === pa.id &&
+      next.playerBId === pb.id,
+    "Bonus Game button deals a fresh match for the same pair"
+  );
+  const nextDup = await startAnotherBonusGame({ matchId: match.id });
+  assert(
+    nextDup.id === next.id,
+    "double-tapped Bonus Game button reuses the fresh match"
+  );
+  await endBonusGame({ matchId: next.id });
+}
+
 async function checkRoutes(
   eventId: string,
   authz: { leagueId: string; organizerToken: string; joinToken: string },
@@ -2093,6 +2262,7 @@ async function main() {
   await runSixPlayerSwissPass();
   await runReviewFlowPass();
   await runEndEarlyPass();
+  await runBonusGamePass();
 
   await cleanup();
   ok("post-clean test rows");

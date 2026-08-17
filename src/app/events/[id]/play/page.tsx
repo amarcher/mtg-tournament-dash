@@ -11,7 +11,10 @@ import {
   getEventRoster,
   getEventStandings,
   getLeague,
+  listOpenBonusGamesForEvent,
 } from "@/db/queries";
+import { findActiveBonusGameForPlayer } from "@/lib/bonus-game";
+import { createBonusGameAction } from "@/app/events/actions";
 import { PlayClient } from "./PlayClient";
 import { WaitForRound } from "./WaitForRound";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
@@ -54,6 +57,123 @@ function EventContextLinks({
 }
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Between-rounds (and after-event) bonus-game hub: return to your own open
+ * game, join someone waiting for an opponent, or start a fresh one.
+ */
+function BonusGameSection({
+  leagueSlug,
+  eventId,
+  myActiveMatchId,
+  openGames,
+}: {
+  leagueSlug: string;
+  eventId: string;
+  myActiveMatchId: string | null;
+  openGames: {
+    matchId: string;
+    playerAName: string;
+    playerAAvatarUrl: string | null;
+  }[];
+}) {
+  return (
+    <section className="mt-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-left">
+      <h2 className="text-sm font-medium uppercase tracking-wide text-amber-300">
+        Bonus Games
+      </h2>
+      {myActiveMatchId ? (
+        <Link
+          href={`/matches/${myActiveMatchId}`}
+          className="mt-3 block w-full rounded-xl bg-amber-500 py-3 text-center font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+        >
+          Return to your Bonus Game →
+        </Link>
+      ) : (
+        <>
+          {openGames.length > 0 && (
+            <ul className="mt-3 space-y-2">
+              {openGames.map((g) => (
+                <li key={g.matchId}>
+                  <Link
+                    href={`/matches/${g.matchId}`}
+                    className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2 transition hover:border-emerald-500/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                  >
+                    {g.playerAAvatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={g.playerAAvatarUrl}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-dashed border-amber-500/60 font-mono text-amber-400/80">
+                        {g.playerAName.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
+                      <strong>{g.playerAName}</strong> is looking for a game
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-emerald-400">
+                      Join →
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-xs text-zinc-400">
+            Pair up with anyone in the league and keep playing — games until
+            you quit, no ELO on the line.
+          </p>
+          <form
+            action={createBonusGameAction}
+            className="mt-3 flex items-center gap-2"
+          >
+            <input type="hidden" name="leagueSlug" value={leagueSlug} />
+            <input type="hidden" name="eventId" value={eventId} />
+            <label htmlFor="bonus-life" className="sr-only">
+              Starting life
+            </label>
+            <select
+              id="bonus-life"
+              name="startingLife"
+              defaultValue="20"
+              className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
+            >
+              <option value="20">20 life</option>
+              <option value="40">40 life</option>
+            </select>
+            <button
+              type="submit"
+              className="flex-1 rounded-md bg-amber-500 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            >
+              Start a Bonus Game
+            </button>
+          </form>
+        </>
+      )}
+    </section>
+  );
+}
+
+async function loadBonusData(
+  leagueId: string | undefined,
+  eventId: string,
+  playerId: string
+) {
+  if (!leagueId) {
+    return { myActiveMatchId: null, openGames: [] as never[] };
+  }
+  const [mine, open] = await Promise.all([
+    findActiveBonusGameForPlayer(leagueId, playerId),
+    listOpenBonusGamesForEvent(eventId),
+  ]);
+  return {
+    myActiveMatchId: mine?.id ?? null,
+    openGames: open.filter((g) => g.playerAId !== playerId),
+  };
+}
 
 export default async function PlayPage({
   params,
@@ -111,6 +231,7 @@ export default async function PlayPage({
     });
     const myRank =
       ranking.findIndex((r) => r.playerId === me.playerId) + 1;
+    const bonus = await loadBonusData(league?.id, id, me.playerId);
     return (
       <main className="mx-auto w-full max-w-md px-4 py-6">
         <div className="mb-4">
@@ -137,6 +258,15 @@ export default async function PlayPage({
           players={ranking}
           highlightPlayerId={me.playerId}
         />
+        {league && (
+          <BonusGameSection
+            leagueSlug={league.slug}
+            eventId={id}
+            myActiveMatchId={bonus.myActiveMatchId}
+            openGames={bonus.openGames}
+          />
+        )}
+        <WaitForRound eventId={id} />
       </main>
     );
   }
@@ -163,6 +293,7 @@ export default async function PlayPage({
             ? `You won your match against ${oppName}!`
             : `You lost your match against ${oppName}.`;
     }
+    const bonus = await loadBonusData(league?.id, id, me.playerId);
     return (
       <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
         <div className="mb-6 text-left">
@@ -181,6 +312,14 @@ export default async function PlayPage({
             ? "Hang tight while the other tables finish — this page will jump to your next pairing automatically."
             : "No active match for you right now. This page will jump to your seat as soon as the organizer starts the next round."}
         </p>
+        {league && (
+          <BonusGameSection
+            leagueSlug={league.slug}
+            eventId={id}
+            myActiveMatchId={bonus.myActiveMatchId}
+            openGames={bonus.openGames}
+          />
+        )}
         <WaitForRound eventId={id} />
       </main>
     );

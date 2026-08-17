@@ -19,7 +19,11 @@ export function WaitForRound({ eventId }: { eventId: string }) {
           msg.type === "round_started" ||
           msg.type === "round_completed" ||
           msg.type === "event_state_changed" ||
-          msg.type === "match_complete"
+          msg.type === "match_complete" ||
+          // Keep the "looking for a bonus game" list current while waiting.
+          msg.type === "bonus_game_opened" ||
+          msg.type === "bonus_game_started" ||
+          msg.type === "bonus_game_ended"
         ) {
           window.location.reload();
         }
