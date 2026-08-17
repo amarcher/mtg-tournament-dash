@@ -40,6 +40,16 @@ export const realtimeSchema = {
     matchId: z.string(),
     winnerId: z.string(),
   }),
+  // Bonus games (casual matches outside rounds). `opened` fires on the event
+  // channel when a game is created from a waiting room, so waiting phones
+  // re-render their join list. `started` fires on the match channel when seat
+  // B is claimed (the creator's QR screen flips into the scorekeeper) — and,
+  // after a finished game, on the *old* match's channel carrying the new
+  // matchId so both phones follow into the next bonus game. `ended` replaces
+  // match_complete for bonus games, which have no winner requirement.
+  bonus_game_opened: z.object({ ts: z.number(), matchId: z.string() }),
+  bonus_game_started: z.object({ ts: z.number(), matchId: z.string() }),
+  bonus_game_ended: z.object({ ts: z.number(), matchId: z.string() }),
 } as const;
 
 export const REALTIME_EVENT_NAMES = [
@@ -49,6 +59,9 @@ export const REALTIME_EVENT_NAMES = [
   "life_changed",
   "game_complete",
   "match_complete",
+  "bonus_game_opened",
+  "bonus_game_started",
+  "bonus_game_ended",
 ] as const;
 
 export type RealtimeEventName = (typeof REALTIME_EVENT_NAMES)[number];
@@ -80,7 +93,10 @@ export type EventMessage =
       nextGameNumber: number;
       newGameId: string;
     }
-  | { type: "match_complete"; ts: number; matchId: string; winnerId: string };
+  | { type: "match_complete"; ts: number; matchId: string; winnerId: string }
+  | { type: "bonus_game_opened"; ts: number; matchId: string }
+  | { type: "bonus_game_started"; ts: number; matchId: string }
+  | { type: "bonus_game_ended"; ts: number; matchId: string };
 
 // Event types that trigger a hard reload on the client. The SSE route drops
 // any of these whose `ts` predates the client's connection, so reconnects
@@ -91,9 +107,17 @@ export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set
   "event_state_changed",
   "match_complete",
   "game_complete",
+  "bonus_game_opened",
+  "bonus_game_started",
+  "bonus_game_ended",
 ]);
 
-// Channel-name helper. Centralizing this so producer/consumer can't drift.
+// Channel-name helpers. Centralizing these so producer/consumer can't drift.
 export function channelForEvent(eventId: string): string {
   return `event:${eventId}`;
+}
+
+// Bonus games have no event to anchor to, so they get their own channel.
+export function channelForMatch(matchId: string): string {
+  return `match:${matchId}`;
 }

@@ -222,9 +222,26 @@ export const matches = pgTable(
   "matches",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    roundId: uuid("round_id")
+    // Null roundId = a "bonus game": a casual head-to-head outside any
+    // tournament round. Bonus games carry leagueId (their owning scope) and
+    // never touch ELO, standings, or Swiss pairing — every tournament query
+    // joins through rounds, so they're invisible by construction.
+    roundId: uuid("round_id").references(() => rounds.id, {
+      onDelete: "cascade",
+    }),
+    leagueId: uuid("league_id").references(() => leagues.id, {
+      onDelete: "cascade",
+    }),
+    // Set when a bonus game was started from inside an event (the waiting
+    // room). Powers the "looking for a bonus game" list; display-only.
+    eventId: uuid("event_id").references(() => events.id, {
+      onDelete: "set null",
+    }),
+    // Bonus games only — tournament matches take the event's startingLife.
+    startingLife: integer("starting_life"),
+    createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
-      .references(() => rounds.id, { onDelete: "cascade" }),
+      .default(sql`now()`),
     tableNumber: integer("table_number").notNull(),
     playerAId: uuid("player_a_id")
       .notNull()
@@ -237,6 +254,8 @@ export const matches = pgTable(
   },
   (t) => ({
     roundIdx: index("matches_round_idx").on(t.roundId),
+    leagueIdx: index("matches_league_idx").on(t.leagueId),
+    eventIdx: index("matches_event_idx").on(t.eventId),
   })
 );
 

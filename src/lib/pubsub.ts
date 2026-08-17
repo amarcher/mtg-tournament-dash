@@ -40,6 +40,18 @@ export async function publish(
   eventId: string,
   message: DistributiveOmit<EventMessage, "ts">
 ): Promise<void> {
+  return publishToChannel(channelForEvent(eventId), message);
+}
+
+/**
+ * Channel-addressed publish for non-event scopes (bonus games publish on
+ * `match:<matchId>` — see channelForMatch). Event-scoped callers keep using
+ * `publish(eventId, ...)` above.
+ */
+export async function publishToChannel(
+  channel: string,
+  message: DistributiveOmit<EventMessage, "ts">
+): Promise<void> {
   // Stamp publish-time so the SSE route can distinguish live deliveries from
   // history replays on reconnect. See STRUCTURAL_EVENT_TYPES in
   // realtime-schema.ts for why structural events need this gate.
@@ -50,13 +62,13 @@ export async function publish(
     // discriminated-union pair (type, data) back to the schema map without
     // a per-case switch. The two values come from the same EventMessage
     // member, so the runtime invariant holds.
-    const ch = getRealtime().channel(channelForEvent(eventId)) as unknown as {
+    const ch = getRealtime().channel(channel) as unknown as {
       emit: (event: string, data: object) => Promise<void>;
     };
     await ch.emit(type, data);
     return;
   }
-  const set = store.get(eventId);
+  const set = store.get(channel);
   if (!set) return;
   for (const sub of set) {
     try {
@@ -80,11 +92,19 @@ export async function subscribe(
   subscriber: Subscriber,
   options: { historyLimit?: number } = {}
 ): Promise<() => void | Promise<void>> {
+  return subscribeToChannel(channelForEvent(eventId), subscriber, options);
+}
+
+export async function subscribeToChannel(
+  channel: string,
+  subscriber: Subscriber,
+  options: { historyLimit?: number } = {}
+): Promise<() => void | Promise<void>> {
   if (isRealtimeConfigured()) {
     // Same generic-narrowing issue as `publish` — schema-bound types reject
     // the dynamic event-name list. Cast through unknown so we can pass the
     // list verbatim; the schema validates payload shape at runtime anyway.
-    const ch = getRealtime().channel(channelForEvent(eventId)) as unknown as {
+    const ch = getRealtime().channel(channel) as unknown as {
       subscribe: (args: {
         events: readonly string[];
         onData: (e: { event: string; data: unknown }) => void;
@@ -110,14 +130,14 @@ export async function subscribe(
     });
     return unsubscribe;
   }
-  let set = store.get(eventId);
+  let set = store.get(channel);
   if (!set) {
     set = new Set();
-    store.set(eventId, set);
+    store.set(channel, set);
   }
   set.add(subscriber);
   return () => {
     set!.delete(subscriber);
-    if (set!.size === 0) store.delete(eventId);
+    if (set!.size === 0) store.delete(channel);
   };
 }

@@ -2,7 +2,8 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import { eloChanges, events, games, matches, players, rounds } from "@/db/schema";
 import { computeMatchElo } from "@/lib/elo";
-import { publish } from "@/lib/pubsub";
+import { publish, publishToChannel } from "@/lib/pubsub";
+import { channelForMatch } from "@/lib/realtime-schema";
 import { checkLifeWrite, type LifeWriteRejection } from "@/lib/life-write";
 
 /**
@@ -38,10 +39,11 @@ export async function applyLifeAdjust(args: {
   if (!match || match.status !== "in_progress")
     throw new Error("Match not in progress");
 
-  const [round] = await db
-    .select()
-    .from(rounds)
-    .where(eq(rounds.id, match.roundId));
+  // Bonus games (roundId null) have no round/event — their live updates fan
+  // out on the per-match channel instead.
+  const [round] = match.roundId
+    ? await db.select().from(rounds).where(eq(rounds.id, match.roundId))
+    : [undefined];
 
   const [game] = await db
     .select()
@@ -71,13 +73,15 @@ export async function applyLifeAdjust(args: {
     .set(args.side === "a" ? { playerALife: next } : { playerBLife: next })
     .where(eq(games.id, game!.id));
 
-  await publish(round.eventId, {
-    type: "life_changed",
+  const lifeChanged = {
+    type: "life_changed" as const,
     matchId: args.matchId,
     gameId: game!.id,
     side: args.side,
     life: next,
-  });
+  };
+  if (round) await publish(round.eventId, lifeChanged);
+  else await publishToChannel(channelForMatch(match.id), lifeChanged);
 
   return { ok: true, life: next };
 }
@@ -107,6 +111,8 @@ export async function applyGameWinner(args: {
   // crashing the player view. The first call already produced the state the
   // user intended.
   if (match.status === "complete") return;
+  if (args.winnerId !== match.playerAId && args.winnerId !== match.playerBId)
+    throw new Error("Winner must be a participant in this match");
 
   const [game] = await db
     .select()
@@ -127,6 +133,30 @@ export async function applyGameWinner(args: {
     .select()
     .from(games)
     .where(eq(games.matchId, args.matchId));
+  // Bonus game: no best-of-3, no ELO, no auto-completion — deal the next
+  // game and keep the tally running until someone taps "End Bonus Game".
+  if (!match.roundId) {
+    const nextGameNumber = allGames.length + 1;
+    const startingLife = match.startingLife ?? 20;
+    const [newGame] = await db
+      .insert(games)
+      .values({
+        matchId: match.id,
+        gameNumber: nextGameNumber,
+        playerALife: startingLife,
+        playerBLife: startingLife,
+      })
+      .returning();
+    await publishToChannel(channelForMatch(match.id), {
+      type: "game_complete",
+      matchId: match.id,
+      winnerId: args.winnerId,
+      nextGameNumber,
+      newGameId: newGame.id,
+    });
+    return;
+  }
+
   const aWins = allGames.filter((g) => g.winnerId === match.playerAId).length;
   const bWins = allGames.filter((g) => g.winnerId === match.playerBId).length;
 

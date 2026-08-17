@@ -135,8 +135,11 @@ export async function requireOrganizerForEvent(
 }
 
 export async function requireOrganizerForRound(
-  roundId: string
+  // Null shows up when a caller hands us a bonus game's roundId — organizer
+  // tooling has no business touching those, so reject rather than widen.
+  roundId: string | null
 ): Promise<Round> {
+  if (!roundId) throw new Error("Bonus games have no round to manage");
   const [round] = await db.select().from(rounds).where(eq(rounds.id, roundId));
   if (!round) throw new Error("Round not found");
   await requireOrganizerForEvent(round.eventId);

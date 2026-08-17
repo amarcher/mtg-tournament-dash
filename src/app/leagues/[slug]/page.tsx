@@ -13,6 +13,8 @@ import {
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { isLeagueOrganizer } from "@/lib/authz";
+import { findActiveBonusGameForPlayer } from "@/lib/bonus-game";
+import { createBonusGameAction } from "@/app/events/actions";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { formatDate } from "@/lib/format";
 import { formatPollDate } from "@/lib/schedule-types";
@@ -59,6 +61,9 @@ export default async function LeagueHomePage({
   const myOpenEvents = me
     ? await listOpenEventsForPlayer(league.id, me.id)
     : [];
+  const myBonusGame = me
+    ? await findActiveBonusGameForPlayer(league.id, me.id)
+    : null;
   const myOpenEventIds = new Set(myOpenEvents.map(({ event }) => event.id));
   const activeSummaries = await Promise.all(
     openEvents.map(async (event) => {
@@ -191,6 +196,65 @@ export default async function LeagueHomePage({
               </span>
             </Link>
           ))}
+        </section>
+      )}
+
+      {me && (
+        <section className="mb-10">
+          {myBonusGame ? (
+            <Link
+              href={`/matches/${myBonusGame.id}`}
+              className="flex items-center justify-between gap-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 transition hover:border-emerald-500 hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+            >
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-[0.2em] text-emerald-300">
+                  Bonus Game in progress
+                </div>
+                <div className="mt-0.5 truncate text-lg font-semibold text-emerald-100">
+                  Return to your Bonus Game
+                </div>
+              </div>
+              <span className="shrink-0 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950">
+                Resume
+              </span>
+            </Link>
+          ) : (
+            <div className="flex flex-col gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  Bonus Game
+                </div>
+                <div className="mt-0.5 text-sm text-zinc-400">
+                  Pair up with any wizard for a casual head-to-head — games
+                  until you quit, no ELO on the line.
+                </div>
+              </div>
+              <form
+                action={createBonusGameAction}
+                className="flex shrink-0 items-center gap-2"
+              >
+                <input type="hidden" name="leagueSlug" value={league.slug} />
+                <label htmlFor="league-bonus-life" className="sr-only">
+                  Starting life
+                </label>
+                <select
+                  id="league-bonus-life"
+                  name="startingLife"
+                  defaultValue="20"
+                  className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
+                >
+                  <option value="20">20 life</option>
+                  <option value="40">40 life</option>
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                >
+                  Start a Bonus Game
+                </button>
+              </form>
+            </div>
+          )}
         </section>
       )}
 

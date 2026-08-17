@@ -631,7 +631,7 @@ export async function getEventMatchHistory(eventId: string) {
   };
 
   for (const m of allMatches) {
-    const round = roundById.get(m.roundId);
+    const round = m.roundId ? roundById.get(m.roundId) : undefined;
     if (!round) continue;
     if (m.playerBId === null) {
       push(m.playerAId, {
@@ -847,4 +847,54 @@ export async function getLeagueHeadToHead(leagueId: string) {
     matrix.set(r.winnerId, inner);
   }
   return matrix;
+}
+
+/* ---- bonus games ---- */
+
+export async function getBonusGame(matchId: string) {
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(and(eq(matches.id, matchId), sql`${matches.roundId} IS NULL`));
+  if (!match) return null;
+  const [playerA] = await db
+    .select()
+    .from(players)
+    .where(eq(players.id, match.playerAId));
+  const playerB = match.playerBId
+    ? ((
+        await db
+          .select()
+          .from(players)
+          .where(eq(players.id, match.playerBId))
+      )[0] ?? null)
+    : null;
+  return { match, playerA, playerB };
+}
+
+/**
+ * Open seats in this event's bonus games — powers the waiting room's
+ * "looking for a bonus game" list.
+ */
+export async function listOpenBonusGamesForEvent(eventId: string) {
+  return db
+    .select({
+      matchId: matches.id,
+      createdAt: matches.createdAt,
+      startingLife: matches.startingLife,
+      playerAId: players.id,
+      playerAName: players.displayName,
+      playerAAvatarUrl: players.avatarUrl,
+    })
+    .from(matches)
+    .innerJoin(players, eq(players.id, matches.playerAId))
+    .where(
+      and(
+        eq(matches.eventId, eventId),
+        sql`${matches.roundId} IS NULL`,
+        eq(matches.status, "pending"),
+        sql`${matches.playerBId} IS NULL`
+      )
+    )
+    .orderBy(desc(matches.createdAt));
 }
