@@ -26,21 +26,33 @@ export function tierForLife(life: number, startingLife: number): WizardTier {
 }
 
 /**
- * Resolve the active avatar URL for a player at a given life total. When the
- * matching tier is missing (e.g. older single-portrait players uploaded before
- * the tiered system existed) the chain cascades critical → wounded → fresh, so
- * the cell always renders something if any portrait exists.
+ * Resolve one in-play tier to a URL, cascading critical → wounded → fresh when
+ * the exact tier is missing (e.g. older single-portrait players uploaded before
+ * the tiered system existed), so the cell always renders something if any
+ * portrait exists.
+ */
+export function resolveTierUrl(
+  tier: WizardTier,
+  avatars: AvatarTiers
+): string | null {
+  if (tier === "victory") return avatars.victory ?? avatars.fresh;
+  if (tier === "defeat")
+    return avatars.defeat ?? avatars.critical ?? avatars.wounded ?? avatars.fresh;
+  if (tier === "critical")
+    return avatars.critical ?? avatars.wounded ?? avatars.fresh;
+  if (tier === "wounded") return avatars.wounded ?? avatars.fresh;
+  return avatars.fresh;
+}
+
+/**
+ * Resolve the active avatar URL for a player at a given life total.
  */
 export function pickAvatarUrl(
   life: number,
   startingLife: number,
   avatars: AvatarTiers
 ): string | null {
-  const tier = tierForLife(life, startingLife);
-  if (tier === "critical")
-    return avatars.critical ?? avatars.wounded ?? avatars.fresh;
-  if (tier === "wounded") return avatars.wounded ?? avatars.fresh;
-  return avatars.fresh;
+  return resolveTierUrl(tierForLife(life, startingLife), avatars);
 }
 
 /**
@@ -51,6 +63,5 @@ export function pickMatchOutcomeAvatar(
   outcome: "won" | "lost",
   avatars: AvatarTiers
 ): string | null {
-  if (outcome === "won") return avatars.victory ?? avatars.fresh;
-  return avatars.defeat ?? avatars.critical ?? avatars.wounded ?? avatars.fresh;
+  return resolveTierUrl(outcome === "won" ? "victory" : "defeat", avatars);
 }

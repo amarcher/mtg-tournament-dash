@@ -222,7 +222,11 @@ export function PlayClient({
           gameId,
           expectedLife,
         });
-        if (res.life !== null) {
+        // Only the last write still in flight may publish the server's value.
+        // An earlier response landing while later taps are pending describes a
+        // life total the user has already tapped past, and applying it rewinds
+        // the counter — the visible jitter during fast tapping.
+        if (res.life !== null && inFlight.current[side] === 1) {
           if (side === "a") setALife(res.life);
           else setBLife(res.life);
         }
@@ -344,7 +348,6 @@ export function PlayClient({
             startingLife={startingLife}
             avatars={avatarsFor(mySide === "a" ? players.b : players.a)}
             onAdjust={(d) => adjust(oppSide, d)}
-            pending={pending}
           />
         )}
 
@@ -354,7 +357,6 @@ export function PlayClient({
           startingLife={startingLife}
           avatars={avatarsFor(mySide === "a" ? players.a : players.b)}
           onAdjust={(d) => adjust(mySide, d)}
-          pending={pending}
           emphasized
         />
       </div>
