@@ -231,9 +231,27 @@ export default async function LeagueHomePage({
               </div>
               <form
                 action={createBonusGameAction}
-                className="flex shrink-0 items-center gap-2"
+                className="flex shrink-0 flex-wrap items-center gap-2"
               >
                 <input type="hidden" name="leagueSlug" value={league.slug} />
+                <label htmlFor="league-bonus-opponent" className="sr-only">
+                  Opponent
+                </label>
+                <select
+                  id="league-bonus-opponent"
+                  name="opponentId"
+                  defaultValue=""
+                  className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
+                >
+                  <option value="">Anyone — show a QR code</option>
+                  {players
+                    .filter((p) => p.id !== me.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.displayName}
+                      </option>
+                    ))}
+                </select>
                 <label htmlFor="league-bonus-life" className="sr-only">
                   Starting life
                 </label>

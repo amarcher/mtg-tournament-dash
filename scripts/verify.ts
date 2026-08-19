@@ -1643,6 +1643,66 @@ async function runBonusGamePass() {
     "double-tapped Bonus Game button reuses the fresh match"
   );
   await endBonusGame({ matchId: next.id });
+
+  // Direct challenge — the initiator picks the opponent, no QR handshake.
+  let selfPairBlocked = false;
+  try {
+    await createBonusGame({
+      leagueId: league.id,
+      playerAId: pa.id,
+      playerBId: pa.id,
+    });
+  } catch {
+    selfPairBlocked = true;
+  }
+  assert(selfPairBlocked, "can't challenge yourself to a bonus game");
+
+  const paired = await createBonusGame({
+    leagueId: league.id,
+    playerAId: pa.id,
+    playerBId: pc.id,
+    eventId: event.id,
+    startingLife: 20,
+  });
+  assert(
+    paired.status === "in_progress" && paired.playerBId === pc.id,
+    "direct challenge seats the opponent and starts immediately"
+  );
+  const [pairedG1] = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, paired.id));
+  assert(
+    pairedG1 && pairedG1.playerALife === 20 && pairedG1.playerBLife === 20,
+    "direct challenge deals game 1 at the chosen starting life"
+  );
+
+  let busyOpponentBlocked = false;
+  try {
+    await createBonusGame({
+      leagueId: league.id,
+      playerAId: pb.id,
+      playerBId: pc.id,
+    });
+  } catch {
+    busyOpponentBlocked = true;
+  }
+  assert(
+    busyOpponentBlocked,
+    "can't challenge a wizard already in a bonus game"
+  );
+
+  const pairedDup = await createBonusGame({
+    leagueId: league.id,
+    playerAId: pa.id,
+    playerBId: pb.id,
+  });
+  assert(
+    pairedDup.id === paired.id,
+    "challenger with an open game is returned to it"
+  );
+
+  await endBonusGame({ matchId: paired.id });
 }
 
 async function checkRoutes(

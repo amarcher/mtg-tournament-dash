@@ -1198,6 +1198,7 @@ export async function reportMatchDrawAction(args: { matchId: string }) {
 export async function createBonusGameAction(formData: FormData) {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const rawEventId = String(formData.get("eventId") ?? "").trim();
+  const opponentId = String(formData.get("opponentId") ?? "").trim();
   const startingLife = Number(formData.get("startingLife") ?? 20);
   if (!leagueSlug) throw new Error("League required");
 
@@ -1234,6 +1235,7 @@ export async function createBonusGameAction(formData: FormData) {
   const match = await createBonusGame({
     leagueId: league.id,
     playerAId: caller.id,
+    playerBId: opponentId || null,
     eventId,
     startingLife,
   });
