@@ -40,7 +40,12 @@ export function PlayClient({
   const [aLife, setALife] = useState(initialGame.playerALife);
   const [bLife, setBLife] = useState(initialGame.playerBLife);
   const [wins, setWins] = useState(initialWins);
-  const [pending, startTransition] = useTransition();
+  // Life taps and the outcome buttons get separate transitions on purpose.
+  // Sharing one meant every life tap flipped the outcome buttons' pending
+  // flag, blinking them disabled on each tap. Life's pending is deliberately
+  // unread — those taps are optimistic and never gate the UI.
+  const [, startLifeTransition] = useTransition();
+  const [outcomePending, startOutcomeTransition] = useTransition();
   // Count outstanding adjust requests per side. While >0, neither the SSE
   // listener nor the polling tick are allowed to overwrite local life — those
   // arrive with stale server snapshots and would visually rubber-band the
@@ -213,7 +218,7 @@ export function PlayClient({
     if (side === "a") setALife((v) => v + delta);
     else setBLife((v) => v + delta);
     inFlight.current[side] += 1;
-    startTransition(async () => {
+    startLifeTransition(async () => {
       try {
         const res = await adjustLifeAction({
           matchId,
@@ -246,7 +251,7 @@ export function PlayClient({
         : mySide === "a"
           ? players.b!.id
           : players.a.id;
-    startTransition(async () => {
+    startOutcomeTransition(async () => {
       await reportGameWinnerAction({
         matchId,
         winnerId,
@@ -264,7 +269,7 @@ export function PlayClient({
     ) {
       return;
     }
-    startTransition(async () => {
+    startOutcomeTransition(async () => {
       await reportMatchDrawAction({ matchId });
     });
   };
@@ -361,18 +366,26 @@ export function PlayClient({
         />
       </div>
 
+      {/* These stay disabled while their own action commits — reporting a
+          winner twice would finalize the match twice — but carry no disabled
+          styling for that. The commit is short, and a dimmed flash on a button
+          nobody is waiting on reads as a glitch rather than as feedback. The
+          one dim that stays is `!oppName`, a bye: a persistent state worth
+          showing, not a transient one. */}
       <div className="grid grid-cols-2 gap-3">
         <button
           onClick={() => reportWinner("opp")}
-          disabled={pending || !oppName}
-          className="rounded-xl bg-zinc-700 py-3 font-semibold transition hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50"
+          disabled={outcomePending || !oppName}
+          className={`touch-manipulation select-none rounded-xl bg-zinc-700 py-3 font-semibold transition-colors hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
+            oppName ? "" : "opacity-50"
+          }`}
         >
           They won
         </button>
         <button
           onClick={() => reportWinner("me")}
-          disabled={pending}
-          className="rounded-xl bg-emerald-500 py-3 font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:opacity-50"
+          disabled={outcomePending}
+          className="touch-manipulation select-none rounded-xl bg-emerald-500 py-3 font-semibold text-zinc-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
         >
           I won this game
         </button>
@@ -381,8 +394,8 @@ export function PlayClient({
       {players.b && (
         <button
           onClick={reportDraw}
-          disabled={pending}
-          className="rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:opacity-50 landscape:py-1.5 landscape:text-xs"
+          disabled={outcomePending}
+          className="touch-manipulation select-none rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 landscape:py-1.5 landscape:text-xs"
         >
           Call this match a draw
         </button>
