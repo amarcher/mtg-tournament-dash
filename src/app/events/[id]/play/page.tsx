@@ -67,6 +67,7 @@ function BonusGameSection({
   eventId,
   myActiveMatchId,
   openGames,
+  opponents,
 }: {
   leagueSlug: string;
   eventId: string;
@@ -76,6 +77,7 @@ function BonusGameSection({
     playerAName: string;
     playerAAvatarUrl: string | null;
   }[];
+  opponents: { playerId: string; displayName: string }[];
 }) {
   return (
     <section className="mt-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-left">
@@ -123,33 +125,49 @@ function BonusGameSection({
             </ul>
           )}
           <p className="mt-3 text-xs text-zinc-400">
-            Pair up with anyone in the league and keep playing — games until
+            Challenge a wizard directly and their phone jumps straight into
+            the game — or open a seat and let anyone scan the QR. Games until
             you quit, no ELO on the line.
           </p>
-          <form
-            action={createBonusGameAction}
-            className="mt-3 flex items-center gap-2"
-          >
+          <form action={createBonusGameAction} className="mt-3 space-y-2">
             <input type="hidden" name="leagueSlug" value={leagueSlug} />
             <input type="hidden" name="eventId" value={eventId} />
-            <label htmlFor="bonus-life" className="sr-only">
-              Starting life
+            <label htmlFor="bonus-opponent" className="sr-only">
+              Opponent
             </label>
             <select
-              id="bonus-life"
-              name="startingLife"
-              defaultValue="20"
-              className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
+              id="bonus-opponent"
+              name="opponentId"
+              defaultValue=""
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
             >
-              <option value="20">20 life</option>
-              <option value="40">40 life</option>
+              <option value="">Anyone — show a QR code</option>
+              {opponents.map((o) => (
+                <option key={o.playerId} value={o.playerId}>
+                  {o.displayName}
+                </option>
+              ))}
             </select>
-            <button
-              type="submit"
-              className="flex-1 rounded-md bg-amber-500 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-            >
-              Start a Bonus Game
-            </button>
+            <div className="flex items-center gap-2">
+              <label htmlFor="bonus-life" className="sr-only">
+                Starting life
+              </label>
+              <select
+                id="bonus-life"
+                name="startingLife"
+                defaultValue="20"
+                className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
+              >
+                <option value="20">20 life</option>
+                <option value="40">40 life</option>
+              </select>
+              <button
+                type="submit"
+                className="flex-1 rounded-md bg-amber-500 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              >
+                Start a Bonus Game
+              </button>
+            </div>
           </form>
         </>
       )}
@@ -163,15 +181,23 @@ async function loadBonusData(
   playerId: string
 ) {
   if (!leagueId) {
-    return { myActiveMatchId: null, openGames: [] as never[] };
+    return {
+      myActiveMatchId: null,
+      openGames: [] as never[],
+      opponents: [] as never[],
+    };
   }
-  const [mine, open] = await Promise.all([
+  const [mine, open, roster] = await Promise.all([
     findActiveBonusGameForPlayer(leagueId, playerId),
     listOpenBonusGamesForEvent(eventId),
+    getEventRoster(eventId),
   ]);
   return {
     myActiveMatchId: mine?.id ?? null,
     openGames: open.filter((g) => g.playerAId !== playerId),
+    opponents: roster
+      .filter((r) => r.playerId !== playerId)
+      .map((r) => ({ playerId: r.playerId, displayName: r.displayName })),
   };
 }
 
@@ -264,6 +290,7 @@ export default async function PlayPage({
             eventId={id}
             myActiveMatchId={bonus.myActiveMatchId}
             openGames={bonus.openGames}
+            opponents={bonus.opponents}
           />
         )}
         <WaitForRound eventId={id} />
@@ -320,6 +347,7 @@ export default async function PlayPage({
             eventId={id}
             myActiveMatchId={bonus.myActiveMatchId}
             openGames={bonus.openGames}
+            opponents={bonus.opponents}
           />
         )}
         <WaitForRound eventId={id} />

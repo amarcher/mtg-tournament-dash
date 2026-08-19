@@ -1,7 +1,16 @@
 "use client";
 
 import type { Player } from "@/db/schema";
-import { pickAvatarUrl, type AvatarTiers } from "@/lib/avatar-tier";
+import {
+  resolveTierUrl,
+  tierForLife,
+  type AvatarTiers,
+  type WizardTier,
+} from "@/lib/avatar-tier";
+
+/** The tiers a life total can cross into mid-game — victory/defeat are
+ * end-of-match only and never rendered by this panel. */
+const IN_PLAY_TIERS: WizardTier[] = ["fresh", "wounded", "critical"];
 
 export function avatarsFor(p: Player | null): AvatarTiers {
   return {
@@ -19,7 +28,6 @@ export function LifePanel({
   startingLife,
   avatars,
   onAdjust,
-  pending,
   emphasized,
 }: {
   label: string;
@@ -27,10 +35,25 @@ export function LifePanel({
   startingLife: number;
   avatars: AvatarTiers;
   onAdjust: (delta: number) => void;
-  pending: boolean;
   emphasized?: boolean;
 }) {
-  const bgUrl = pickAvatarUrl(life, startingLife, avatars);
+  const activeTier = tierForLife(life, startingLife);
+  // Every tier this panel can switch to is mounted at once and crossed-faded
+  // by opacity. Swapping a single `src` re-decodes on each crossing, which
+  // flashes the bare panel during fast life taps — worst on the first crossing,
+  // when the new tier isn't in the image cache yet.
+  // Deduped, because the cascade collapses tiers onto one URL for players who
+  // only ever uploaded a single portrait.
+  const layers = [
+    ...new Map(
+      IN_PLAY_TIERS.map((tier) => [resolveTierUrl(tier, avatars), tier]).filter(
+        ([url]) => url !== null
+      ) as [string, WizardTier][]
+    ),
+  ].map(([url, tier]) => ({ url, tier }));
+  const hasArt = layers.length > 0;
+  const activeUrl = resolveTierUrl(activeTier, avatars);
+
   return (
     <div
       className={`relative overflow-hidden rounded-2xl border p-5 text-center landscape:flex landscape:min-w-0 landscape:flex-1 landscape:flex-col landscape:justify-center ${
@@ -39,15 +62,21 @@ export function LifePanel({
           : "border-zinc-800 bg-zinc-900/60"
       }`}
     >
-      {bgUrl && (
+      {layers.map(({ tier, url }) => (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={bgUrl}
+          key={tier}
+          src={url}
           alt=""
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-90"
+          aria-hidden
+          decoding="sync"
+          fetchPriority={url === activeUrl ? "high" : "low"}
+          className={`pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+            url === activeUrl ? "opacity-90" : "opacity-0"
+          }`}
         />
-      )}
-      {bgUrl && (
+      ))}
+      {hasArt && (
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/15 via-black/55 to-black/90" />
       )}
 
@@ -69,19 +98,14 @@ export function LifePanel({
         >
           {life}
         </div>
+        {/* Deliberately never disabled while a write is in flight: taps are
+            optimistic and the server's compare-and-set rejects anything stale,
+            so dimming here only strobed all eight buttons during fast tapping. */}
         <div className="grid grid-cols-4 gap-2">
-          <LifeButton onClick={() => onAdjust(-5)} disabled={pending}>
-            −5
-          </LifeButton>
-          <LifeButton onClick={() => onAdjust(-1)} disabled={pending}>
-            −1
-          </LifeButton>
-          <LifeButton onClick={() => onAdjust(+1)} disabled={pending}>
-            +1
-          </LifeButton>
-          <LifeButton onClick={() => onAdjust(+5)} disabled={pending}>
-            +5
-          </LifeButton>
+          <LifeButton onClick={() => onAdjust(-5)}>−5</LifeButton>
+          <LifeButton onClick={() => onAdjust(-1)}>−1</LifeButton>
+          <LifeButton onClick={() => onAdjust(+1)}>+1</LifeButton>
+          <LifeButton onClick={() => onAdjust(+5)}>+5</LifeButton>
         </div>
       </div>
     </div>
@@ -91,17 +115,16 @@ export function LifePanel({
 function LifeButton({
   children,
   onClick,
-  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
-  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
-      className="rounded-lg bg-zinc-800 py-3 text-lg font-semibold tabular-nums transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 disabled:opacity-50"
+      // `transition-colors`, not `transition`: an all-property transition made
+      // the active:scale-95 press lag behind fast repeated taps.
+      className="touch-manipulation select-none rounded-lg bg-zinc-800 py-3 text-lg font-semibold tabular-nums transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:bg-zinc-600 active:scale-95"
     >
       {children}
     </button>

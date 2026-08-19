@@ -61,13 +61,16 @@ export async function findActiveBonusGameForPlayer(
 }
 
 /**
- * Open a bonus game with the caller in seat A and seat B empty — the match
- * page shows a QR until an opponent claims it. If the player already has an
- * open bonus game, return that instead of stacking a second one.
+ * Open a bonus game with the caller in seat A. With no opponent chosen, seat
+ * B stays empty and the match page shows a QR until someone claims it. With
+ * `playerBId`, the challenged wizard is seated immediately and the game
+ * starts in progress — no scan needed. If the caller already has an open
+ * bonus game, return that instead of stacking a second one.
  */
 export async function createBonusGame(args: {
   leagueId: string;
   playerAId: string;
+  playerBId?: string | null;
   eventId?: string | null;
   startingLife?: number;
 }): Promise<Match> {
@@ -77,6 +80,27 @@ export async function createBonusGame(args: {
   );
   if (existing) return existing;
 
+  const playerBId = args.playerBId || null;
+  if (playerBId) {
+    if (playerBId === args.playerAId)
+      throw new Error("Pick someone else — you can't battle yourself");
+    const [opponent] = await db
+      .select()
+      .from(players)
+      .where(eq(players.id, playerBId));
+    if (!opponent || opponent.leagueId !== args.leagueId)
+      throw new Error("Bonus games pair wizards from the same league");
+    const theirGame = await findActiveBonusGameForPlayer(
+      args.leagueId,
+      playerBId
+    );
+    if (theirGame)
+      throw new Error(
+        `${opponent.displayName} is already in a bonus game`
+      );
+  }
+
+  const startingLife = normalizeStartingLife(args.startingLife);
   const [match] = await db
     .insert(matches)
     .values({
@@ -85,14 +109,27 @@ export async function createBonusGame(args: {
       eventId: args.eventId ?? null,
       tableNumber: 0,
       playerAId: args.playerAId,
-      status: "pending",
-      startingLife: normalizeStartingLife(args.startingLife),
+      playerBId,
+      status: playerBId ? "in_progress" : "pending",
+      startingLife,
     })
     .returning();
 
+  if (playerBId) {
+    await db.insert(games).values({
+      matchId: match.id,
+      gameNumber: 1,
+      playerALife: startingLife,
+      playerBLife: startingLife,
+    });
+    await publishToChannel(channelForMatch(match.id), {
+      type: "bonus_game_started",
+      matchId: match.id,
+    });
+  }
   if (match.eventId) {
     await publishToChannel(channelForEvent(match.eventId), {
-      type: "bonus_game_opened",
+      type: playerBId ? "bonus_game_started" : "bonus_game_opened",
       matchId: match.id,
     });
   }
