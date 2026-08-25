@@ -8,6 +8,10 @@ import {
   type PollResponseValue,
 } from "@/lib/schedule-types";
 import { tallyResponses } from "@/lib/poll-tally";
+import {
+  DEFAULT_TOURNAMENT_FORMAT,
+  TOURNAMENT_FORMAT_LABELS,
+} from "@/lib/event-format";
 
 export const responseRing: Record<PollResponseValue, string> = {
   yes: "ring-emerald-400",
@@ -25,6 +29,11 @@ const rsvpTone: Record<PollResponseValue, string> = {
  * One tap = one RSVP. Three submit buttons in a single form rather than a
  * radio group + save, so a phone never has to hit a second control — plans
  * change often enough that the round trip has to be cheap.
+ *
+ * The button you're currently on submits `clear` instead of its own value,
+ * so tapping it again withdraws the answer and drops you back to the
+ * un-answered list. Without that, an answer tapped on the wrong phone (or
+ * as the wrong wizard) would be stuck as *some* answer forever.
  */
 export function RsvpButtons({
   nightId,
@@ -41,23 +50,61 @@ export function RsvpButtons({
     <form action={rsvpGameNightAction} className="grid grid-cols-3 gap-2">
       <input type="hidden" name="nightId" value={nightId} />
       <input type="hidden" name="playerId" value={playerId} />
-      {POLL_RESPONSES.map((r) => (
-        <button
-          key={r}
-          type="submit"
-          name="response"
-          value={r}
-          disabled={disabled}
-          aria-pressed={mine === r}
-          className={`min-h-11 rounded-md border px-2 text-sm font-medium transition active:scale-[0.98] disabled:opacity-40 ${
-            mine === r
-              ? rsvpTone[r]
-              : "border-zinc-700 text-zinc-300 hover:bg-zinc-800 active:bg-zinc-800"
-          }`}
-        >
-          {POLL_RESPONSE_LABELS[r]}
-        </button>
-      ))}
+      {POLL_RESPONSES.map((r) => {
+        const isMine = mine === r;
+        return (
+          <button
+            key={r}
+            type="submit"
+            name="response"
+            value={isMine ? "clear" : r}
+            disabled={disabled}
+            aria-pressed={isMine}
+            title={
+              isMine
+                ? `Tap again to clear your ${POLL_RESPONSE_LABELS[r]} answer`
+                : undefined
+            }
+            className={`min-h-11 rounded-md border px-2 text-sm font-medium transition active:scale-[0.98] disabled:opacity-40 ${
+              isMine
+                ? rsvpTone[r]
+                : "border-zinc-700 text-zinc-300 hover:bg-zinc-800 active:bg-zinc-800"
+            }`}
+          >
+            {POLL_RESPONSE_LABELS[r]}
+          </button>
+        );
+      })}
+    </form>
+  );
+}
+
+/**
+ * The explicit way out, shown only once you have an answer — the tap-again
+ * toggle above is faster but invisible, and "I answered as the wrong
+ * wizard" is exactly the moment you need a control you can *see*.
+ */
+export function ClearRsvpButton({
+  nightId,
+  playerId,
+  className = "",
+}: {
+  nightId: string;
+  playerId: string;
+  className?: string;
+}) {
+  return (
+    <form action={rsvpGameNightAction} className={className}>
+      <input type="hidden" name="nightId" value={nightId} />
+      <input type="hidden" name="playerId" value={playerId} />
+      <button
+        type="submit"
+        name="response"
+        value="clear"
+        className="min-h-11 rounded-md px-2 text-xs text-zinc-500 underline decoration-dotted underline-offset-4 transition hover:text-zinc-300 active:text-zinc-300"
+      >
+        Clear my answer
+      </button>
     </form>
   );
 }
@@ -99,6 +146,11 @@ export function RsvpFaces({ rsvps }: { rsvps: NightWithRsvps["rsvps"] }) {
 export function NightPlanLine({ night }: { night: NightWithRsvps }) {
   const bits = [
     night.setName,
+    // Swiss is the default every event already gets — only a deliberate
+    // choice is worth the line's limited width.
+    night.format && night.format !== DEFAULT_TOURNAMENT_FORMAT
+      ? TOURNAMENT_FORMAT_LABELS[night.format]
+      : null,
     night.hostName ? `Host: ${night.hostName}` : null,
     night.venue,
   ].filter(Boolean);
@@ -167,10 +219,25 @@ export function GameNightCard({
         </div>
       )}
 
+      {/* The date itself links here too, but a bare date doesn't read as a
+          link — and the plan (set, format, host, venue) is only editable on
+          the other side of it. */}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <Link
+          href={`/leagues/${leagueSlug}/schedule/nights/${night.id}`}
+          className="min-h-11 py-3 text-xs font-medium text-amber-400 transition hover:text-amber-300 active:text-amber-300"
+        >
+          Plan &amp; who&apos;s in →
+        </Link>
+        {playerId && mine && !canceled && (
+          <ClearRsvpButton nightId={night.id} playerId={playerId} />
+        )}
+      </div>
+
       {night.event && (
         <Link
           href={`/events/${night.event.id}/manage`}
-          className="mt-3 inline-block text-sm font-medium text-emerald-300 hover:text-emerald-200"
+          className="mt-1 inline-block text-sm font-medium text-emerald-300 hover:text-emerald-200"
         >
           Event ready: {night.event.name} →
         </Link>

@@ -368,6 +368,9 @@ export const gameNights = pgTable(
     }),
     venue: text("venue"),
     setName: text("set_name"),
+    // Null until someone decides — promotion falls back to the events
+    // table's own default rather than guessing here.
+    format: tournamentFormat("format"),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

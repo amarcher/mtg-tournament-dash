@@ -93,6 +93,7 @@ import {
   parseDateTimeLocal,
 } from "@/lib/schedule-types";
 import { MAX_SERIES_COUNT } from "@/lib/recurrence";
+import { isTournamentFormat } from "@/lib/event-format";
 
 export async function createEventAction(formData: FormData) {
   const leagueId = String(formData.get("leagueId") ?? "");
@@ -1769,8 +1770,11 @@ export async function createGameNightsAction(formData: FormData) {
 }
 
 /**
- * Player self-service: mark yourself in, out, or maybe for one date. Always
- * changeable — the whole point of the calendar is that plans move.
+ * Player self-service: mark yourself in, out, or maybe for one date, or take
+ * the answer back entirely (`response=clear`, which deletes the row and
+ * returns you to the un-answered list). Always changeable — the whole point
+ * of the calendar is that plans move, and an answer given on the wrong
+ * phone or as the wrong wizard has to be undoable.
  */
 export async function rsvpGameNightAction(formData: FormData) {
   const nightId = String(formData.get("nightId") ?? "");
@@ -1778,17 +1782,30 @@ export async function rsvpGameNightAction(formData: FormData) {
   const response = formData.get("response");
 
   const { night, league } = await requireNight(nightId);
-  if (night.status === "canceled") throw new Error("This night was canceled");
   await requireLeaguePlayer(night.leagueId, playerId);
-  if (!isPollResponse(response)) throw new Error("Pick an RSVP");
 
-  await db
-    .insert(nightRsvps)
-    .values({ nightId, playerId, response })
-    .onConflictDoUpdate({
-      target: [nightRsvps.nightId, nightRsvps.playerId],
-      set: { response: sql`excluded.response`, updatedAt: sql`now()` },
-    });
+  if (response === "clear") {
+    // Deleting is allowed even on a canceled night: withdrawing an answer
+    // can never be the wrong thing to let someone do.
+    await db
+      .delete(nightRsvps)
+      .where(
+        and(
+          eq(nightRsvps.nightId, nightId),
+          eq(nightRsvps.playerId, playerId)
+        )
+      );
+  } else {
+    if (night.status === "canceled") throw new Error("This night was canceled");
+    if (!isPollResponse(response)) throw new Error("Pick an RSVP");
+    await db
+      .insert(nightRsvps)
+      .values({ nightId, playerId, response })
+      .onConflictDoUpdate({
+        target: [nightRsvps.nightId, nightRsvps.playerId],
+        set: { response: sql`excluded.response`, updatedAt: sql`now()` },
+      });
+  }
 
   revalidateCalendar(league.slug, nightId);
 }
@@ -1805,9 +1822,13 @@ export async function updateGameNightAction(formData: FormData) {
   const hostPlayerId = String(formData.get("hostPlayerId") ?? "").trim();
   const statusRaw = String(formData.get("status") ?? "").trim();
   const startsAtRaw = String(formData.get("startsAt") ?? "").trim();
+  const formatRaw = String(formData.get("format") ?? "").trim();
 
   if (hostPlayerId) {
     await requireLeaguePlayer(night.leagueId, hostPlayerId);
+  }
+  if (formatRaw && !isTournamentFormat(formatRaw)) {
+    throw new Error("Unknown format");
   }
   if (statusRaw && !["planned", "confirmed", "canceled"].includes(statusRaw)) {
     throw new Error("Unknown status");
@@ -1827,6 +1848,7 @@ export async function updateGameNightAction(formData: FormData) {
       venue: venue || null,
       notes: notes || null,
       hostPlayerId: hostPlayerId || null,
+      format: isTournamentFormat(formatRaw) ? formatRaw : null,
       status: (statusRaw || night.status) as typeof night.status,
     })
     .where(eq(gameNights.id, nightId));
@@ -1904,6 +1926,9 @@ export async function promoteGameNightAction(formData: FormData) {
       name: name || `Draft night · ${formatPollDate(night.startsAt)}`,
       scheduledAt: night.startsAt,
       setName: night.setName,
+      // Undefined (not null) so an undecided night takes the events table's
+      // own default rather than violating the NOT NULL column.
+      format: night.format ?? undefined,
       sourceNightId: night.id,
     })
     .returning();
