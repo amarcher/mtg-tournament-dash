@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import {
   getLatestLeaguePoll,
   getLeagueBySlug,
+  countUpcomingNights,
+  listUpcomingNights,
   getEventRounds,
   getPollDetail,
   getRoundMatches,
@@ -16,6 +18,7 @@ import { isLeagueOrganizer } from "@/lib/authz";
 import { findActiveBonusGameForPlayer } from "@/lib/bonus-game";
 import { createBonusGameAction } from "@/app/events/actions";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
+import { GameNightCard } from "@/app/components/GameNightCard";
 import { formatDate } from "@/lib/format";
 import { formatPollDate } from "@/lib/schedule-types";
 import { pickLeadingOptionId } from "@/lib/poll-tally";
@@ -31,15 +34,25 @@ export default async function LeagueHomePage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [players, openEvents, allEvents, me, latestPoll, organizer] =
-    await Promise.all([
-      listLeaguePlayers(league.id),
-      listOpenLeagueEvents(league.id),
-      listLeagueEvents(league.id),
-      getCurrentLeaguePlayer(league.id),
-      getLatestLeaguePoll(league.id),
-      isLeagueOrganizer(league),
-    ]);
+  const [
+    players,
+    openEvents,
+    allEvents,
+    me,
+    latestPoll,
+    upcomingNights,
+    upcomingCount,
+    organizer,
+  ] = await Promise.all([
+    listLeaguePlayers(league.id),
+    listOpenLeagueEvents(league.id),
+    listLeagueEvents(league.id),
+    getCurrentLeaguePlayer(league.id),
+    getLatestLeaguePoll(league.id),
+    listUpcomingNights(league.id, 4),
+    countUpcomingNights(league.id),
+    isLeagueOrganizer(league),
+  ]);
   const pollOptions = latestPoll ? await getPollDetail(latestPoll.id) : [];
   const pollVoterCount = new Set(
     pollOptions.flatMap((o) => o.votes.map((v) => v.playerId))
@@ -122,6 +135,34 @@ export default async function LeagueHomePage({
           <DashboardStat label="Open events" value={openEvents.length} />
           <DashboardStat label="Completed events" value={completedEvents.length} />
         </section>
+
+      {upcomingNights.length > 0 && (
+        <section className="mb-10">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+              Upcoming draft nights
+            </h2>
+            <Link
+              href={`/leagues/${league.slug}/schedule`}
+              className="text-sm text-amber-400 transition hover:text-amber-300 active:text-amber-300"
+            >
+              {upcomingCount > upcomingNights.length
+                ? `+${upcomingCount - upcomingNights.length} more`
+                : "Whole schedule"}
+            </Link>
+          </div>
+          <ul className="grid gap-3 lg:grid-cols-2">
+            {upcomingNights.map((night) => (
+              <GameNightCard
+                key={night.id}
+                night={night}
+                leagueSlug={league.slug}
+                playerId={me?.id}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
 
       {latestPoll && latestPoll.status === "open" && (
         <section className="mb-10">

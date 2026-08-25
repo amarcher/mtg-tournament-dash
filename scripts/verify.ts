@@ -17,7 +17,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-import { eq, like, and, inArray, isNull } from "drizzle-orm";
+import { asc, eq, like, and, inArray, isNull } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { db } from "../src/db/client";
@@ -35,6 +35,11 @@ import {
   addRoundAction,
   cancelPendingRoundAction,
   castPollVotesAction,
+  createGameNightsAction,
+  deleteGameNightAction,
+  promoteGameNightAction,
+  rsvpGameNightAction,
+  updateGameNightAction,
   completeRoundAction,
   confirmRoundAction,
   createDatePollAction,
@@ -75,6 +80,10 @@ import {
   getActiveMatchForPlayer,
   getCurrentRound,
   getDatePoll,
+  getEventBySourceNight,
+  getNightDetail,
+  listPastNights,
+  listUpcomingNights,
   getEvent,
   getEventBySourcePoll,
   getEventMatchHistory,
@@ -88,7 +97,15 @@ import {
   sweepStaleWizardJobs,
 } from "../src/db/queries";
 import { pickLeadingOptionId } from "../src/lib/poll-tally";
-import { datePolls, eloChanges, playerPortraits } from "../src/db/schema";
+import {
+  datePolls,
+  eloChanges,
+  gameNights,
+  nightRsvps,
+  playerPortraits,
+} from "../src/db/schema";
+import { generateDateSeries } from "../src/lib/recurrence";
+import { parseDateTimeLocal } from "../src/lib/schedule-types";
 
 const PREFIX = "_verify_";
 const VERIFY_PORT = process.env.VERIFY_PORT ?? "3002";
@@ -1708,7 +1725,8 @@ async function runBonusGamePass() {
 async function checkRoutes(
   eventId: string,
   authz: { leagueId: string; organizerToken: string; joinToken: string },
-  sched?: { leagueSlug: string; pollId: string }
+  sched?: { leagueSlug: string; pollId: string },
+  nights?: { leagueSlug: string; nightId: string }
 ) {
   // Probe the server first; skip silently if it isn't running OR if something
   // unrelated is on the port. Look for "MTG Dash" in the response so a
@@ -1823,6 +1841,23 @@ async function checkRoutes(
       {
         path: `/leagues/${sched.leagueSlug}/schedule/${sched.pollId}`,
         mustInclude: [`${PREFIX}poll`, "Draft night is set"],
+      }
+    );
+  }
+
+  if (nights) {
+    checks.push(
+      {
+        path: `/leagues/${nights.leagueSlug}/schedule`,
+        mustInclude: ["The calendar", "Date polls"],
+      },
+      {
+        path: `/leagues/${nights.leagueSlug}/schedule/nights/new`,
+        mustInclude: ["Open dates on the calendar"],
+      },
+      {
+        path: `/leagues/${nights.leagueSlug}/schedule/nights/${nights.nightId}`,
+        mustInclude: ["Tales of Middle-earth", `${PREFIX}N1`],
       }
     );
   }
@@ -2425,6 +2460,287 @@ async function runSchedulingPollPass(): Promise<{
   return { leagueSlug: league.slug, pollId: poll.id };
 }
 
+/**
+ * The standing calendar: open a recurring run of dates, RSVP (and change your
+ * mind), fill in the plan, then promote a night into a real event. Runs in
+ * its own `_verify_nights` league.
+ */
+async function runGameNightPass(): Promise<{
+  leagueSlug: string;
+  nightId: string;
+}> {
+  const [league] = await db
+    .insert(leagues)
+    .values({ slug: `${PREFIX}nights`, name: `${PREFIX}NightsLeague` })
+    .returning();
+  const [n1p, n2p, n3p, n4p] = await db
+    .insert(players)
+    .values(
+      ["N1", "N2", "N3", "N4"].map((n) => ({
+        leagueId: league.id,
+        leagueToken: generateJoinToken(),
+        displayName: `${PREFIX}${n}`,
+      }))
+    )
+    .returning();
+
+  // Every other Monday from 2027-08-30, three nights.
+  const series = generateDateSeries({
+    start: "2027-08-30T19:00",
+    intervalWeeks: 2,
+    count: 3,
+  });
+  assert(
+    series.length === 3 && series[2] === "2027-09-27T19:00",
+    "recurrence expands to every-other-Monday dates"
+  );
+
+  try {
+    await createGameNightsAction(
+      makeFormData({ leagueId: league.id, nightDate: [] })
+    );
+    fail("opening zero dates should throw");
+  } catch (e) {
+    if (isNextRedirect(e)) fail("opening zero dates should throw");
+    else ok("rejects opening a calendar with no dates");
+  }
+
+  try {
+    await createGameNightsAction(
+      makeFormData({ leagueId: league.id, nightDate: ["not-a-date"] })
+    );
+    fail("an unparseable date should throw");
+  } catch (e) {
+    if (isNextRedirect(e)) fail("an unparseable date should throw");
+    else ok("rejects an unparseable date");
+  }
+
+  try {
+    await createGameNightsAction(
+      makeFormData({ leagueId: league.id, nightDate: series })
+    );
+    fail("createGameNightsAction should redirect on success");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("calendar opened (redirects to the schedule)");
+    else throw e;
+  }
+
+  // Re-running an overlapping series must not duplicate existing dates.
+  try {
+    await createGameNightsAction(
+      makeFormData({
+        leagueId: league.id,
+        nightDate: [series[2], "2027-10-11T19:00", "2027-10-11T19:00"],
+      })
+    );
+  } catch (e) {
+    if (!isNextRedirect(e)) throw e;
+  }
+  const allNights = await db
+    .select()
+    .from(gameNights)
+    .where(eq(gameNights.leagueId, league.id))
+    .orderBy(asc(gameNights.startsAt));
+  assert(
+    allNights.length === 4,
+    "re-opening an overlapping run adds only the new date (4 nights)"
+  );
+
+  const night = allNights[0];
+  const spare = allNights[3];
+
+  await rsvpGameNightAction(
+    makeFormData({ nightId: night.id, playerId: n1p.id, response: "yes" })
+  );
+  await rsvpGameNightAction(
+    makeFormData({ nightId: night.id, playerId: n2p.id, response: "yes" })
+  );
+  await rsvpGameNightAction(
+    makeFormData({
+      nightId: night.id,
+      playerId: n3p.id,
+      response: "if_need_be",
+    })
+  );
+  await rsvpGameNightAction(
+    makeFormData({ nightId: night.id, playerId: n4p.id, response: "no" })
+  );
+
+  let detail = await getNightDetail(night.id);
+  assert(detail!.rsvps.length === 4, "all four RSVPs recorded");
+  assert(
+    detail!.rsvps.filter((r) => r.response === "yes").length === 2,
+    "two yes RSVPs tallied"
+  );
+
+  // Plans change: n2 flips to no. Upsert must overwrite, not duplicate.
+  await rsvpGameNightAction(
+    makeFormData({ nightId: night.id, playerId: n2p.id, response: "no" })
+  );
+  detail = await getNightDetail(night.id);
+  assert(detail!.rsvps.length === 4, "re-RSVP did not add a duplicate row");
+  assert(
+    detail!.rsvps.find((r) => r.playerId === n2p.id)?.response === "no",
+    "re-RSVP overwrote the response"
+  );
+
+  try {
+    await rsvpGameNightAction(
+      makeFormData({
+        nightId: night.id,
+        playerId: crypto.randomUUID(),
+        response: "yes",
+      })
+    );
+    fail("an RSVP from outside the league should throw");
+  } catch {
+    ok("rejects an RSVP from a player outside the league");
+  }
+
+  try {
+    await rsvpGameNightAction(
+      makeFormData({ nightId: night.id, playerId: n1p.id, response: "maybe" })
+    );
+    fail("an unknown RSVP value should throw");
+  } catch {
+    ok("rejects an unknown RSVP value");
+  }
+
+  // The plan: set, host, venue, and a reschedule by half an hour.
+  await updateGameNightAction(
+    makeFormData({
+      nightId: night.id,
+      setName: "Tales of Middle-earth",
+      hostPlayerId: n1p.id,
+      venue: "Andrew's basement",
+      notes: "Bring sleeves",
+      status: "confirmed",
+      startsAt: "2027-08-30T19:30",
+    })
+  );
+  detail = await getNightDetail(night.id);
+  assert(
+    detail!.setName === "Tales of Middle-earth" &&
+      detail!.hostPlayerId === n1p.id &&
+      detail!.hostName === `${PREFIX}N1` &&
+      detail!.venue === "Andrew's basement" &&
+      detail!.status === "confirmed",
+    "the plan (set, host, venue, status) saves"
+  );
+  assert(
+    detail!.startsAt.toISOString() ===
+      parseDateTimeLocal("2027-08-30T19:30")!.toISOString(),
+    "rescheduling moves the night to the new wall time"
+  );
+
+  try {
+    await updateGameNightAction(
+      makeFormData({ nightId: night.id, hostPlayerId: crypto.randomUUID() })
+    );
+    fail("a host from outside the league should throw");
+  } catch {
+    ok("rejects a host who isn't in the league");
+  }
+
+  const upcoming = await listUpcomingNights(league.id);
+  assert(
+    upcoming.length === 4 &&
+      upcoming[0].id === night.id &&
+      upcoming[0].startsAt <= upcoming[1].startsAt,
+    "upcoming schedule lists every future night, soonest first"
+  );
+  assert(
+    (await listPastNights(league.id)).length === 0,
+    "no past nights on a fresh future calendar"
+  );
+
+  // Promote: roster comes from the yes / if-need-be RSVPs (n1 + n3).
+  try {
+    await promoteGameNightAction(
+      makeFormData({ nightId: night.id, name: `${PREFIX}NightEvent` })
+    );
+    fail("promoteGameNightAction should redirect on success");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("promoting a night redirects to the new event");
+    else throw e;
+  }
+  const promoted = await getEventBySourceNight(night.id);
+  assert(promoted, "promoted event links back to the night");
+  assert(
+    promoted!.scheduledAt?.getTime() === detail!.startsAt.getTime() &&
+      promoted!.setName === "Tales of Middle-earth",
+    "promoted event carries the night's date and set"
+  );
+  const nightRoster = await getEventRoster(promoted!.id);
+  const rosterIds = new Set(nightRoster.map((r) => r.playerId));
+  assert(
+    nightRoster.length === 2 && rosterIds.has(n1p.id) && rosterIds.has(n3p.id),
+    "roster pre-seeded from the yes / if-need-be RSVPs"
+  );
+
+  try {
+    await promoteGameNightAction(makeFormData({ nightId: night.id }));
+    fail("re-promote should redirect to the existing event");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("re-promoting redirects instead of duplicating");
+    else throw e;
+  }
+  const eventsFromNight = await db
+    .select()
+    .from(events)
+    .where(eq(events.sourceNightId, night.id));
+  assert(eventsFromNight.length === 1, "re-promote created no duplicate event");
+
+  try {
+    await deleteGameNightAction(makeFormData({ nightId: night.id }));
+    fail("deleting a night with an event should throw");
+  } catch (e) {
+    if (isNextRedirect(e)) fail("deleting a night with an event should throw");
+    else ok("refuses to delete a night that already has an event");
+  }
+
+  // A canceled night stops taking RSVPs, and an unpromoted date can be pulled.
+  await updateGameNightAction(
+    makeFormData({ nightId: allNights[1].id, status: "canceled" })
+  );
+  try {
+    await rsvpGameNightAction(
+      makeFormData({
+        nightId: allNights[1].id,
+        playerId: n1p.id,
+        response: "yes",
+      })
+    );
+    fail("RSVP on a canceled night should throw");
+  } catch {
+    ok("rejects an RSVP on a canceled night");
+  }
+  assert(
+    (await listUpcomingNights(league.id)).length === 3,
+    "a canceled night drops off the upcoming schedule"
+  );
+
+  try {
+    await deleteGameNightAction(makeFormData({ nightId: spare.id }));
+    fail("deleteGameNightAction should redirect on success");
+  } catch (e) {
+    if (isNextRedirect(e)) ok("an unpromoted date can be taken off the calendar");
+    else throw e;
+  }
+  const leftover = await db
+    .select()
+    .from(gameNights)
+    .where(eq(gameNights.id, spare.id));
+  assert(leftover.length === 0, "removed night is gone");
+  const orphanRsvps = await db
+    .select()
+    .from(nightRsvps)
+    .where(eq(nightRsvps.nightId, spare.id));
+  assert(orphanRsvps.length === 0, "no orphaned RSVPs left behind");
+
+  return { leagueSlug: league.slug, nightId: night.id };
+}
+
 async function main() {
   const start = Date.now();
   console.log("=== verify ===\n");
@@ -2451,6 +2767,9 @@ async function main() {
 
   const sched = await runSchedulingPollPass();
   ok("scheduling poll — create, vote, re-vote upsert, finalize, guards");
+
+  const nights = await runGameNightPass();
+  ok("calendar — recurring dates, RSVP upsert, the plan, promote to event");
 
   // === invariants ===
   const standings = await getEventStandings(event.id);
@@ -2536,7 +2855,8 @@ async function main() {
       organizerToken: league.organizerToken!,
       joinToken: firstSeat.joinToken,
     },
-    sched
+    sched,
+    nights
   );
 
   // FLUX-backed wizardize: ~90s when the image-gen server is up. Run it on
