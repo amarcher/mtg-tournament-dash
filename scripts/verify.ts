@@ -2647,7 +2647,6 @@ async function runGameNightPass(): Promise<{
       notes: "Bring sleeves",
       status: "confirmed",
       startsAt: "2027-08-30T19:30",
-      format: "commander_pod",
     })
   );
   detail = await getNightDetail(night.id);
@@ -2656,9 +2655,8 @@ async function runGameNightPass(): Promise<{
       detail!.hostPlayerId === n1p.id &&
       detail!.hostName === `${PREFIX}N1` &&
       detail!.venue === "Andrew's basement" &&
-      detail!.status === "confirmed" &&
-      detail!.format === "commander_pod",
-    "the plan (set, format, host, venue, status) saves"
+      detail!.status === "confirmed",
+    "the plan (set, host, venue, status) saves"
   );
   assert(
     detail!.startsAt.toISOString() ===
@@ -2674,27 +2672,6 @@ async function runGameNightPass(): Promise<{
   } catch {
     ok("rejects a host who isn't in the league");
   }
-
-  try {
-    await updateGameNightAction(
-      makeFormData({ nightId: night.id, format: "kitchen_table" })
-    );
-    fail("an unknown format should throw");
-  } catch {
-    ok("rejects an unknown tournament format");
-  }
-
-  // An undecided night must not force a format on the event it becomes.
-  await updateGameNightAction(
-    makeFormData({
-      nightId: allNights[2].id,
-      setName: "Undecided-format night",
-    })
-  );
-  assert(
-    (await getNightDetail(allNights[2].id))!.format === null,
-    "a night with no format chosen stays null"
-  );
 
   const upcoming = await listUpcomingNights(league.id);
   assert(
@@ -2722,9 +2699,8 @@ async function runGameNightPass(): Promise<{
   assert(promoted, "promoted event links back to the night");
   assert(
     promoted!.scheduledAt?.getTime() === detail!.startsAt.getTime() &&
-      promoted!.setName === "Tales of Middle-earth" &&
-      promoted!.format === "commander_pod",
-    "promoted event carries the night's date, set, and format"
+      promoted!.setName === "Tales of Middle-earth",
+    "promoted event carries the night's date and set"
   );
   const nightRoster = await getEventRoster(promoted!.id);
   const rosterIds = new Set(nightRoster.map((r) => r.playerId));

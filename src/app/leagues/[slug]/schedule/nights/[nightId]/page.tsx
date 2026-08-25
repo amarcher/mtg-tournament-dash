@@ -20,10 +20,6 @@ import {
   responseRing,
 } from "@/app/components/GameNightCard";
 import {
-  TOURNAMENT_FORMATS,
-  TOURNAMENT_FORMAT_LABELS,
-} from "@/lib/event-format";
-import {
   POLL_RESPONSE_LABELS,
   formatPollDate,
   toDateTimeLocal,
@@ -234,21 +230,6 @@ export default async function GameNightPage({
                   autoComplete="off"
                   className={inputClass}
                 />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-sm text-zinc-400">Format</span>
-                <select
-                  name="format"
-                  defaultValue={night.format ?? ""}
-                  className={inputClass}
-                >
-                  <option value="">Not decided (Swiss when created)</option>
-                  {TOURNAMENT_FORMATS.map((f) => (
-                    <option key={f} value={f}>
-                      {TOURNAMENT_FORMAT_LABELS[f]}
-                    </option>
-                  ))}
-                </select>
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm text-zinc-400">Host</span>
