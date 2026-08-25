@@ -12,6 +12,8 @@ import { db } from "./client";
 import {
   datePolls,
   eloChanges,
+  gameNights,
+  nightRsvps,
   eventPlayers,
   events,
   games,
@@ -24,6 +26,7 @@ import {
   pollVotes,
   rounds,
   user,
+  type NightRsvp,
   type PollVote,
 } from "./schema";
 import {
@@ -824,6 +827,140 @@ export async function getPollDetail(pollId: string) {
     ...option,
     votes: votes.filter((v) => v.optionId === option.id),
   }));
+}
+
+export type NightRsvpRow = {
+  nightId: string;
+  playerId: string;
+  response: NightRsvp["response"];
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+export type NightWithRsvps = Awaited<
+  ReturnType<typeof hydrateNights>
+>[number];
+
+/** Attach RSVPs (+ host name and any promoted event) to a set of nights. */
+async function hydrateNights(nights: (typeof gameNights.$inferSelect)[]) {
+  const nightIds = nights.map((n) => n.id);
+  if (nightIds.length === 0) return [];
+  const hostIds = nights.flatMap((n) => (n.hostPlayerId ? [n.hostPlayerId] : []));
+
+  const [rsvps, hosts, promoted] = await Promise.all([
+    db
+      .select({
+        nightId: nightRsvps.nightId,
+        playerId: nightRsvps.playerId,
+        response: nightRsvps.response,
+        displayName: players.displayName,
+        avatarUrl: players.avatarUrl,
+      })
+      .from(nightRsvps)
+      .innerJoin(players, eq(players.id, nightRsvps.playerId))
+      .where(inArray(nightRsvps.nightId, nightIds)),
+    hostIds.length
+      ? db
+          .select({ id: players.id, displayName: players.displayName })
+          .from(players)
+          .where(inArray(players.id, hostIds))
+      : Promise.resolve([] as { id: string; displayName: string }[]),
+    db
+      .select({
+        id: events.id,
+        name: events.name,
+        status: events.status,
+        nightId: events.sourceNightId,
+      })
+      .from(events)
+      .where(inArray(events.sourceNightId, nightIds)),
+  ]);
+
+  return nights.map((night) => ({
+    ...night,
+    rsvps: rsvps.filter((r) => r.nightId === night.id) as NightRsvpRow[],
+    hostName:
+      hosts.find((h) => h.id === night.hostPlayerId)?.displayName ?? null,
+    event: promoted.find((e) => e.nightId === night.id) ?? null,
+  }));
+}
+
+export async function getGameNight(nightId: string) {
+  const [row] = await db
+    .select()
+    .from(gameNights)
+    .where(eq(gameNights.id, nightId));
+  return row ?? null;
+}
+
+export async function getNightDetail(nightId: string) {
+  const night = await getGameNight(nightId);
+  if (!night) return null;
+  const [hydrated] = await hydrateNights([night]);
+  return hydrated;
+}
+
+// A night stays "upcoming" until six hours after it starts, so tonight's date
+// doesn't drop off the schedule mid-draft.
+const UPCOMING_CUTOFF = sql`now() - interval '6 hours'`;
+
+/**
+ * The forward-looking schedule: every non-canceled night still to come,
+ * soonest first. This is what the league home and the schedule page show —
+ * the whole run of dates, not just the next one.
+ */
+export async function listUpcomingNights(leagueId: string, limit?: number) {
+  const q = db
+    .select()
+    .from(gameNights)
+    .where(
+      and(
+        eq(gameNights.leagueId, leagueId),
+        sql`${gameNights.status} <> 'canceled'`,
+        sql`${gameNights.startsAt} > ${UPCOMING_CUTOFF}`
+      )
+    )
+    .orderBy(asc(gameNights.startsAt));
+  return hydrateNights(await (limit ? q.limit(limit) : q));
+}
+
+/** Nights that have already happened (or were canceled), most recent first. */
+export async function listPastNights(leagueId: string) {
+  const nights = await db
+    .select()
+    .from(gameNights)
+    .where(
+      and(
+        eq(gameNights.leagueId, leagueId),
+        sql`(${gameNights.startsAt} <= ${UPCOMING_CUTOFF} OR ${gameNights.status} = 'canceled')`
+      )
+    )
+    .orderBy(desc(gameNights.startsAt));
+  return hydrateNights(nights);
+}
+
+/** How many upcoming nights exist, for "+N more" links. */
+export async function countUpcomingNights(leagueId: string) {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(gameNights)
+    .where(
+      and(
+        eq(gameNights.leagueId, leagueId),
+        sql`${gameNights.status} <> 'canceled'`,
+        sql`${gameNights.startsAt} > ${UPCOMING_CUTOFF}`
+      )
+    );
+  return row?.count ?? 0;
+}
+
+/** The event (if any) already created from this calendar night. */
+export async function getEventBySourceNight(nightId: string) {
+  const [row] = await db
+    .select()
+    .from(events)
+    .where(eq(events.sourceNightId, nightId));
+  return row ?? null;
 }
 
 export async function getLeagueHeadToHead(leagueId: string) {

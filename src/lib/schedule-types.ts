@@ -61,6 +61,29 @@ export function parseDateTimeLocal(value: string): Date | null {
   return new Date(utcGuess - tzOffsetMs(once));
 }
 
+const dateTimeLocalFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: LEAGUE_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/**
+ * Inverse of parseDateTimeLocal: render a stored instant as the wall time a
+ * `datetime-local` input expects, so an edit form round-trips a date without
+ * shifting it by the server's UTC offset.
+ */
+export function toDateTimeLocal(value: Date | string | number): string {
+  const parts = dateTimeLocalFormatter.formatToParts(new Date(value));
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "00";
+  const hour = String(Number(get("hour")) % 24).padStart(2, "0");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+}
+
 const pollDateFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: LEAGUE_TIMEZONE,
   weekday: "short",

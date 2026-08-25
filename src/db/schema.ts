@@ -51,6 +51,12 @@ export const pollResponse = pgEnum("poll_response", [
   "no",
 ]);
 
+export const nightStatus = pgEnum("night_status", [
+  "planned",
+  "confirmed",
+  "canceled",
+]);
+
 export const leagueMemberRole = pgEnum("league_member_role", [
   "owner",
   "organizer",
@@ -168,6 +174,9 @@ export const events = pgTable(
     sourcePollId: uuid("source_poll_id").references(() => datePolls.id, {
       onDelete: "set null",
     }),
+    sourceNightId: uuid("source_night_id").references(() => gameNights.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -178,6 +187,8 @@ export const events = pgTable(
     // promoteDatePollAction (Postgres treats NULLs as distinct, so direct
     // event creation is unaffected).
     sourcePollIdx: uniqueIndex("events_source_poll_idx").on(t.sourcePollId),
+    // Same one-event-per-source guard for calendar nights.
+    sourceNightIdx: uniqueIndex("events_source_night_idx").on(t.sourceNightId),
   })
 );
 
@@ -336,6 +347,63 @@ export const pollVotes = pgTable(
   })
 );
 
+// The standing calendar: dates the league has opened up for play, either
+// generated from a recurrence ("every other Monday from Aug 31") or added
+// one at a time. Distinct from date_polls, which pick ONE night out of
+// several candidates — a game night is already on the calendar and collects
+// RSVPs plus the plan (set, host, venue) for that specific date.
+export const gameNights = pgTable(
+  "game_nights",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    status: nightStatus("status").notNull().default("planned"),
+    // Whoever is hosting, and where. Both optional — a date goes on the
+    // calendar long before anyone volunteers a table.
+    hostPlayerId: uuid("host_player_id").references(() => players.id, {
+      onDelete: "set null",
+    }),
+    venue: text("venue"),
+    setName: text("set_name"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    leagueIdx: index("game_nights_league_idx").on(t.leagueId),
+    // Makes re-running a recurrence generator idempotent: a date already on
+    // the calendar is skipped rather than duplicated.
+    startsAtIdx: uniqueIndex("game_nights_league_starts_at_idx").on(
+      t.leagueId,
+      t.startsAt
+    ),
+  })
+);
+
+export const nightRsvps = pgTable(
+  "night_rsvps",
+  {
+    nightId: uuid("night_id")
+      .notNull()
+      .references(() => gameNights.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    response: pollResponse("response").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    pk: uniqueIndex("night_rsvps_pk").on(t.nightId, t.playerId),
+    nightIdx: index("night_rsvps_night_idx").on(t.nightId),
+  })
+);
+
 // Catalog of every wizard set a player has generated. `players.avatar*Url`
 // stays the "active" set; these rows let a player re-apply an older look.
 // Blob keys are versioned per row (avatars/<playerId>/<portraitId>/<tier>.jpg)
@@ -397,3 +465,5 @@ export type PlayerPortrait = typeof playerPortraits.$inferSelect;
 export type DatePoll = typeof datePolls.$inferSelect;
 export type PollOption = typeof pollOptions.$inferSelect;
 export type PollVote = typeof pollVotes.$inferSelect;
+export type GameNight = typeof gameNights.$inferSelect;
+export type NightRsvp = typeof nightRsvps.$inferSelect;

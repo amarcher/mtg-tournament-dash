@@ -18,6 +18,8 @@ import { db } from "@/db/client";
 import {
   datePolls,
   eloChanges,
+  gameNights,
+  nightRsvps,
   eventPlayers,
   events,
   games,
@@ -30,7 +32,9 @@ import {
 import {
   getCurrentRound,
   getDatePoll,
+  getEventBySourceNight,
   getEventBySourcePoll,
+  getGameNight,
   getEventStandings,
   getPairingInputs,
   getRoundMatches,
@@ -83,7 +87,12 @@ import {
   archetypeForTheme,
   isPortraitTheme,
 } from "@/lib/wizard-types";
-import { isPollResponse, parseDateTimeLocal } from "@/lib/schedule-types";
+import {
+  formatPollDate,
+  isPollResponse,
+  parseDateTimeLocal,
+} from "@/lib/schedule-types";
+import { MAX_SERIES_COUNT } from "@/lib/recurrence";
 
 export async function createEventAction(formData: FormData) {
   const leagueId = String(formData.get("leagueId") ?? "");
@@ -1697,6 +1706,225 @@ export async function promoteDatePollAction(formData: FormData) {
   revalidatePath(`/leagues/${league.slug}`);
   revalidatePath(`/leagues/${league.slug}/schedule`);
   revalidatePath(`/leagues/${league.slug}/schedule/${pollId}`);
+  redirect(`/events/${created.id}/manage`);
+}
+
+// --- The calendar --------------------------------------------------------
+// Date polls pick ONE night out of several candidates; the calendar opens a
+// run of dates up front and collects a rolling RSVP for each. The two live
+// side by side: a poll can still settle an off-schedule night.
+
+function revalidateCalendar(slug: string, nightId?: string) {
+  revalidatePath(`/leagues/${slug}`);
+  revalidatePath(`/leagues/${slug}/schedule`);
+  if (nightId) revalidatePath(`/leagues/${slug}/schedule/nights/${nightId}`);
+}
+
+async function requireNight(nightId: string) {
+  if (!nightId) throw new Error("Game night required");
+  const night = await getGameNight(nightId);
+  if (!night) throw new Error("Game night not found");
+  const league = await requirePollLeague(night.leagueId);
+  return { night, league };
+}
+
+/**
+ * Open a run of dates on the calendar. The caller sends the fully expanded
+ * list of `datetime-local` values (the form builds a recurrence client-side
+ * so the organizer sees exactly what they're about to create); dates already
+ * on the calendar are skipped rather than duplicated.
+ */
+export async function createGameNightsAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  if (!leagueId) throw new Error("League required");
+  const league = await requirePollLeague(leagueId);
+  await requireOrganizer(leagueId);
+
+  const raw = formData
+    .getAll("nightDate")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  const dates: Date[] = [];
+  for (const value of raw) {
+    const parsed = parseDateTimeLocal(value);
+    if (!parsed) throw new Error(`Couldn't read date "${value}"`);
+    if (!dates.some((d) => d.getTime() === parsed.getTime())) {
+      dates.push(parsed);
+    }
+  }
+  if (dates.length === 0) throw new Error("Add at least one date");
+  if (dates.length > MAX_SERIES_COUNT) {
+    throw new Error(`That's more than ${MAX_SERIES_COUNT} dates at once`);
+  }
+
+  await db
+    .insert(gameNights)
+    .values(dates.map((startsAt) => ({ leagueId, startsAt })))
+    .onConflictDoNothing({
+      target: [gameNights.leagueId, gameNights.startsAt],
+    });
+
+  revalidateCalendar(league.slug);
+  redirect(`/leagues/${league.slug}/schedule`);
+}
+
+/**
+ * Player self-service: mark yourself in, out, or maybe for one date. Always
+ * changeable — the whole point of the calendar is that plans move.
+ */
+export async function rsvpGameNightAction(formData: FormData) {
+  const nightId = String(formData.get("nightId") ?? "");
+  const playerId = String(formData.get("playerId") ?? "");
+  const response = formData.get("response");
+
+  const { night, league } = await requireNight(nightId);
+  if (night.status === "canceled") throw new Error("This night was canceled");
+  await requireLeaguePlayer(night.leagueId, playerId);
+  if (!isPollResponse(response)) throw new Error("Pick an RSVP");
+
+  await db
+    .insert(nightRsvps)
+    .values({ nightId, playerId, response })
+    .onConflictDoUpdate({
+      target: [nightRsvps.nightId, nightRsvps.playerId],
+      set: { response: sql`excluded.response`, updatedAt: sql`now()` },
+    });
+
+  revalidateCalendar(league.slug, nightId);
+}
+
+/** Organizer: fill in the plan for a night — set, host, venue, status. */
+export async function updateGameNightAction(formData: FormData) {
+  const nightId = String(formData.get("nightId") ?? "");
+  const { night, league } = await requireNight(nightId);
+  await requireOrganizer(night.leagueId);
+
+  const setName = String(formData.get("setName") ?? "").trim();
+  const venue = String(formData.get("venue") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim();
+  const hostPlayerId = String(formData.get("hostPlayerId") ?? "").trim();
+  const statusRaw = String(formData.get("status") ?? "").trim();
+  const startsAtRaw = String(formData.get("startsAt") ?? "").trim();
+
+  if (hostPlayerId) {
+    await requireLeaguePlayer(night.leagueId, hostPlayerId);
+  }
+  if (statusRaw && !["planned", "confirmed", "canceled"].includes(statusRaw)) {
+    throw new Error("Unknown status");
+  }
+  let startsAt = night.startsAt;
+  if (startsAtRaw) {
+    const parsed = parseDateTimeLocal(startsAtRaw);
+    if (!parsed) throw new Error(`Couldn't read date "${startsAtRaw}"`);
+    startsAt = parsed;
+  }
+
+  await db
+    .update(gameNights)
+    .set({
+      startsAt,
+      setName: setName || null,
+      venue: venue || null,
+      notes: notes || null,
+      hostPlayerId: hostPlayerId || null,
+      status: (statusRaw || night.status) as typeof night.status,
+    })
+    .where(eq(gameNights.id, nightId));
+
+  revalidateCalendar(league.slug, nightId);
+}
+
+/** Organizer: take a date back off the calendar. */
+export async function deleteGameNightAction(formData: FormData) {
+  const nightId = String(formData.get("nightId") ?? "");
+  const { night, league } = await requireNight(nightId);
+  await requireOrganizer(night.leagueId);
+
+  const promoted = await getEventBySourceNight(nightId);
+  if (promoted) {
+    throw new Error(
+      "This night already has an event — cancel or delete the event first"
+    );
+  }
+
+  await db.delete(gameNights).where(eq(gameNights.id, nightId));
+  revalidateCalendar(league.slug);
+  redirect(`/leagues/${league.slug}/schedule`);
+}
+
+/**
+ * Turn a calendar night into a real event: pre-rosters everyone who RSVP'd
+ * yes or if-need-be, carries the night's set across, and marks the night
+ * confirmed. Idempotent — a night that already spawned an event redirects to
+ * it, guarded by the unique index on events.source_night_id.
+ */
+export async function promoteGameNightAction(formData: FormData) {
+  const nightId = String(formData.get("nightId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  const { night, league } = await requireNight(nightId);
+  if (night.status === "canceled") throw new Error("This night was canceled");
+  await requireOrganizer(night.leagueId);
+
+  const existing = await getEventBySourceNight(nightId);
+  if (existing) redirect(`/events/${existing.id}/manage`);
+
+  const leaguePlayers = await db
+    .select()
+    .from(players)
+    .where(eq(players.leagueId, night.leagueId));
+  const rsvps = await db
+    .select()
+    .from(nightRsvps)
+    .where(eq(nightRsvps.nightId, nightId));
+  const leagueIds = new Set(leaguePlayers.map((p) => p.id));
+  let rosterIds = rsvps
+    .filter((r) => r.response !== "no" && leagueIds.has(r.playerId))
+    .map((r) => r.playerId);
+  // Same escape hatch as promoting a poll: a thin RSVP list shouldn't block
+  // the night — seed everyone and let the organizer trim on the manage page.
+  if (rosterIds.length < 2) {
+    rosterIds = leaguePlayers.map((p) => p.id);
+  }
+  if (rosterIds.length < 2) throw new Error("Need at least 2 players");
+
+  // No transactions on the Neon HTTP driver — order the writes so a failure
+  // mid-flight is recoverable: confirming the night alone is harmless, and
+  // the roster insert compensates by deleting the event it belongs to.
+  if (night.status === "planned") {
+    await db
+      .update(gameNights)
+      .set({ status: "confirmed" })
+      .where(eq(gameNights.id, nightId));
+  }
+
+  const [created] = await db
+    .insert(events)
+    .values({
+      leagueId: night.leagueId,
+      name: name || `Draft night · ${formatPollDate(night.startsAt)}`,
+      scheduledAt: night.startsAt,
+      setName: night.setName,
+      sourceNightId: night.id,
+    })
+    .returning();
+
+  const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
+  try {
+    await db.insert(eventPlayers).values(
+      rosterIds.map((pid, idx) => ({
+        eventId: created.id,
+        playerId: pid,
+        seed: idx + 1,
+        startingElo: eloByPlayer.get(pid) ?? 1200,
+        joinToken: generateJoinToken(),
+      }))
+    );
+  } catch (err) {
+    await db.delete(events).where(eq(events.id, created.id));
+    throw err;
+  }
+
+  revalidateCalendar(league.slug, nightId);
   redirect(`/events/${created.id}/manage`);
 }
 
