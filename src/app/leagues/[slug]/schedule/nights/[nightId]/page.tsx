@@ -14,10 +14,15 @@ import {
 } from "@/app/events/actions";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import {
+  ClearRsvpButton,
   NightPlanLine,
   RsvpButtons,
   responseRing,
 } from "@/app/components/GameNightCard";
+import {
+  TOURNAMENT_FORMATS,
+  TOURNAMENT_FORMAT_LABELS,
+} from "@/lib/event-format";
 import {
   POLL_RESPONSE_LABELS,
   formatPollDate,
@@ -117,6 +122,14 @@ export default async function GameNightPage({
                 Are you in? Change it any time.
               </h2>
               <RsvpButtons nightId={night.id} playerId={me.id} mine={mine} />
+              {mine && (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <p className="text-xs text-zinc-500">
+                    Tap your answer again to take it back.
+                  </p>
+                  <ClearRsvpButton nightId={night.id} playerId={me.id} />
+                </div>
+              )}
             </section>
           )
         ) : (
@@ -221,6 +234,21 @@ export default async function GameNightPage({
                   autoComplete="off"
                   className={inputClass}
                 />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm text-zinc-400">Format</span>
+                <select
+                  name="format"
+                  defaultValue={night.format ?? ""}
+                  className={inputClass}
+                >
+                  <option value="">Not decided (Swiss when created)</option>
+                  {TOURNAMENT_FORMATS.map((f) => (
+                    <option key={f} value={f}>
+                      {TOURNAMENT_FORMAT_LABELS[f]}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm text-zinc-400">Host</span>

@@ -1,0 +1,1 @@
+ALTER TABLE "game_nights" ADD COLUMN "format" "tournament_format";
