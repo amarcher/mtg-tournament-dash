@@ -368,8 +368,10 @@ export const gameNights = pgTable(
     }),
     venue: text("venue"),
     setName: text("set_name"),
-    // Null until someone decides — promotion falls back to the events
-    // table's own default rather than guessing here.
+    // Unused. Shipped as a tournament-style picker, removed when it turned
+    // out "format" here means the SET being drafted (that's `setName`).
+    // Kept in the schema only so db:generate doesn't emit a DROP COLUMN —
+    // migrations in this repo are additive-only.
     format: tournamentFormat("format"),
     notes: text("notes"),
     createdAt: timestamp("created_at", { withTimezone: true })

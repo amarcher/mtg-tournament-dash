@@ -93,7 +93,6 @@ import {
   parseDateTimeLocal,
 } from "@/lib/schedule-types";
 import { MAX_SERIES_COUNT } from "@/lib/recurrence";
-import { isTournamentFormat } from "@/lib/event-format";
 
 export async function createEventAction(formData: FormData) {
   const leagueId = String(formData.get("leagueId") ?? "");
@@ -1822,13 +1821,9 @@ export async function updateGameNightAction(formData: FormData) {
   const hostPlayerId = String(formData.get("hostPlayerId") ?? "").trim();
   const statusRaw = String(formData.get("status") ?? "").trim();
   const startsAtRaw = String(formData.get("startsAt") ?? "").trim();
-  const formatRaw = String(formData.get("format") ?? "").trim();
 
   if (hostPlayerId) {
     await requireLeaguePlayer(night.leagueId, hostPlayerId);
-  }
-  if (formatRaw && !isTournamentFormat(formatRaw)) {
-    throw new Error("Unknown format");
   }
   if (statusRaw && !["planned", "confirmed", "canceled"].includes(statusRaw)) {
     throw new Error("Unknown status");
@@ -1848,7 +1843,6 @@ export async function updateGameNightAction(formData: FormData) {
       venue: venue || null,
       notes: notes || null,
       hostPlayerId: hostPlayerId || null,
-      format: isTournamentFormat(formatRaw) ? formatRaw : null,
       status: (statusRaw || night.status) as typeof night.status,
     })
     .where(eq(gameNights.id, nightId));
@@ -1926,9 +1920,6 @@ export async function promoteGameNightAction(formData: FormData) {
       name: name || `Draft night · ${formatPollDate(night.startsAt)}`,
       scheduledAt: night.startsAt,
       setName: night.setName,
-      // Undefined (not null) so an undecided night takes the events table's
-      // own default rather than violating the NOT NULL column.
-      format: night.format ?? undefined,
       sourceNightId: night.id,
     })
     .returning();

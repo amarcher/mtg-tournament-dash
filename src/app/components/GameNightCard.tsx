@@ -8,10 +8,6 @@ import {
   type PollResponseValue,
 } from "@/lib/schedule-types";
 import { tallyResponses } from "@/lib/poll-tally";
-import {
-  DEFAULT_TOURNAMENT_FORMAT,
-  TOURNAMENT_FORMAT_LABELS,
-} from "@/lib/event-format";
 
 export const responseRing: Record<PollResponseValue, string> = {
   yes: "ring-emerald-400",
@@ -146,11 +142,6 @@ export function RsvpFaces({ rsvps }: { rsvps: NightWithRsvps["rsvps"] }) {
 export function NightPlanLine({ night }: { night: NightWithRsvps }) {
   const bits = [
     night.setName,
-    // Swiss is the default every event already gets — only a deliberate
-    // choice is worth the line's limited width.
-    night.format && night.format !== DEFAULT_TOURNAMENT_FORMAT
-      ? TOURNAMENT_FORMAT_LABELS[night.format]
-      : null,
     night.hostName ? `Host: ${night.hostName}` : null,
     night.venue,
   ].filter(Boolean);
