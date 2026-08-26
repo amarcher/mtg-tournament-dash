@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatPollDate,
+  formatPollDateParts,
   parseDateTimeLocal,
   toDateTimeLocal,
 } from "./schedule-types";
@@ -40,6 +41,27 @@ describe("toDateTimeLocal", () => {
       "2026-03-09T19:00", // after the spring-forward
     ]) {
       expect(toDateTimeLocal(parseDateTimeLocal(wall)!)).toBe(wall);
+    }
+  });
+});
+
+describe("formatPollDateParts", () => {
+  it("splits a wall time into calendar-tile pieces", () => {
+    const d = parseDateTimeLocal("2026-08-31T19:00")!;
+    expect(formatPollDateParts(d)).toEqual({
+      weekday: "Mon",
+      month: "Aug",
+      day: "31",
+      time: "7:00 PM",
+    });
+  });
+
+  it("agrees with formatPollDate across the DST boundary", () => {
+    for (const wall of ["2026-10-26T19:00", "2026-11-09T19:00"]) {
+      const d = parseDateTimeLocal(wall)!;
+      const { time } = formatPollDateParts(d);
+      expect(formatPollDate(d)).toContain(time);
+      expect(time).toBe("7:00 PM");
     }
   });
 });
