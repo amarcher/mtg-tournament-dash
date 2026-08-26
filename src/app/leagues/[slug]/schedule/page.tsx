@@ -15,6 +15,32 @@ import { formatPollDate } from "@/lib/schedule-types";
 
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const league = await getLeagueBySlug(slug);
+  if (!league) return {};
+
+  const upcoming = await listUpcomingNights(league.id, 3);
+  const title = `Draft night calendar · ${league.name}`;
+  const description =
+    upcoming.length === 0
+      ? "No dates on the calendar yet."
+      : `Next up: ${upcoming
+          .map((n) => formatPollDate(n.startsAt))
+          .join(" · ")}. Tap to say if you're in.`;
+
+  return {
+    title,
+    description,
+    openGraph: { title, description },
+    twitter: { card: "summary_large_image", title, description },
+  };
+}
+
 export default async function SchedulePage({
   params,
 }: {

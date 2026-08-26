@@ -93,6 +93,32 @@ const pollDateFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
+const partsFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: LEAGUE_TIMEZONE,
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
+/**
+ * The same wall-time rendering as formatPollDate, broken into pieces so a
+ * layout can compose them — the OG card stacks month over day as a calendar
+ * tile rather than printing one string.
+ */
+export function formatPollDateParts(value: Date | string | number) {
+  const parts = partsFormatter.formatToParts(new Date(value));
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return {
+    weekday: get("weekday"),
+    month: get("month"),
+    day: get("day"),
+    time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}`.trim(),
+  };
+}
+
 export function formatPollDate(value: Date | string | number) {
   return pollDateFormatter.format(new Date(value));
 }

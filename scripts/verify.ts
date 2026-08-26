@@ -1858,7 +1858,11 @@ async function checkRoutes(
       {
         path: `/leagues/${nights.leagueSlug}/schedule/nights/${nights.nightId}`,
         mustInclude: ["Tales of Middle-earth", `${PREFIX}N1`],
-      }
+      },
+      // No body match — a 200 means the ImageResponse actually rendered.
+      // A throw in here is invisible until someone shares the link.
+      { path: `/leagues/${nights.leagueSlug}/schedule/opengraph-image` },
+      { path: `/leagues/${nights.leagueSlug}/schedule/twitter-image` }
     );
   }
 
