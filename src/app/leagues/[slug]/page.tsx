@@ -415,36 +415,44 @@ export default async function LeagueHomePage({
         ) : (
           <ol className="space-y-1">
             {players.slice(0, 10).map((p, i) => (
-              <li
-                key={p.id}
-                className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-900/50 px-4 py-2"
-              >
-                <span className="flex items-center gap-3">
-                  <span className="w-6 text-right font-mono text-xs text-zinc-500">
-                    {i + 1}
-                  </span>
-                  {p.avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={p.avatarUrl}
-                      alt=""
-                      className="h-8 w-8 rounded-full object-cover ring-1 ring-zinc-700"
-                    />
-                  ) : (
-                    <span className="grid h-8 w-8 place-items-center rounded-full border border-dashed border-zinc-600 font-mono text-xs text-zinc-500">
-                      {p.displayName.charAt(0).toUpperCase()}
-                    </span>
-                  )}
+              <li key={p.id}>
                 <Link
                   href={`/players/${p.id}`}
-                  className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  className={`flex min-h-11 items-center justify-between gap-3 rounded-md border bg-zinc-900/50 px-4 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
+                    me?.id === p.id
+                      ? "border-emerald-500/50 hover:border-emerald-400 active:border-emerald-400"
+                      : "border-zinc-800 hover:border-amber-500/60 active:border-amber-500/60"
+                  }`}
                 >
-                    {p.displayName}
-                  </Link>
-                </span>
-                <span className="font-mono text-sm text-zinc-400">
-                  {p.currentElo}
-                </span>
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="w-6 shrink-0 text-right font-mono text-xs text-zinc-500">
+                      {i + 1}
+                    </span>
+                    {p.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.avatarUrl}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-zinc-700"
+                      />
+                    ) : (
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-zinc-600 font-mono text-xs text-zinc-500">
+                        {p.displayName.charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate font-medium">
+                      {p.displayName}
+                    </span>
+                    {me?.id === p.id && (
+                      <span className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wide text-emerald-300">
+                        You · edit portrait
+                      </span>
+                    )}
+                  </span>
+                  <span className="shrink-0 font-mono text-sm text-zinc-400">
+                    {p.currentElo}
+                  </span>
+                </Link>
               </li>
             ))}
           </ol>
