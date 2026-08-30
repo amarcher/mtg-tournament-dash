@@ -3,7 +3,7 @@ import type { Event, League, Player } from "@/db/schema";
 
 type AppChromeProps = {
   league?: Pick<League, "name" | "slug"> | null;
-  player?: Pick<Player, "displayName"> | null;
+  player?: Pick<Player, "id" | "displayName" | "avatarUrl"> | null;
   currentEvent?: Pick<Event, "id" | "name" | "status"> | null;
   /** Hides organizer-only nav (New Event, Settings). Actions are the real
    * authz boundary — this is progressive disclosure, not security. */
@@ -15,7 +15,8 @@ type AppChromeProps = {
     | "play"
     | "manage"
     | "schedule"
-    | "settings";
+    | "settings"
+    | "me";
   children: React.ReactNode;
 };
 
@@ -101,16 +102,45 @@ export function AppChrome({
               </Link>
             )}
           </div>
-          <div className="ml-auto min-w-0 text-right text-xs text-zinc-500">
-            {player ? (
-              <div className="truncate">
-                You: <span className="text-emerald-300">{player.displayName}</span>
-              </div>
-            ) : league ? (
-              <div className="truncate">{league.name}</div>
-            ) : null}
+          <div className="ml-auto flex min-w-0 items-center gap-2">
             {currentEvent ? (
-              <div className="truncate text-zinc-600">{currentEvent.name}</div>
+              <div className="min-w-0 max-w-[8rem] truncate text-right text-xs text-zinc-600 sm:max-w-none">
+                {currentEvent.name}
+              </div>
+            ) : null}
+            {player ? (
+              <Link
+                href={`/players/${player.id}`}
+                aria-label={`Your wizard, ${player.displayName} — edit portrait`}
+                className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-zinc-800 active:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
+                  active === "me" ? "bg-zinc-800" : ""
+                }`}
+              >
+                {player.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={player.avatarUrl}
+                    alt=""
+                    className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-amber-500/50"
+                  />
+                ) : (
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-amber-500/60 font-mono text-xs text-amber-400/80">
+                    {player.displayName.charAt(0).toUpperCase()}
+                  </span>
+                )}
+                <span className="min-w-0 text-left text-xs leading-tight">
+                  <span className="block truncate text-emerald-300">
+                    {player.displayName}
+                  </span>
+                  <span className="block truncate text-zinc-500">
+                    Your wizard
+                  </span>
+                </span>
+              </Link>
+            ) : league ? (
+              <div className="min-w-0 truncate text-right text-xs text-zinc-500">
+                {league.name}
+              </div>
             ) : null}
           </div>
         </nav>

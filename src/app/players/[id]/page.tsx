@@ -11,6 +11,8 @@ import {
   sweepStaleWizardJobs,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { isLeagueOrganizer } from "@/lib/authz";
+import { AppChrome } from "@/app/components/AppChrome";
 import { applyPortraitAction } from "@/app/events/actions";
 import { LEAGUE_TIMEZONE } from "@/lib/schedule-types";
 import { DeletePortraitButton } from "./DeletePortraitButton";
@@ -35,6 +37,7 @@ export default async function PlayerPage({
   const openEvents = await listOpenEventsForPlayer(player.leagueId, player.id);
   const leagueMe = await getCurrentLeaguePlayer(player.leagueId);
   const canEdit = leagueMe?.id === player.id;
+  const organizer = league ? await isLeagueOrganizer(league) : false;
   const portraits = canEdit ? await listPlayerPortraits(player.id) : [];
 
   const myMatches = await db
@@ -83,7 +86,13 @@ export default async function PlayerPage({
     .limit(20);
 
   return (
-    <main className="mx-auto max-w-3xl w-full px-6 py-12">
+    <AppChrome
+      league={league}
+      player={leagueMe}
+      isOrganizer={organizer}
+      active={canEdit ? "me" : undefined}
+    >
+      <main className="mx-auto max-w-3xl w-full px-6 py-12">
       <div className="mb-8">
         <Link
           href={league ? `/leagues/${league.slug}` : "/"}
@@ -361,7 +370,8 @@ export default async function PlayerPage({
           </ul>
         )}
       </section>
-    </main>
+      </main>
+    </AppChrome>
   );
 }
 

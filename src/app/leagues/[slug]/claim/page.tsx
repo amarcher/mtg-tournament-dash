@@ -162,7 +162,19 @@ export default async function LeagueClaimPage({
         </>
       )}
       <p className="mt-8 text-center text-xs text-zinc-500">
-        Need to update your portrait? Claim your wizard first, then open your player profile.
+        {me ? (
+          <>
+            Need to update your portrait?{" "}
+            <Link
+              href={`/players/${me.id}`}
+              className="text-amber-400 underline underline-offset-2 transition hover:text-amber-300 active:text-amber-300"
+            >
+              Open your wizard profile →
+            </Link>
+          </>
+        ) : (
+          "Need to update your portrait? Claim your wizard first, then open your wizard profile."
+        )}
       </p>
       </main>
     </AppChrome>
