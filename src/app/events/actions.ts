@@ -1191,6 +1191,109 @@ export async function setMatchResultAction(formData: FormData) {
 }
 
 /**
+ * Organizer undo for a recorded result: put the match back in progress,
+ * reverse its ELO deltas, and unwind whatever game rows the finalizer stamped
+ * (synthesized 2-0 sweeps are deleted; a real game that was mid-play when the
+ * result landed reopens with its life totals intact). Publishes
+ * `match_reopened` so both phones leave the result screen and rejoin the game.
+ * Available until the event is finalized — reopening a match in an
+ * already-closed round works like an excused pair playing through.
+ */
+export async function clearMatchResultAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "");
+  if (!matchId) throw new Error("matchId required");
+  const match = await requireOrganizerForMatch(matchId);
+  if (match.status !== "complete") throw new Error("Match has no result to clear");
+  if (!match.roundId) throw new Error("Bonus games have no result to clear");
+  if (match.playerBId === null) throw new Error("Byes can't be reopened");
+
+  const [round] = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.id, match.roundId));
+  const [event] = await db
+    .select()
+    .from(events)
+    .where(eq(events.id, round.eventId));
+  if (event.status === "complete")
+    throw new Error("Reopen the event before clearing a result");
+
+  const eloRows = await db
+    .select()
+    .from(eloChanges)
+    .where(eq(eloChanges.matchId, match.id));
+  // Subtract the recorded delta rather than restoring `before` — later
+  // matches may have moved the rating since, and their effect must survive.
+  for (const row of eloRows) {
+    const [p] = await db
+      .select()
+      .from(players)
+      .where(eq(players.id, row.playerId));
+    if (!p) continue;
+    await db
+      .update(players)
+      .set({ currentElo: p.currentElo - row.delta })
+      .where(eq(players.id, row.playerId));
+  }
+  if (eloRows.length > 0) {
+    await db.delete(eloChanges).where(eq(eloChanges.matchId, match.id));
+  }
+
+  // Games stamped by the finalizer share the completion instant (within one
+  // request) and carry the match winner. An untouched-life stamped game is a
+  // synthesized sweep row — delete it; one with real life totals was being
+  // played when the result landed — reopen it as it stood.
+  const completedAtMs = match.completedAt?.getTime() ?? 0;
+  const startingLife = event.startingLife;
+  const allGames = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, match.id))
+    .orderBy(games.gameNumber);
+  const stamped = allGames.filter(
+    (g) =>
+      g.winnerId === match.winnerId &&
+      g.completedAt !== null &&
+      Math.abs(g.completedAt.getTime() - completedAtMs) < 5000
+  );
+  const deletedIds = new Set<string>();
+  let hasOpenGame = allGames.some((g) => g.winnerId === null);
+  for (const g of stamped) {
+    if (g.playerALife === startingLife && g.playerBLife === startingLife) {
+      await db.delete(games).where(eq(games.id, g.id));
+      deletedIds.add(g.id);
+    } else {
+      await db
+        .update(games)
+        .set({ winnerId: null, completedAt: null })
+        .where(eq(games.id, g.id));
+      hasOpenGame = true;
+    }
+  }
+  if (!hasOpenGame) {
+    const surviving = allGames.filter((g) => !deletedIds.has(g.id));
+    const nextGameNumber =
+      surviving.reduce((n, g) => Math.max(n, g.gameNumber), 0) + 1;
+    await db.insert(games).values({
+      matchId: match.id,
+      gameNumber: nextGameNumber,
+      playerALife: startingLife,
+      playerBLife: startingLife,
+    });
+  }
+
+  await db
+    .update(matches)
+    .set({ status: "in_progress", winnerId: null, isDraw: false, completedAt: null })
+    .where(eq(matches.id, match.id));
+
+  await publish(round.eventId, { type: "match_reopened", matchId: match.id });
+  revalidatePath(`/events/${round.eventId}/manage`);
+  revalidatePath(`/events/${round.eventId}/broadcast`);
+  revalidatePath(`/events/${round.eventId}/play`);
+}
+
+/**
  * Programmatic version of the above for the phone view's "Match draw" button.
  * Kept as a separate export so PlayClient can call it without building a
  * FormData payload.
@@ -1204,18 +1307,29 @@ export async function reportMatchDrawAction(args: { matchId: string }) {
 
 /* ---- bonus games (casual head-to-head, player self-service) ---- */
 
-export async function createBonusGameAction(formData: FormData) {
+export type BonusGameFormState = { error: string | null };
+
+/**
+ * useActionState-shaped: expected failures ("X is already in a bonus game",
+ * "claim your wizard first") come back as `{ error }` for the form to render
+ * inline. On the Aug 31 draft night these throws hit Next's bare production
+ * error screen and read as a dead 404 — never again.
+ */
+export async function createBonusGameAction(
+  _prev: BonusGameFormState,
+  formData: FormData
+): Promise<BonusGameFormState> {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const rawEventId = String(formData.get("eventId") ?? "").trim();
   const opponentId = String(formData.get("opponentId") ?? "").trim();
   const startingLife = Number(formData.get("startingLife") ?? 20);
-  if (!leagueSlug) throw new Error("League required");
+  if (!leagueSlug) return { error: "League required" };
 
   const [league] = await db
     .select()
     .from(leagues)
     .where(eq(leagues.slug, leagueSlug));
-  if (!league) throw new Error("League not found");
+  if (!league) return { error: "League not found" };
 
   let caller = await getCurrentLeaguePlayer(league.id);
   if (!caller && rawEventId) {
@@ -1229,8 +1343,7 @@ export async function createBonusGameAction(formData: FormData) {
       if (p && p.leagueId === league.id) caller = p;
     }
   }
-  if (!caller)
-    throw new Error("Claim your wizard in this league first");
+  if (!caller) return { error: "Claim your wizard in this league first" };
 
   let eventId: string | null = null;
   if (rawEventId) {
@@ -1241,13 +1354,18 @@ export async function createBonusGameAction(formData: FormData) {
     if (ev && ev.leagueId === league.id) eventId = ev.id;
   }
 
-  const match = await createBonusGame({
-    leagueId: league.id,
-    playerAId: caller.id,
-    playerBId: opponentId || null,
-    eventId,
-    startingLife,
-  });
+  let match;
+  try {
+    match = await createBonusGame({
+      leagueId: league.id,
+      playerAId: caller.id,
+      playerBId: opponentId || null,
+      eventId,
+      startingLife,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Couldn't start the game" };
+  }
   redirect(`/matches/${match.id}`);
 }
 

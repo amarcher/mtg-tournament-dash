@@ -20,6 +20,8 @@ export function WaitForRound({ eventId }: { eventId: string }) {
           msg.type === "round_completed" ||
           msg.type === "event_state_changed" ||
           msg.type === "match_complete" ||
+          // An undone result puts a "waiting" phone back into its match.
+          msg.type === "match_reopened" ||
           // Keep the "looking for a bonus game" list current while waiting.
           msg.type === "bonus_game_opened" ||
           msg.type === "bonus_game_started" ||

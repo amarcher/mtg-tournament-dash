@@ -52,6 +52,7 @@ import {
   reopenEventAction,
   regeneratePendingPairingsAction,
   revertRoundToPairingsAction,
+  clearMatchResultAction,
   setMatchResultAction,
   startNextRoundAction,
   swapActiveMatchPlayersAction,
@@ -408,6 +409,62 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
       outcome: "draw",
     })
   );
+
+  // Second match: override, then undo it — the accidental-override recovery
+  // path (Aug 31 draft night) — then override again for real.
+  {
+    const { match, playerA, playerB } = real[1];
+    const eloBefore = new Map(
+      (
+        await db
+          .select()
+          .from(players)
+          .where(inArray(players.id, [playerA.id, playerB!.id]))
+      ).map((p) => [p.id, p.currentElo])
+    );
+    await setMatchResultAction(
+      makeFormData({ matchId: match.id, outcome: "a" })
+    );
+    const eloRows = await db
+      .select()
+      .from(eloChanges)
+      .where(eq(eloChanges.matchId, match.id));
+    assert(eloRows.length === 2, "override writes an ELO change per player");
+
+    await clearMatchResultAction(makeFormData({ matchId: match.id }));
+    const [reopened] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, match.id));
+    assert(
+      reopened.status === "in_progress" && reopened.winnerId === null,
+      "clearMatchResultAction reopens the match with no winner"
+    );
+    const eloAfterClear = await db
+      .select()
+      .from(players)
+      .where(inArray(players.id, [playerA.id, playerB!.id]));
+    assert(
+      eloAfterClear.every((p) => p.currentElo === eloBefore.get(p.id)),
+      "clearMatchResultAction restores both players' ELO"
+    );
+    const eloRowsAfter = await db
+      .select()
+      .from(eloChanges)
+      .where(eq(eloChanges.matchId, match.id));
+    assert(
+      eloRowsAfter.length === 0,
+      "clearMatchResultAction deletes the match's ELO changes"
+    );
+    const gs = await db
+      .select()
+      .from(games)
+      .where(eq(games.matchId, match.id));
+    assert(
+      gs.length === 1 && gs[0].winnerId === null,
+      "clearMatchResultAction leaves exactly one open game"
+    );
+  }
 
   // Remaining: a/b override based on names
   for (const { match, playerA, playerB } of real.slice(1)) {

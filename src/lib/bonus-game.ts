@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, matches, players, type Match } from "@/db/schema";
 import { publishToChannel } from "@/lib/pubsub";
@@ -13,6 +13,20 @@ import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
  */
 
 export const BONUS_LIFE_CHOICES = [20, 40] as const;
+
+/**
+ * Bonus games are a same-evening thing. One left in_progress by players who
+ * wandered off must not block either of them from being challenged the next
+ * day (the Aug 31 draft night: a single abandoned game made two players
+ * un-challengeable all night). Games older than this stop counting as
+ * "active" everywhere — busy checks, "return to your game" — though their
+ * match page still works if someone reopens it.
+ */
+const ACTIVE_WINDOW_HOURS = 12;
+
+function activeWindowCutoff(): Date {
+  return new Date(Date.now() - ACTIVE_WINDOW_HOURS * 60 * 60 * 1000);
+}
 
 /**
  * Which league player this device is, within a bonus game's scope. Identity
@@ -52,12 +66,39 @@ export async function findActiveBonusGameForPlayer(
         eq(matches.leagueId, leagueId),
         isNull(matches.roundId),
         ne(matches.status, "complete"),
+        gte(matches.createdAt, activeWindowCutoff()),
         sql`(${matches.playerAId} = ${playerId} OR ${matches.playerBId} = ${playerId})`
       )
     )
     .orderBy(desc(matches.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Players currently tied up in an open bonus game — the challenge dropdowns
+ * mark them so nobody hits "X is already in a bonus game" as a raw error.
+ */
+export async function listBusyBonusPlayerIds(
+  leagueId: string
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ a: matches.playerAId, b: matches.playerBId })
+    .from(matches)
+    .where(
+      and(
+        eq(matches.leagueId, leagueId),
+        isNull(matches.roundId),
+        ne(matches.status, "complete"),
+        gte(matches.createdAt, activeWindowCutoff())
+      )
+    );
+  const ids = new Set<string>();
+  for (const r of rows) {
+    ids.add(r.a);
+    if (r.b) ids.add(r.b);
+  }
+  return ids;
 }
 
 /**

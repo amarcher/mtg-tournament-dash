@@ -26,7 +26,6 @@ import {
   removeEventPlayerAction,
   reopenEventAction,
   revertRoundToPairingsAction,
-  setMatchResultAction,
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
   updateEventAction,
@@ -40,6 +39,7 @@ import { isLeagueOrganizer } from "@/lib/authz";
 import { EventNav } from "@/app/components/EventNav";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
+import { ResultButton, UndoResultButton } from "./ResultButtons";
 
 export const dynamic = "force-dynamic";
 
@@ -800,7 +800,9 @@ export default async function ManagePage({
           {incompleteCount > 0 && (
             <p className="mb-3 text-xs text-zinc-500">
               Pick a winner below to finalize any matches that didn&apos;t
-              report through the phone view.
+              report through the phone view. This records a real result — the
+              players&apos; phones end the match and ELO updates — so
+              don&apos;t use it to sketch out hypotheticals.
               {swappableActive.length >= 2 && (
                 <>
                   {" "}
@@ -858,12 +860,15 @@ export default async function ManagePage({
                     </span>
                   )}
                   {isComplete ? (
-                    <span className="text-xs text-emerald-400">
-                      {match.isDraw
-                        ? "draw"
-                        : winnerName
-                          ? `✓ ${winnerName}`
-                          : "complete"}
+                    <span className="flex items-center gap-3">
+                      <span className="text-xs text-emerald-400">
+                        {match.isDraw
+                          ? "draw"
+                          : winnerName
+                            ? `✓ ${winnerName}`
+                            : "complete"}
+                      </span>
+                      {!isBye && <UndoResultButton matchId={match.id} />}
                     </span>
                   ) : isBye ? (
                     <span className="text-xs text-zinc-500">automatic</span>
@@ -1143,31 +1148,3 @@ function SwapPicker({
   );
 }
 
-function ResultButton({
-  matchId,
-  outcome,
-  label,
-  variant,
-}: {
-  matchId: string;
-  outcome: "a" | "b" | "draw";
-  label: string;
-  variant?: "muted";
-}) {
-  return (
-    <form action={setMatchResultAction}>
-      <input type="hidden" name="matchId" value={matchId} />
-      <input type="hidden" name="outcome" value={outcome} />
-      <button
-        type="submit"
-        className={
-          variant === "muted"
-            ? "w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 sm:w-auto"
-            : "w-full rounded-md bg-amber-500 px-3 py-2 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 sm:w-auto"
-        }
-      >
-        {label}
-      </button>
-    </form>
-  );
-}
