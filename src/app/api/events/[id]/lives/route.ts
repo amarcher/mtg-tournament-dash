@@ -54,7 +54,13 @@ export async function GET(
       matchId: m.id,
       status: m.status,
       winnerId: m.winnerId,
-      activeGameId: activeByMatch.get(m.id)?.id ?? null,
+      // Same open-game-else-last-game fallback the /broadcast page uses for
+      // its initial snapshot. A completed match has no open game, so a bare
+      // active-game lookup returns null here while the page carries the last
+      // game's id — permanent "structural divergence" that made the client
+      // hard-reload every 10s tick for as long as the round showed a
+      // finished match.
+      activeGameId: fallback?.id ?? null,
       life: {
         a: fallback?.playerALife ?? null,
         b: fallback?.playerBLife ?? null,
