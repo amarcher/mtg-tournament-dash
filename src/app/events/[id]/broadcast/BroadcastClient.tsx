@@ -131,6 +131,7 @@ export function BroadcastClient({
         );
       } else if (
         msg.type === "match_complete" ||
+        msg.type === "match_reopened" ||
         msg.type === "game_complete" ||
         msg.type === "round_started" ||
         msg.type === "round_completed" ||

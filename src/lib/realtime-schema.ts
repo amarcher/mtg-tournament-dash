@@ -40,6 +40,9 @@ export const realtimeSchema = {
     matchId: z.string(),
     winnerId: z.string(),
   }),
+  // Organizer undid a recorded result — the match is back in progress and
+  // the two phones showing "You won/lost" need to rejoin the game.
+  match_reopened: z.object({ ts: z.number(), matchId: z.string() }),
   // Bonus games (casual matches outside rounds). `opened` fires on the event
   // channel when a game is created from a waiting room, so waiting phones
   // re-render their join list. `started` fires on the match channel when seat
@@ -59,6 +62,7 @@ export const REALTIME_EVENT_NAMES = [
   "life_changed",
   "game_complete",
   "match_complete",
+  "match_reopened",
   "bonus_game_opened",
   "bonus_game_started",
   "bonus_game_ended",
@@ -94,6 +98,7 @@ export type EventMessage =
       newGameId: string;
     }
   | { type: "match_complete"; ts: number; matchId: string; winnerId: string }
+  | { type: "match_reopened"; ts: number; matchId: string }
   | { type: "bonus_game_opened"; ts: number; matchId: string }
   | { type: "bonus_game_started"; ts: number; matchId: string }
   | { type: "bonus_game_ended"; ts: number; matchId: string };
@@ -106,6 +111,7 @@ export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set
   "round_completed",
   "event_state_changed",
   "match_complete",
+  "match_reopened",
   "game_complete",
   "bonus_game_opened",
   "bonus_game_started",

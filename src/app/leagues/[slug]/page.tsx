@@ -15,8 +15,11 @@ import {
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { isLeagueOrganizer } from "@/lib/authz";
-import { findActiveBonusGameForPlayer } from "@/lib/bonus-game";
-import { createBonusGameAction } from "@/app/events/actions";
+import {
+  findActiveBonusGameForPlayer,
+  listBusyBonusPlayerIds,
+} from "@/lib/bonus-game";
+import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { GameNightCard } from "@/app/components/GameNightCard";
 import { formatDate } from "@/lib/format";
@@ -77,6 +80,9 @@ export default async function LeagueHomePage({
   const myBonusGame = me
     ? await findActiveBonusGameForPlayer(league.id, me.id)
     : null;
+  const busyBonusIds = me
+    ? await listBusyBonusPlayerIds(league.id)
+    : new Set<string>();
   const myOpenEventIds = new Set(myOpenEvents.map(({ event }) => event.id));
   const activeSummaries = await Promise.all(
     openEvents.map(async (event) => {
@@ -270,48 +276,19 @@ export default async function LeagueHomePage({
                   until you quit, no ELO on the line.
                 </div>
               </div>
-              <form
-                action={createBonusGameAction}
-                className="flex shrink-0 flex-wrap items-center gap-2"
-              >
-                <input type="hidden" name="leagueSlug" value={league.slug} />
-                <label htmlFor="league-bonus-opponent" className="sr-only">
-                  Opponent
-                </label>
-                <select
-                  id="league-bonus-opponent"
-                  name="opponentId"
-                  defaultValue=""
-                  className="min-w-0 flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
-                >
-                  <option value="">Anyone — show a QR code</option>
-                  {players
+              <div className="w-full sm:max-w-sm">
+                <BonusGameForm
+                  leagueSlug={league.slug}
+                  opponents={players
                     .filter((p) => p.id !== me.id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.displayName}
-                      </option>
-                    ))}
-                </select>
-                <label htmlFor="league-bonus-life" className="sr-only">
-                  Starting life
-                </label>
-                <select
-                  id="league-bonus-life"
-                  name="startingLife"
-                  defaultValue="20"
-                  className="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
-                >
-                  <option value="20">20 life</option>
-                  <option value="40">40 life</option>
-                </select>
-                <button
-                  type="submit"
-                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                >
-                  Start a Bonus Game
-                </button>
-              </form>
+                    .map((p) => ({
+                      playerId: p.id,
+                      displayName: p.displayName,
+                      busy: busyBonusIds.has(p.id),
+                    }))}
+                  idPrefix="league-bonus"
+                />
+              </div>
             </div>
           )}
         </section>
