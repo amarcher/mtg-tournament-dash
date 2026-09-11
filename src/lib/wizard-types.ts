@@ -66,9 +66,25 @@ export const HOBBIT_ARCHETYPES = [
 
 export type HobbitArchetype = (typeof HOBBIT_ARCHETYPES)[number];
 
+export const TMNT_ARCHETYPES = [
+  "Leonardo",
+  "Raphael",
+  "Donatello",
+  "Michelangelo",
+  "Splinter",
+  "April O'Neil",
+  "Bebop",
+  "Rocksteady",
+  "Shredder",
+  "Krang",
+  "Casey Jones",
+] as const;
+
+export type TmntArchetype = (typeof TMNT_ARCHETYPES)[number];
+
 // A theme is a themed pack of selectable archetypes; the player picks the
 // theme first, then a character within it.
-export const PORTRAIT_THEMES = ["standard", "lotr", "marvel", "hobbit"] as const;
+export const PORTRAIT_THEMES = ["standard", "lotr", "marvel", "hobbit", "tmnt"] as const;
 
 export type PortraitTheme = (typeof PORTRAIT_THEMES)[number];
 
@@ -77,6 +93,7 @@ export const PORTRAIT_THEME_LABELS: Record<PortraitTheme, string> = {
   lotr: "Lord of the Rings",
   marvel: "Marvel Super Heroes",
   hobbit: "The Hobbit",
+  tmnt: "Teenage Mutant Ninja Turtles",
 };
 
 export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
@@ -84,18 +101,19 @@ export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
   lotr: LOTR_ARCHETYPES,
   marvel: MARVEL_ARCHETYPES,
   hobbit: HOBBIT_ARCHETYPES,
+  tmnt: TMNT_ARCHETYPES,
 };
 
 // What the wizardize form pre-selects. Hardcoded to the current draft's set
-// for now — TBD whether this later derives from the upcoming event. Set to
-// The Hobbit for the "Hobbit-ual Drafters" draft night (Aug 17).
-export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "hobbit";
+// for now — TBD whether this later derives from the upcoming event.
+export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "tmnt";
 
 export const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
   standard: "archmage",
   lotr: "wizard",
   marvel: "armored genius",
   hobbit: "hobbit burglar",
+  tmnt: "Leonardo",
 };
 
 export function isPortraitTheme(value: unknown): value is PortraitTheme {
