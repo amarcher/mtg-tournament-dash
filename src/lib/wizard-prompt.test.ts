@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { buildVariantPrompt, buildWizardPrompt } from "./wizard";
 import {
   HOBBIT_ARCHETYPES,
+  DEFAULT_PORTRAIT_THEME,
+  TMNT_ARCHETYPES,
   LOTR_ARCHETYPES,
   MARVEL_ARCHETYPES,
   PORTRAIT_THEMES,
@@ -171,6 +173,54 @@ describe("buildWizardPrompt — hobbit theme", () => {
   it("falls back to the hobbit burglar for an unknown value", () => {
     const prompt = buildWizardPrompt("hobbit", "balrog");
     expect(prompt).toContain("hobbit burglar of Bag End");
+  });
+});
+
+describe("TMNT portraits", () => {
+  it("defaults new generations to TMNT and accepts every character", () => {
+    expect(DEFAULT_PORTRAIT_THEME).toBe("tmnt");
+    expect(isPortraitTheme("tmnt")).toBe(true);
+    for (const character of TMNT_ARCHETYPES) {
+      expect(archetypeForTheme("tmnt", character)).toBe(character);
+      expect(buildWizardPrompt("tmnt", character)).toContain(character);
+    }
+    expect(archetypeForTheme("tmnt", "hobbit burglar")).toBe("Leonardo");
+    expect(buildWizardPrompt("tmnt", "unknown")).toBe(
+      buildWizardPrompt("tmnt", "Leonardo")
+    );
+  });
+
+  it.each([
+    ["Leonardo", "blue eye mask", "katana"],
+    ["Raphael", "red eye mask", "sai"],
+    ["Donatello", "purple eye mask", "bo staff"],
+    ["Michelangelo", "orange eye mask", "nunchaku"],
+  ])("gives %s their signature color and weapon", (character, mask, weapon) => {
+    const prompt = buildWizardPrompt("tmnt", character);
+    expect(prompt).toContain(mask);
+    expect(prompt).toContain(weapon);
+    expect(prompt).toContain("shell");
+  });
+
+  it("allows mutant faces while retaining the player's likeness", () => {
+    for (const character of ["Leonardo", "Raphael", "Donatello", "Michelangelo", "Splinter", "Bebop", "Rocksteady", "Krang"]) {
+      const prompt = buildWizardPrompt("tmnt", character);
+      expect(prompt).toContain("stays clearly recognizable");
+      expect(prompt).not.toContain("must stay identical");
+      expect(prompt).toContain("Family-friendly");
+    }
+    for (const character of ["April O'Neil", "Shredder", "Casey Jones"]) {
+      expect(buildWizardPrompt("tmnt", character)).toContain("must stay identical");
+    }
+  });
+
+  it("frames Krang's likeness in the belly cockpit across all life states", () => {
+    for (const tier of ["fresh", "wounded", "critical", "victory", "defeat"] as const) {
+      const prompt = buildVariantPrompt("tmnt", "Krang", "green lights", tier);
+      expect(prompt).toContain("Close-up portrait of the brain-being inside the android belly cockpit");
+      expect(prompt).not.toContain("Shoulders-up portrait");
+      expect(prompt).toContain("Also: green lights.");
+    }
   });
 });
 
