@@ -179,13 +179,13 @@ const HOBBIT_DETAILS: Record<HobbitArchetype, string> = {
 
 const TMNT_DETAILS: Record<TmntArchetype, string> = {
   Leonardo:
-    "Leonardo, the calm leader of the Teenage Mutant Ninja Turtles: a green mutant turtle with a blue eye mask, a broad turtle muzzle, a domed shell rising behind the shoulders, a tan plastron chest plate, twin katana hilts visible over the shoulders, moonlit New York rooftops behind them",
+    "Leonardo-inspired ninja gear: a narrow blue eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, twin katana hilts visible over the shoulders, moonlit New York rooftops behind them",
   Raphael:
-    "Raphael, the bold Teenage Mutant Ninja Turtle: a green mutant turtle with a red eye mask, a broad turtle muzzle, a domed shell rising behind the shoulders, a tan plastron chest plate, twin sai held beside the shoulders, gritty brick walls and warm city lights behind them",
+    "Raphael-inspired ninja gear: a narrow red eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, twin sai held beside the shoulders, gritty brick walls and warm city lights behind them",
   Donatello:
-    "Donatello, the inventive Teenage Mutant Ninja Turtle: a green mutant turtle with a purple eye mask, a broad turtle muzzle, a domed shell rising behind the shoulders, a tan plastron chest plate, a wooden bo staff rising over one shoulder, circuit boards and softly glowing monitors in a sewer workshop behind them",
+    "Donatello-inspired ninja gear: a narrow purple eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, a wooden bo staff rising over one shoulder, circuit boards and softly glowing monitors in a sewer workshop behind them",
   Michelangelo:
-    "Michelangelo, the fun-loving Teenage Mutant Ninja Turtle: a green mutant turtle with an orange eye mask, a broad turtle muzzle, a domed shell rising behind the shoulders, a tan plastron chest plate, nunchaku slung over one shoulder, a pizza box and colorful skateboard in a cozy sewer lair behind them",
+    "Michelangelo-inspired ninja gear: a narrow orange eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, nunchaku slung over one shoulder, a pizza box and colorful skateboard in a cozy sewer lair behind them",
   Splinter:
     "Splinter, the wise mutant rat sensei: warm brown fur, rounded rat ears, a whiskered muzzle, a worn burgundy martial-arts robe, a wooden walking staff beside one shoulder, a candlelit sewer dojo behind them",
   "April O'Neil":
@@ -197,10 +197,14 @@ const TMNT_DETAILS: Record<TmntArchetype, string> = {
   Shredder:
     "Shredder, the armored leader of the Foot Clan: a polished steel kabuto helmet, angular bladed shoulder armor and a purple cape, the metal face guard lowered to reveal their entire recognizable face, a shadowy rooftop dojo behind them",
   Krang:
-    "Krang, the scheming pink alien brain from Dimension X: a small living pink brain-being with folded brain-textured skin and short tentacle arms, their recognizable eyes, nose, mouth and expression sculpted into the brain's front, seated inside the open transparent belly cockpit of a towering android body; frame the brain and cockpit tightly as the portrait subject, with the android's head outside the crop and a glowing Technodrome control room behind them — playful science fiction, no exposed organs, no gore",
+    "Krang-inspired sci-fi portrait: this person's unchanged human face framed by a soft pink brain-shaped surround, with stylized folds confined to the surround outside their face and hair, small decorative tentacles beside the surround, all inside the transparent belly cockpit of an android body; their face fills most of the portrait, the android's head stays outside the crop, a glowing Technodrome control room behind them — playful costume effects, no exposed organs, no gore",
   "Casey Jones":
     "Casey Jones, the streetwise hockey vigilante: a hockey mask pushed up onto their forehead to leave their entire face visible, a weathered sleeveless sports vest, hockey sticks rising over one shoulder from a gear bag, a floodlit New York street hockey court behind them",
 };
+
+const TURTLE_ARCHETYPES = new Set<string>([
+  "Leonardo", "Raphael", "Donatello", "Michelangelo",
+]);
 
 // Characters whose transformation must rebuild the face itself (bark, fur,
 // scales, feathers, chitin — not skin). The strict identity lock overpowers
@@ -210,8 +214,7 @@ const TMNT_DETAILS: Record<TmntArchetype, string> = {
 const FULL_TRANSFORM_ARCHETYPES: Record<PortraitTheme, ReadonlySet<string>> = {
   standard: new Set(),
   tmnt: new Set([
-    "Leonardo", "Raphael", "Donatello", "Michelangelo",
-    "Splinter", "Bebop", "Rocksteady", "Krang",
+    "Splinter", "Bebop", "Rocksteady",
   ]),
   lotr: new Set(["ent"]),
   marvel: new Set(["gamma titan"]),
@@ -242,8 +245,25 @@ export function buildWizardPrompt(
   if (theme === "tmnt") archetype = archetypeForTheme(theme, archetype);
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
   const style =
-    `${theme === "tmnt" && archetype === "Krang" ? "Close-up portrait of the brain-being inside the android belly cockpit" : "Shoulders-up portrait"}, painterly oil-painting style, dramatic chiaroscuro lighting.` +
+    `${theme === "tmnt" && archetype === "Krang" ? "Close-up portrait of the person's face inside the android belly cockpit" : "Shoulders-up portrait"}, painterly oil-painting style, dramatic chiaroscuro lighting.` +
     (theme === "tmnt" ? " Family-friendly comic-book adventure, no blood or gore." : "");
+  if (theme === "tmnt" && archetype === "Krang") {
+    return (
+      `Keep this exact person from the reference photo. Preserve their human face shape, eyes, nose, mouth, jawline, skin tone, age, hairline, hairstyle, and beard or facial hair. ` +
+      `Create a ${TMNT_DETAILS.Krang}.${extra} ` +
+      `Keep their entire face unobstructed and recognizable. Do not sculpt brain folds into their face or replace it with Krang's cartoon face. ` +
+      style
+    );
+  }
+  if (theme === "tmnt" && TURTLE_ARCHETYPES.has(archetype)) {
+    return (
+      `Keep this exact person from the reference photo. Preserve their human face shape, eyes, nose, mouth, jawline, skin tone, age, hairline, hairstyle, and beard or facial hair. ` +
+      `Dress this person in ${TMNT_DETAILS[archetype as TmntArchetype]}.${extra} ` +
+      `Their own face is the portrait's focal point; keep the mask narrow and the eyes clearly visible. ` +
+      `Do not replace their face with the fictional character's face, a turtle muzzle, or a generic cartoon head. ` +
+      style
+    );
+  }
   if (theme !== "standard") {
     const details = TRANSFORM_THEME_DETAILS[theme];
     const detail =
