@@ -202,8 +202,24 @@ describe("TMNT portraits", () => {
     expect(prompt).toContain("shell");
   });
 
+  it("preserves human facial identity for every Turtle across all life states", () => {
+    for (const character of ["Leonardo", "Raphael", "Donatello", "Michelangelo"]) {
+      for (const tier of ["fresh", "wounded", "critical", "victory", "defeat"] as const) {
+        const prompt = buildVariantPrompt("tmnt", character, "gold trim", tier);
+        expect(prompt).toContain("Keep this exact person from the reference photo");
+        expect(prompt).toContain("Preserve their human face shape");
+        expect(prompt).toContain("beard or facial hair");
+        expect(prompt).toContain("Dress this person in");
+        expect(prompt).toContain("Also: gold trim.");
+        expect(prompt).not.toContain("Fully transform");
+        expect(prompt).not.toContain("a broad turtle muzzle");
+        expect(prompt).not.toContain("a green mutant turtle");
+      }
+    }
+  });
+
   it("allows mutant faces while retaining the player's likeness", () => {
-    for (const character of ["Leonardo", "Raphael", "Donatello", "Michelangelo", "Splinter", "Bebop", "Rocksteady", "Krang"]) {
+    for (const character of ["Splinter", "Bebop", "Rocksteady"]) {
       const prompt = buildWizardPrompt("tmnt", character);
       expect(prompt).toContain("stays clearly recognizable");
       expect(prompt).not.toContain("must stay identical");
@@ -217,8 +233,13 @@ describe("TMNT portraits", () => {
   it("frames Krang's likeness in the belly cockpit across all life states", () => {
     for (const tier of ["fresh", "wounded", "critical", "victory", "defeat"] as const) {
       const prompt = buildVariantPrompt("tmnt", "Krang", "green lights", tier);
-      expect(prompt).toContain("Close-up portrait of the brain-being inside the android belly cockpit");
+      expect(prompt).toContain("Close-up portrait of the person's face inside the android belly cockpit");
       expect(prompt).not.toContain("Shoulders-up portrait");
+      expect(prompt).toContain("Preserve their human face shape");
+      expect(prompt).toContain("beard or facial hair");
+      expect(prompt).toContain("folds confined to the surround outside their face and hair");
+      expect(prompt).not.toContain("Fully transform");
+      expect(prompt).not.toContain("living pink brain-being");
       expect(prompt).toContain("Also: green lights.");
     }
   });
