@@ -21,6 +21,7 @@ import {
   type LotrArchetype,
   type MarvelArchetype,
   type PortraitTheme,
+  type RealityFractureArchetype,
   type TmntArchetype,
   type WizardArchetype,
 } from "./wizard-types";
@@ -202,6 +203,35 @@ const TMNT_DETAILS: Record<TmntArchetype, string> = {
     "Casey Jones, the streetwise hockey vigilante: a hockey mask pushed up onto their forehead to leave their entire face visible, a weathered sleeveless sports vest, hockey sticks rising over one shoulder from a gear bag, a floodlit New York street hockey court behind them",
 };
 
+// Echoverse looks are partly inferred from key art — the set's story articles
+// describe roles, not costumes — so these lean on the confirmed hooks (ice
+// Chandra, healer Liliana, Chain Veil Garruk, golden Karn) and a shared
+// cracked-mirror motif.
+const REALITY_FRACTURE_DETAILS: Record<RealityFractureArchetype, string> = {
+  "the Theorist":
+    "the Theorist, the cold Echoverse mind-mage who rebuilt reality: severe deep-blue high-collared robes with silver geometric trim, glowing cyan runes tracing along the collar, a halo of floating cracked-mirror shards each reflecting a slightly different version of them, a vast impossible tower of stacked lecture halls behind them",
+  "Jace, Reality Sculptor":
+    "a mind-sculpting planeswalker: a deep-blue hooded cloak with silver trim over a fitted tunic, faint cyan illusion-light playing across their face, translucent blue geometric shapes folding and unfolding around their raised hand, a fractured sky split into two mirrored worlds behind them",
+  "Chandra, Chill of Compliance":
+    "an Echoverse cryomancer enforcer of the Consulate: polished ice-blue and white plate armor with frost-rimed filigree, pale frost glittering across their shoulders, a crackling shard of blue ice held at their side, calm disciplined expression, a frozen marble plaza under a cold sky behind them",
+  "Liliana the Faultless":
+    "an Echoverse healer of flawless radiance: pristine white-and-gold vestments with a high lace collar, a thin golden circlet, soft golden healing light glowing from their open palm, a serene composed expression, a luminous marble sanctuary of white lilies behind them",
+  "Garruk, Veiled Butcher":
+    "a demon-cursed Echoverse hunter: a battered black-leather hunting harness over bare muscular shoulders, glowing violet curse-tattoos winding up their neck and arms, a veil of fine dark chain links pushed back over their head and hanging behind their shoulders, a massive double-bladed axe over one shoulder, a shadowy thorn-choked forest with glowing predator eyes behind them",
+  "Ajani Unrelenting":
+    "an unrelenting leonin-inspired champion: a great lion's-head pelt worn as a hood, its thick white mane framing their face and spilling over their shoulders, battered red-and-gold armor with a torn crimson cloak, a twin-bladed axe over one shoulder, embers drifting across a smoky battlefield behind them",
+  "Vraska, Soul of Stone":
+    "a gorgon protector: a crown of writhing dark-green tendrils rising behind and above their own hairline, a faint stone-grey and emerald sheen across their skin, glowing golden eyes, a weathered leather captain's coat with brass buttons, a gleaming curved cutlass, a mossy ruined courtyard with half-finished stone statues behind them",
+  "Karn, Gilded Guardian":
+    "a golden golem guardian: a body of polished engraved gold metal plates with visible seams and rivets, a broad sculpted metallic brow and jaw, softly glowing eyes, five colored suns burning in a chrome-silver sky behind them",
+  "Kiora, dragon rider":
+    "an Echoverse merfolk dragon rider: sea-green skin with iridescent scales along the cheekbones and neck, fin-like ears, a coral-and-bronze riding harness, a smoke-wreathed dragon's horned head rising beside one shoulder, a burning coastline and ash-filled sky behind them",
+  "Hexhaven cadet":
+    "a cadet of Hexhaven Academy, the dark mirror of Strixhaven: a sharply tailored black dark-academia uniform with a high collar, a tarnished silver house crest, a grinning living spellbook with glowing violet pages tucked under one arm, a candlelit gothic library tower with floating tomes behind them",
+  "Echoverse twin":
+    "their own fractured reflection: the portrait split vertically down the center by a glowing crack of white light, as if seen through a shattered mirror; the left half in heroic Multiverse regalia of warm gold and crimson, the right half in cold Echoverse regalia of deep blue and silver, the same person on both sides, mirrored shards drifting in a void of two overlapping skies behind them",
+};
+
 const TURTLE_ARCHETYPES = new Set<string>([
   "Leonardo", "Raphael", "Donatello", "Michelangelo",
 ]);
@@ -215,6 +245,9 @@ const FULL_TRANSFORM_ARCHETYPES: Record<PortraitTheme, ReadonlySet<string>> = {
   standard: new Set(),
   tmnt: new Set([
     "Splinter", "Bebop", "Rocksteady",
+  ]),
+  "reality-fracture": new Set([
+    "Karn, Gilded Guardian", "Kiora, dragon rider",
   ]),
   lotr: new Set(["ent"]),
   marvel: new Set(["gamma titan"]),
@@ -235,6 +268,7 @@ const TRANSFORM_THEME_DETAILS: Record<
   marvel: MARVEL_DETAILS,
   hobbit: HOBBIT_DETAILS,
   tmnt: TMNT_DETAILS,
+  "reality-fracture": REALITY_FRACTURE_DETAILS,
 };
 
 export function buildWizardPrompt(

@@ -4,6 +4,7 @@ import {
   HOBBIT_ARCHETYPES,
   DEFAULT_PORTRAIT_THEME,
   TMNT_ARCHETYPES,
+  REALITY_FRACTURE_ARCHETYPES,
   LOTR_ARCHETYPES,
   MARVEL_ARCHETYPES,
   PORTRAIT_THEMES,
@@ -242,6 +243,36 @@ describe("TMNT portraits", () => {
       expect(prompt).not.toContain("living pink brain-being");
       expect(prompt).toContain("Also: green lights.");
     }
+  });
+});
+
+describe("Reality Fracture portraits", () => {
+  it("accepts every character and falls back to the Theorist", () => {
+    expect(isPortraitTheme("reality-fracture")).toBe(true);
+    for (const character of REALITY_FRACTURE_ARCHETYPES) {
+      expect(archetypeForTheme("reality-fracture", character)).toBe(character);
+    }
+    expect(archetypeForTheme("reality-fracture", "Leonardo")).toBe("the Theorist");
+    expect(buildWizardPrompt("reality-fracture", "unknown")).toBe(
+      buildWizardPrompt("reality-fracture", "the Theorist")
+    );
+  });
+
+  it("locks the face for human characters and carves it for non-human ones", () => {
+    for (const character of ["the Theorist", "Chandra, Chill of Compliance", "Liliana the Faultless", "Hexhaven cadet", "Echoverse twin", "Ajani Unrelenting", "Vraska, Soul of Stone"]) {
+      expect(buildWizardPrompt("reality-fracture", character)).toContain("must stay identical");
+    }
+    for (const character of ["Karn, Gilded Guardian", "Kiora, dragon rider"]) {
+      const prompt = buildWizardPrompt("reality-fracture", character);
+      expect(prompt).toContain("Fully transform");
+      expect(prompt).toContain("stays clearly recognizable");
+    }
+  });
+
+  it("keeps Garruk's Chain Veil off the face", () => {
+    expect(buildWizardPrompt("reality-fracture", "Garruk, Veiled Butcher")).toContain(
+      "pushed back over their head"
+    );
   });
 });
 

@@ -82,9 +82,29 @@ export const TMNT_ARCHETYPES = [
 
 export type TmntArchetype = (typeof TMNT_ARCHETYPES)[number];
 
+// Reality Fracture's hook is "echoed pairs": each legend has a twisted
+// Echoverse counterpart. The pack leans on the Echoverse side (the new looks)
+// plus Hexhaven, the set's dark mirror of Strixhaven.
+export const REALITY_FRACTURE_ARCHETYPES = [
+  "the Theorist",
+  "Jace, Reality Sculptor",
+  "Chandra, Chill of Compliance",
+  "Liliana the Faultless",
+  "Garruk, Veiled Butcher",
+  "Ajani Unrelenting",
+  "Vraska, Soul of Stone",
+  "Karn, Gilded Guardian",
+  "Kiora, dragon rider",
+  "Hexhaven cadet",
+  "Echoverse twin",
+] as const;
+
+export type RealityFractureArchetype =
+  (typeof REALITY_FRACTURE_ARCHETYPES)[number];
+
 // A theme is a themed pack of selectable archetypes; the player picks the
 // theme first, then a character within it.
-export const PORTRAIT_THEMES = ["standard", "lotr", "marvel", "hobbit", "tmnt"] as const;
+export const PORTRAIT_THEMES = ["standard", "lotr", "marvel", "hobbit", "tmnt", "reality-fracture"] as const;
 
 export type PortraitTheme = (typeof PORTRAIT_THEMES)[number];
 
@@ -94,6 +114,7 @@ export const PORTRAIT_THEME_LABELS: Record<PortraitTheme, string> = {
   marvel: "Marvel Super Heroes",
   hobbit: "The Hobbit",
   tmnt: "Teenage Mutant Ninja Turtles",
+  "reality-fracture": "Reality Fracture",
 };
 
 export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
@@ -102,6 +123,7 @@ export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
   marvel: MARVEL_ARCHETYPES,
   hobbit: HOBBIT_ARCHETYPES,
   tmnt: TMNT_ARCHETYPES,
+  "reality-fracture": REALITY_FRACTURE_ARCHETYPES,
 };
 
 // What the wizardize form pre-selects. Hardcoded to the current draft's set
@@ -114,6 +136,7 @@ export const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
   marvel: "armored genius",
   hobbit: "hobbit burglar",
   tmnt: "Leonardo",
+  "reality-fracture": "the Theorist",
 };
 
 export function isPortraitTheme(value: unknown): value is PortraitTheme {
