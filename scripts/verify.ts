@@ -1458,8 +1458,13 @@ async function runRosterAmendmentPass() {
   const byeWinner = standings.find(
     (s) => s.playerId === resolvedBye.playerAId
   );
+  // Swiss decides who D faces in round 2, so the bye can land on a round-1
+  // winner or loser — expect exactly one match win on top of round 1.
+  const byeWinnerWonR1 = r1Matches.some(
+    ({ match }) => match.playerAId === resolvedBye.playerAId
+  );
   assert(
-    byeWinner!.matchPoints >= 6,
+    byeWinner!.matchPoints === (byeWinnerWonR1 ? 6 : 3),
     "bye counts as a match win in the standings"
   );
   const dElo = await db
