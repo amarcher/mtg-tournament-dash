@@ -580,12 +580,15 @@ export default async function ManagePage({
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <CopyButton value={rosterJoinUrls[i]} />
-                <Link
+                {/* Plain <a>, not <Link>: the join route sets the player
+                    cookie, and <Link>'s viewport prefetch would claim every
+                    roster seat in turn for whoever views this page. */}
+                <a
                   href={`/events/${id}/join/${p.joinToken}`}
                   className="rounded-md border border-zinc-700 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
                   Open
-                </Link>
+                </a>
                 {event.status !== "complete" &&
                   (p.droppedAt ? (
                     <form action={addExistingPlayerToEventAction}>
