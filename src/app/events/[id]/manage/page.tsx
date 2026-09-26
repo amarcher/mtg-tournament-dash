@@ -36,6 +36,7 @@ import { formatPollDate } from "@/lib/schedule-types";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { OrganizerGate } from "@/app/components/OrganizerGate";
 import { isLeagueOrganizer } from "@/lib/authz";
+import { readOrganizerModeCookie } from "@/lib/organizer-mode";
 import { EventNav } from "@/app/components/EventNav";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
@@ -188,7 +189,12 @@ export default async function ManagePage({
   };
 
   return (
-    <AppChrome league={league} currentEvent={event} isOrganizer active="manage">
+    <AppChrome
+      league={league}
+      isOrganizer
+      organizerMode={await readOrganizerModeCookie()}
+      active="organize"
+    >
       <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
         <EventNav event={event} league={league} isOrganizer active="manage" />
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">

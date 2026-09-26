@@ -1,34 +1,35 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  getLatestLeaguePoll,
   getLeagueBySlug,
-  countUpcomingNights,
-  listUpcomingNights,
-  getEventRounds,
   getPollDetail,
-  getRoundMatches,
   listLeaguePlayers,
+  listOpenBonusGamesForLeague,
   listOpenEventsForPlayer,
   listOpenLeagueEvents,
-  listLeagueEvents,
+  listOpenLeaguePolls,
+  listUpcomingNights,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   findActiveBonusGameForPlayer,
   listBusyBonusPlayerIds,
 } from "@/lib/bonus-game";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
-import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
-import { GameNightCard } from "@/app/components/GameNightCard";
-import { formatDate } from "@/lib/format";
+import { AppChrome } from "@/app/components/AppChrome";
+import { NightPlanLine, RsvpButtons } from "@/app/components/GameNightCard";
 import { formatPollDate } from "@/lib/schedule-types";
-import { pickLeadingOptionId } from "@/lib/poll-tally";
 
 export const dynamic = "force-dynamic";
 
-export default async function LeagueHomePage({
+/**
+ * The Play tab — a player's home. Ordered by what a player came to do: the
+ * live match first, then bonus games, then anything on the schedule still
+ * waiting on their answer. Standings and history live on the League tab;
+ * organizer tools live behind organizer mode.
+ */
+export default async function PlayHomePage({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -37,246 +38,160 @@ export default async function LeagueHomePage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [
-    players,
-    openEvents,
-    allEvents,
-    me,
-    latestPoll,
-    upcomingNights,
-    upcomingCount,
-    organizer,
-  ] = await Promise.all([
-    listLeaguePlayers(league.id),
-    listOpenLeagueEvents(league.id),
-    listLeagueEvents(league.id),
-    getCurrentLeaguePlayer(league.id),
-    getLatestLeaguePoll(league.id),
-    listUpcomingNights(league.id, 4),
-    countUpcomingNights(league.id),
-    isLeagueOrganizer(league),
-  ]);
-  const pollOptions = latestPoll ? await getPollDetail(latestPoll.id) : [];
-  const pollVoterCount = new Set(
-    pollOptions.flatMap((o) => o.votes.map((v) => v.playerId))
-  ).size;
-  const pollWinner =
-    latestPoll?.status === "finalized"
-      ? pollOptions.find((o) => o.id === latestPoll.finalizedOptionId) ?? null
-      : null;
-  const pollLeadingId = pickLeadingOptionId(
-    pollOptions.map((o) => ({
-      id: o.id,
-      startsAt: o.startsAt,
-      responses: o.votes.map((v) => v.response),
-    }))
-  );
-  const pollLeading =
-    pollOptions.find((o) => o.id === pollLeadingId) ?? null;
-  const completedEvents = allEvents.filter((e) => e.status === "complete");
-  const myOpenEvents = me
-    ? await listOpenEventsForPlayer(league.id, me.id)
+  const [players, openEvents, me, openPolls, upcomingNights, view] =
+    await Promise.all([
+      listLeaguePlayers(league.id),
+      listOpenLeagueEvents(league.id),
+      getCurrentLeaguePlayer(league.id),
+      listOpenLeaguePolls(league.id),
+      listUpcomingNights(league.id, 6),
+      getOrganizerView(league),
+    ]);
+
+  const [myOpenEvents, myBonusGame, busyBonusIds, openSeats, pollDetails] =
+    await Promise.all([
+      me ? listOpenEventsForPlayer(league.id, me.id) : Promise.resolve([]),
+      me
+        ? findActiveBonusGameForPlayer(league.id, me.id)
+        : Promise.resolve(null),
+      me ? listBusyBonusPlayerIds(league.id) : Promise.resolve(new Set<string>()),
+      listOpenBonusGamesForLeague(league.id),
+      Promise.all(openPolls.map((p) => getPollDetail(p.id))),
+    ]);
+
+  const myEventIds = new Set(myOpenEvents.map(({ event }) => event.id));
+  const otherEvents = openEvents.filter((e) => !myEventIds.has(e.id));
+  const seatsForMe = openSeats.filter((g) => g.playerAId !== me?.id);
+
+  const pollsToAnswer = me
+    ? openPolls.filter(
+        (_, i) =>
+          !pollDetails[i].some((o) => o.votes.some((v) => v.playerId === me.id))
+      )
     : [];
-  const myBonusGame = me
-    ? await findActiveBonusGameForPlayer(league.id, me.id)
-    : null;
-  const busyBonusIds = me
-    ? await listBusyBonusPlayerIds(league.id)
-    : new Set<string>();
-  const myOpenEventIds = new Set(myOpenEvents.map(({ event }) => event.id));
-  const activeSummaries = await Promise.all(
-    openEvents.map(async (event) => {
-      const eventRounds = await getEventRounds(event.id);
-      const activeRound = eventRounds.find((r) => r.status === "active");
-      const pendingRound = eventRounds.find((r) => r.status === "pending");
-      const currentRound = activeRound ?? pendingRound ?? null;
-      const matches = currentRound ? await getRoundMatches(currentRound.id) : [];
-      const incompleteCount = activeRound
-        ? matches.filter(({ match }) => match.status !== "complete").length
-        : 0;
-      const completedCount = eventRounds.filter((r) => r.status === "complete")
-        .length;
-      return {
-        event,
-        currentRound,
-        incompleteCount,
-        completedCount,
-        isMine: myOpenEventIds.has(event.id),
-      };
-    })
-  );
+  const nightsToAnswer = me
+    ? upcomingNights
+        .filter(
+          (n) =>
+            n.status !== "canceled" &&
+            !n.rsvps.some((r) => r.playerId === me.id)
+        )
+        .slice(0, 3)
+    : [];
+  const answeredCount = me
+    ? openPolls.length - pollsToAnswer.length
+    : 0;
 
   return (
-    <AppChrome league={league} player={me} isOrganizer={organizer} active="league">
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              {league.name}
-            </h1>
-            <p className="mt-2 text-sm text-zinc-500">
-              Game-night command center for events, players, and league history.
+    <AppChrome
+      league={league}
+      player={me}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
+      active="play"
+    >
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
+        <h1 className="text-2xl font-bold">
+          {me ? `Hi, ${me.displayName}` : league.name}
+        </h1>
+
+        {!me && (
+          <Link
+            href={`/leagues/${league.slug}/claim`}
+            className="block rounded-panel border border-line-strong bg-[linear-gradient(135deg,rgb(255_215_106/0.18),rgb(255_160_60/0.05)_60%)] p-5 transition hover:border-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            <div className="label-caps text-gold">Start here</div>
+            <div className="mt-2 font-display text-lg font-bold">
+              Claim your wizard
+            </div>
+            <p className="mt-1 text-sm text-ink-dim">
+              Pick your name from the league (or make a new wizard) so this
+              phone knows who you are. You only do this once.
             </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={`/leagues/${league.slug}/claim`}
-              className="rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-            >
-              {me ? "Switch player" : "Claim wizard"}
-            </Link>
-            {organizer && (
-              <Link
-                href={`/leagues/${league.slug}/events/new`}
-                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-              >
-                New event
-              </Link>
-            )}
-          </div>
-        </div>
+            <span className="mt-4 inline-flex rounded-[12px] px-4 py-2.5 text-sm btn-gold">
+              Claim wizard →
+            </span>
+          </Link>
+        )}
 
-        <section className="mb-8 grid gap-3 md:grid-cols-3">
-          <DashboardStat label="Wizards" value={players.length} />
-          <DashboardStat label="Open events" value={openEvents.length} />
-          <DashboardStat label="Completed events" value={completedEvents.length} />
-        </section>
+        {myOpenEvents.map(({ event, activeMatch }) => (
+          <Link
+            key={event.id}
+            href={`/events/${event.id}/play`}
+            className="block rounded-panel border border-line-strong bg-[linear-gradient(135deg,rgb(255_215_106/0.20),rgb(255_160_60/0.05)_60%)] p-5 shadow-e2 transition hover:border-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            <div className="label-caps text-gold">
+              {activeMatch
+                ? `Your match is live · Table ${activeMatch.tableNumber}`
+                : "You're on the roster"}
+            </div>
+            <div className="mt-2 font-display text-xl font-bold">
+              {event.name}
+            </div>
+            <p className="mt-1 text-sm text-ink-dim">
+              {activeMatch
+                ? "Tap to keep score."
+                : "Stand by here. The scorekeeper opens when the round starts."}
+            </p>
+            <span className="mt-4 inline-flex rounded-[12px] px-5 py-3 text-sm btn-gold">
+              {activeMatch ? "Keep score →" : "Stand by →"}
+            </span>
+          </Link>
+        ))}
 
-      {upcomingNights.length > 0 && (
-        <section className="mb-10">
-          <div className="mb-3 flex items-baseline justify-between gap-3">
-            <h2 className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-              Upcoming draft nights
+        {me && (
+          <section className="surface-card p-4" aria-labelledby="bonus-h">
+            <h2 id="bonus-h" className="label-caps text-ink-dim">
+              Bonus games
             </h2>
-            <Link
-              href={`/leagues/${league.slug}/schedule`}
-              className="text-sm text-amber-400 transition hover:text-amber-300 active:text-amber-300"
-            >
-              {upcomingCount > upcomingNights.length
-                ? `+${upcomingCount - upcomingNights.length} more`
-                : "Whole schedule"}
-            </Link>
-          </div>
-          <ul className="grid gap-3 lg:grid-cols-2">
-            {upcomingNights.map((night) => (
-              <GameNightCard
-                key={night.id}
-                night={night}
-                leagueSlug={league.slug}
-                playerId={me?.id}
-              />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {latestPoll && latestPoll.status === "open" && (
-        <section className="mb-10">
-          <Link
-            href={`/leagues/${league.slug}/schedule/${latestPoll.id}`}
-            className="flex items-center justify-between gap-4 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-4 transition hover:border-amber-500/60 hover:bg-zinc-800/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-          >
-            <div className="min-w-0">
-              <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                Scheduling · {pollVoterCount} of {players.length} voted
-              </div>
-              <div className="mt-0.5 truncate text-lg font-semibold">
-                {latestPoll.title}
-              </div>
-              <div className="text-xs text-zinc-500">
-                {pollLeading
-                  ? `Leading: ${formatPollDate(pollLeading.startsAt)}`
-                  : "No availability marked yet"}
-              </div>
-            </div>
-            <span className="shrink-0 rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950">
-              Vote
-            </span>
-          </Link>
-        </section>
-      )}
-
-      {pollWinner && (
-        <section className="mb-10">
-          <Link
-            href={`/leagues/${league.slug}/schedule/${latestPoll!.id}`}
-            className="flex items-center justify-between gap-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 transition hover:border-emerald-500 hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-          >
-            <div className="min-w-0">
-              <div className="text-xs uppercase tracking-[0.2em] text-emerald-300">
-                Next draft night
-              </div>
-              <div className="mt-0.5 truncate text-lg font-semibold text-emerald-100">
-                {formatPollDate(pollWinner.startsAt)}
-              </div>
-            </div>
-            <span className="shrink-0 text-xs text-emerald-200/70">
-              {latestPoll!.title}
-            </span>
-          </Link>
-        </section>
-      )}
-
-      {me && myOpenEvents.length > 0 && (
-        <section className="mb-10 space-y-2">
-          {myOpenEvents.map(({ event, activeMatch }) => (
-            <Link
-              key={event.id}
-              href={`/events/${event.id}/play`}
-              className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-5 py-4 transition hover:border-amber-500 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-            >
-              <div className="min-w-0">
-                <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
-                  {activeMatch ? "Your match is live" : "You're on the roster"}
-                </div>
-                <div className="mt-0.5 truncate text-lg font-semibold text-amber-100">
-                  {event.name}
-                </div>
-                <div className="text-xs text-amber-200/70">
-                  {activeMatch
-                    ? "Tap to open the scorekeeper"
-                    : "Tap to stand by — auto-jumps when the round starts"}
-                </div>
-              </div>
-              <span className="shrink-0 rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950">
-                Scorekeeper
-              </span>
-            </Link>
-          ))}
-        </section>
-      )}
-
-      {me && (
-        <section className="mb-10">
-          {myBonusGame ? (
-            <Link
-              href={`/matches/${myBonusGame.id}`}
-              className="flex items-center justify-between gap-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 transition hover:border-emerald-500 hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-            >
-              <div className="min-w-0">
-                <div className="text-xs uppercase tracking-[0.2em] text-emerald-300">
-                  Bonus Game in progress
-                </div>
-                <div className="mt-0.5 truncate text-lg font-semibold text-emerald-100">
-                  Return to your Bonus Game
-                </div>
-              </div>
-              <span className="shrink-0 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950">
-                Resume
-              </span>
-            </Link>
-          ) : (
-            <div className="flex flex-col gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                  Bonus Game
-                </div>
-                <div className="mt-0.5 text-sm text-zinc-400">
-                  Pair up with any wizard for a casual head-to-head — games
-                  until you quit, no ELO on the line.
-                </div>
-              </div>
-              <div className="w-full sm:max-w-sm">
+            {myBonusGame ? (
+              <Link
+                href={`/matches/${myBonusGame.id}`}
+                className="mt-3 flex items-center justify-between gap-3 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              >
+                <span className="font-semibold text-emerald-100">
+                  {myBonusGame.status === "pending"
+                    ? "Your seat is open — waiting for an opponent"
+                    : "Your bonus game is in progress"}
+                </span>
+                <span className="shrink-0 text-sm font-semibold text-emerald-300">
+                  Resume →
+                </span>
+              </Link>
+            ) : (
+              <>
+                {seatsForMe.length > 0 && (
+                  <ul className="mt-3 flex flex-col gap-2">
+                    {seatsForMe.map((g) => (
+                      <li key={g.matchId}>
+                        <Link
+                          href={`/matches/${g.matchId}`}
+                          className="flex items-center gap-3 rounded-[14px] border border-line bg-white/[0.03] px-3 py-2.5 transition hover:border-emerald-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                        >
+                          <SmallAvatar
+                            name={g.playerAName}
+                            url={g.playerAAvatarUrl}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm">
+                            <strong className="font-semibold">
+                              {g.playerAName}
+                            </strong>{" "}
+                            <span className="text-ink-dim">
+                              is looking for a game
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-sm font-semibold text-emerald-300">
+                            Join →
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-3 text-sm text-ink-dim">
+                  Challenge anyone in the league, or open a seat and let
+                  someone scan in. Games until you quit, no ELO on the line.
+                </p>
                 <BonusGameForm
                   leagueSlug={league.slug}
                   opponents={players
@@ -288,194 +203,117 @@ export default async function LeagueHomePage({
                     }))}
                   idPrefix="league-bonus"
                 />
-              </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {me && (pollsToAnswer.length > 0 || nightsToAnswer.length > 0) && (
+          <section className="surface-card p-4" aria-labelledby="answer-h">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 id="answer-h" className="label-caps text-gold">
+                Needs your answer
+              </h2>
+              <Link
+                href={`/leagues/${league.slug}/schedule`}
+                className="text-sm font-medium text-ink-dim transition hover:text-ink"
+              >
+                Schedule →
+              </Link>
             </div>
-          )}
-        </section>
-      )}
+            <ul className="mt-2 divide-y divide-white/5">
+              {pollsToAnswer.map((poll) => (
+                <li key={poll.id} className="py-3">
+                  <Link
+                    href={`/leagues/${league.slug}/schedule/${poll.id}`}
+                    className="flex items-center justify-between gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-semibold">
+                        {poll.title}
+                      </span>
+                      <span className="text-sm text-ink-dim">
+                        Pick the dates that work for you
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded-[12px] px-4 py-2.5 text-sm btn-gold">
+                      Vote
+                    </span>
+                  </Link>
+                </li>
+              ))}
+              {nightsToAnswer.map((night) => (
+                <li key={night.id} className="flex flex-col gap-2 py-3">
+                  <Link
+                    href={`/leagues/${league.slug}/schedule/nights/${night.id}`}
+                    className="font-semibold transition hover:text-gold"
+                  >
+                    {formatPollDate(night.startsAt)}
+                  </Link>
+                  <NightPlanLine night={night} />
+                  <RsvpButtons nightId={night.id} playerId={me.id} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
-      <section className="mb-12">
-        <div className="mb-4 flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-medium text-zinc-200">Active events</h2>
-          <Link
-            href={`/leagues/${league.slug}/claim`}
-            className="text-sm text-amber-400 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-          >
-            Join as player
-          </Link>
-        </div>
-        {openEvents.length === 0 ? (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-sm text-zinc-500">
-            No events in progress.
-          </div>
-        ) : (
-          <ul className="grid gap-3">
-            {activeSummaries.map(({ event: e, currentRound, incompleteCount, completedCount, isMine }) => (
-              <li
+        {me &&
+          pollsToAnswer.length === 0 &&
+          nightsToAnswer.length === 0 &&
+          (answeredCount > 0 || upcomingNights.length > 0) && (
+            <p className="text-center text-sm text-ink-faint">
+              You&apos;re all caught up on the schedule.
+            </p>
+          )}
+
+        {otherEvents.length > 0 && (
+          <section aria-labelledby="events-h" className="flex flex-col gap-2">
+            <h2 id="events-h" className="label-caps text-ink-dim">
+              Also running
+            </h2>
+            {otherEvents.map((e) => (
+              <div
                 key={e.id}
-                className="rounded-lg border border-zinc-800 bg-zinc-900 p-4"
+                className="flex items-center justify-between gap-3 surface-card px-4 py-3"
               >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-lg font-semibold">{e.name}</h3>
-                      <StatusBadge status={e.status} />
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-500">
-                      {currentRound
-                        ? `Round ${currentRound.roundNumber} of ${e.totalRounds}`
-                        : `${e.totalRounds} rounds ready`}
-                      {" · "}
-                      {completedCount} closed
-                      {incompleteCount > 0
-                        ? ` · ${incompleteCount} match${incompleteCount === 1 ? "" : "es"} pending`
-                        : ""}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-sm">
-                    {isMine ? (
-                      <Link
-                        className="rounded-md bg-amber-500 px-3 py-2 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                        href={`/events/${e.id}/play`}
-                      >
-                        Scorekeeper
-                      </Link>
-                    ) : (
-                      <Link
-                        className="rounded-md border border-zinc-700 px-3 py-2 font-medium text-zinc-200 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                        href={`/events/${e.id}/claim`}
-                      >
-                        Claim seat
-                      </Link>
-                    )}
-                    {organizer && (
-                      <Link
-                        className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                        href={`/events/${e.id}/manage`}
-                      >
-                        Manage
-                      </Link>
-                    )}
+                <span className="min-w-0 truncate font-semibold">{e.name}</span>
+                <span className="flex shrink-0 gap-2">
+                  <Link
+                    href={`/events/${e.id}/broadcast`}
+                    className="rounded-[12px] px-3 py-2 text-sm btn-ghost"
+                  >
+                    Watch
+                  </Link>
+                  {(e.status === "draft" || !me) && (
                     <Link
-                      className="rounded-md bg-zinc-800 px-3 py-2 font-medium transition hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                      href={`/events/${e.id}/broadcast`}
+                      href={`/events/${e.id}/claim`}
+                      className="rounded-[12px] px-3 py-2 text-sm btn-gold"
                     >
-                      Broadcast
+                      {me ? "Join" : "Claim seat"}
                     </Link>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="mb-12">
-        <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="text-lg font-medium text-zinc-300">Leaderboard</h2>
-          {players.length > 10 && (
-            <span className="text-xs text-zinc-500">
-              {players.length} players
-            </span>
-          )}
-        </div>
-        {players.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            No wizards yet.{" "}
-            <Link
-              href={`/leagues/${league.slug}/claim`}
-              className="text-amber-400 hover:text-amber-300"
-            >
-              Be the first.
-            </Link>
-          </p>
-        ) : (
-          <ol className="space-y-1">
-            {players.slice(0, 10).map((p, i) => (
-              <li key={p.id}>
-                <Link
-                  href={`/players/${p.id}`}
-                  className={`flex min-h-11 items-center justify-between gap-3 rounded-md border bg-zinc-900/50 px-4 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
-                    me?.id === p.id
-                      ? "border-emerald-500/50 hover:border-emerald-400 active:border-emerald-400"
-                      : "border-zinc-800 hover:border-amber-500/60 active:border-amber-500/60"
-                  }`}
-                >
-                  <span className="flex min-w-0 items-center gap-3">
-                    <span className="w-6 shrink-0 text-right font-mono text-xs text-zinc-500">
-                      {i + 1}
-                    </span>
-                    {p.avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.avatarUrl}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-zinc-700"
-                      />
-                    ) : (
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-zinc-600 font-mono text-xs text-zinc-500">
-                        {p.displayName.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                    <span className="min-w-0 truncate font-medium">
-                      {p.displayName}
-                    </span>
-                    {me?.id === p.id && (
-                      <span className="shrink-0 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wide text-emerald-300">
-                        You · edit portrait
-                      </span>
-                    )}
-                  </span>
-                  <span className="shrink-0 font-mono text-sm text-zinc-400">
-                    {p.currentElo}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      {completedEvents.length > 0 && (
-        <section>
-          <h2 className="mb-4 text-lg font-medium text-zinc-300">
-            Past events
-          </h2>
-          <ul className="space-y-1">
-            {completedEvents.slice(0, 10).map((e) => (
-              <li
-                key={e.id}
-                className="flex items-baseline justify-between rounded-md bg-zinc-900/30 px-4 py-2 text-sm"
-              >
-                <Link
-                  href={
-                    organizer
-                      ? `/events/${e.id}/manage`
-                      : `/events/${e.id}/broadcast`
-                  }
-                  className="font-medium transition hover:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                >
-                  {e.name}
-                </Link>
-                <span className="text-xs text-zinc-500">
-                  {formatDate(e.createdAt)}
+                  )}
                 </span>
-              </li>
+              </div>
             ))}
-          </ul>
-        </section>
-      )}
-
+          </section>
+        )}
       </main>
     </AppChrome>
   );
 }
 
-function DashboardStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3">
-      <div className="font-mono text-2xl tabular-nums text-zinc-100">{value}</div>
-      <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
-    </div>
+function SmallAvatar({ name, url }: { name: string; url: string | null }) {
+  return url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt=""
+      className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-line-strong"
+    />
+  ) : (
+    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-2 font-display text-sm font-bold text-gold ring-1 ring-line-strong">
+      {name.charAt(0).toUpperCase()}
+    </span>
   );
 }

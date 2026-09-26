@@ -11,7 +11,7 @@ export function OrganizerGate({
   league,
   next,
 }: {
-  league: Pick<League, "name" | "slug"> | null;
+  league: Pick<League, "id" | "name" | "slug"> | null;
   next: string;
 }) {
   return (

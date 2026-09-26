@@ -7,7 +7,7 @@ import {
   listUpcomingNights,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
 import { AppChrome, StatusBadge } from "@/app/components/AppChrome";
 import { GameNightCard } from "@/app/components/GameNightCard";
 import { formatDate } from "@/lib/format";
@@ -49,19 +49,20 @@ export default async function SchedulePage({
   const { slug } = await params;
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
-  const [upcoming, past, polls, me, organizer] = await Promise.all([
+  const [upcoming, past, polls, me, view] = await Promise.all([
     listUpcomingNights(league.id),
     listPastNights(league.id),
     listLeaguePolls(league.id),
     getCurrentLeaguePlayer(league.id),
-    isLeagueOrganizer(league),
+    getOrganizerView(league),
   ]);
 
   return (
     <AppChrome
       league={league}
       player={me}
-      isOrganizer={organizer}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
       active="schedule"
     >
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
@@ -79,7 +80,7 @@ export default async function SchedulePage({
         <section className="mb-12">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <h2 className="text-lg font-medium text-zinc-200">The calendar</h2>
-            {organizer && (
+            {view.organizerMode && (
               <Link
                 href={`/leagues/${league.slug}/schedule/nights/new`}
                 className="flex min-h-11 items-center rounded-md bg-amber-500 px-4 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 active:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
@@ -92,7 +93,7 @@ export default async function SchedulePage({
           {upcoming.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-sm text-zinc-500">
               No dates on the calendar yet.
-              {organizer
+              {view.organizerMode
                 ? " Open a run — every other Monday, say — and the league starts RSVPing."
                 : " An organizer can open a run of dates."}
             </div>
@@ -104,6 +105,7 @@ export default async function SchedulePage({
                   night={night}
                   leagueSlug={league.slug}
                   playerId={me?.id}
+                  organizerMode={view.organizerMode}
                 />
               ))}
             </ul>

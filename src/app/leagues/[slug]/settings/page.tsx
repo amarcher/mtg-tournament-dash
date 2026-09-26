@@ -10,6 +10,7 @@ import {
 import { getLeagueBySlug, listLeagueMembers } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getSessionUser, isLeagueOrganizer } from "@/lib/authz";
+import { readOrganizerModeCookie } from "@/lib/organizer-mode";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { qrDataUrl } from "@/lib/qr";
 
@@ -47,7 +48,13 @@ export default async function LeagueSettingsPage({
   ]);
 
   return (
-    <AppChrome league={league} player={me} isOrganizer active="settings">
+    <AppChrome
+      league={league}
+      player={me}
+      isOrganizer
+      organizerMode={await readOrganizerModeCookie()}
+      active="organize"
+    >
       <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <h1 className="mb-1 text-2xl font-semibold tracking-tight sm:text-3xl">
           League settings

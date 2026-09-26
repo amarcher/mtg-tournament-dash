@@ -2,6 +2,8 @@
 
 import { revalidatePath as _revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { ORGANIZER_MODE_COOKIE } from "@/lib/organizer-mode";
 
 // Revalidation is a side effect tied to the request scope; if we're called
 // outside a request (e.g. from a smoke-test script), silently no-op rather
@@ -2243,4 +2245,35 @@ export async function removeLeagueMemberAction(formData: FormData) {
     );
 
   revalidatePath(`/leagues/${league.slug}/settings`);
+}
+
+/* ---- organizer mode (a view preference, not a permission) ---- */
+
+/**
+ * Flip organizer mode on or off, then land back where the toggle was tapped.
+ * Turning it on is refused for non-organizers of the given league so a
+ * player can't wander into a half-rendered organizer view; turning it off is
+ * always allowed.
+ */
+export async function setOrganizerModeAction(formData: FormData) {
+  const on = String(formData.get("on") ?? "") === "1";
+  const leagueId = String(formData.get("leagueId") ?? "").trim();
+  const next = safeNextPath(formData) ?? "/";
+  if (on) {
+    if (!leagueId) throw new Error("League required");
+    await requireOrganizer(leagueId);
+  }
+  const store = await cookies();
+  if (on) {
+    store.set(ORGANIZER_MODE_COOKIE, "1", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  } else {
+    store.delete(ORGANIZER_MODE_COOKIE);
+  }
+  redirect(next);
 }

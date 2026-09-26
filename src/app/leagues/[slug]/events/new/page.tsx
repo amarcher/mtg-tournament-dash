@@ -5,6 +5,7 @@ import { addPlayerAction, createEventAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
 import { OrganizerGate } from "@/app/components/OrganizerGate";
 import { isLeagueOrganizer } from "@/lib/authz";
+import { readOrganizerModeCookie } from "@/lib/organizer-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,12 @@ export default async function NewLeagueEventPage({
   const players = await listLeaguePlayers(league.id);
 
   return (
-    <AppChrome league={league} isOrganizer active="events">
+    <AppChrome
+      league={league}
+      isOrganizer
+      organizerMode={await readOrganizerModeCookie()}
+      active="organize"
+    >
       <main className="mx-auto max-w-2xl w-full px-4 py-8 sm:px-6 sm:py-10">
       <div className="mb-8">
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">
