@@ -42,7 +42,7 @@ export function AppChrome({
         <nav className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
           <Link
             href="/"
-            className="mr-2 rounded-md py-2 text-sm font-semibold tracking-tight text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            className="mr-2 rounded-md py-2 font-display text-sm font-bold tracking-tight text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
           >
             MTG Dash
           </Link>

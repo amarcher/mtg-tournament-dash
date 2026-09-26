@@ -29,7 +29,7 @@ export default async function HomePage() {
     <main className="mx-auto max-w-3xl w-full px-6 py-12">
       <div className="mb-10 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="mb-2 text-4xl font-semibold tracking-tight">
+          <h1 className="mb-2 text-4xl font-black tracking-tight text-gold">
             MTG Dash
           </h1>
           <p className="max-w-md text-sm text-zinc-500">
