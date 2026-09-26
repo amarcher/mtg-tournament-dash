@@ -6,7 +6,9 @@ import {
   adjustLifeAction,
   reportGameWinnerAction,
   reportMatchDrawAction,
+  undoLastGameWinAction,
 } from "@/app/events/actions";
+import { useLifeHistory } from "@/lib/use-life-history";
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
@@ -112,6 +114,9 @@ export function PlayClient({
       if (msg.type === "match_complete" && msg.matchId === matchId) {
         window.location.reload();
       }
+      if (msg.type === "game_reopened" && msg.matchId === matchId) {
+        window.location.reload();
+      }
       // When the organizer advances rounds, the page that decides which match
       // is "yours" lives on the server — reload to re-fetch.
       if (
@@ -182,6 +187,7 @@ export function PlayClient({
   }, [eventId, matchId]);
 
   useWakeLock();
+  const getHistory = useLifeHistory(currentGameId, aLife, bLife);
 
   const myLife = mySide === "a" ? aLife : bLife;
   const oppLife = mySide === "a" ? bLife : aLife;
@@ -241,6 +247,19 @@ export function PlayClient({
     });
   };
 
+  const undoLastGame = () => {
+    startOutcomeTransition(async () => {
+      try {
+        await undoLastGameWinAction({
+          matchId,
+          gameId: currentGameId.current,
+        });
+      } finally {
+        window.location.reload();
+      }
+    });
+  };
+
   const reportDraw = () => {
     if (!players.b) return;
     startOutcomeTransition(async () => {
@@ -268,6 +287,7 @@ export function PlayClient({
       opponent={
         oppName && oppPlayer
           ? {
+              side: oppSide,
               name: oppName,
               detail: winLabel(oppWins),
               life: oppLife,
@@ -277,6 +297,7 @@ export function PlayClient({
           : null
       }
       me={{
+        side: mySide,
         name: myName ? `You · ${myName}` : "You",
         detail: winLabel(myWins),
         life: myLife,
@@ -287,7 +308,28 @@ export function PlayClient({
       onIWon={() => reportWinner("me")}
       onTheyWon={() => reportWinner("opp")}
       outcomeDisabled={outcomePending}
+      getHistory={getHistory}
+      confirmIWon={
+        oppName && myWins === 1
+          ? `You win the match ${myWins + 1}–${oppWins} against ${oppName}.`
+          : null
+      }
+      confirmTheyWon={
+        oppName && oppWins === 1
+          ? `${oppName} wins the match ${oppWins + 1}–${myWins}.`
+          : null
+      }
       menu={[
+        ...(myWins + oppWins > 0
+          ? [
+              {
+                label: "Undo last game result",
+                confirm:
+                  "Reopens the last game with its life totals. Anything played since is discarded.",
+                onSelect: undoLastGame,
+              },
+            ]
+          : []),
         ...(players.b
           ? [
               {

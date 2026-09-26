@@ -5,8 +5,11 @@ import { useState, useSyncExternalStore } from "react";
 import { Sheet, sheetRowClass } from "@/app/components/Sheet";
 import { LifePanel } from "@/app/components/LifePanel";
 import type { AvatarTiers } from "@/lib/avatar-tier";
+import type { LifeHistory, LifeSide } from "@/lib/life-history";
 
 export type ScoreboardSide = {
+  /** Which stored side (a/b) this panel shows — used to label history. */
+  side: LifeSide;
   name: string;
   detail?: string;
   life: number;
@@ -69,6 +72,9 @@ export function Scoreboard({
   onIWon,
   onTheyWon,
   outcomeDisabled,
+  confirmIWon,
+  confirmTheyWon,
+  getHistory,
   menu,
 }: {
   backHref: string;
@@ -85,9 +91,27 @@ export function Scoreboard({
   onIWon: () => void;
   onTheyWon: () => void;
   outcomeDisabled?: boolean;
+  /** When set, "I won" asks for confirmation first with this message —
+   * used when the tap would decide a tournament match. */
+  confirmIWon?: string | null;
+  confirmTheyWon?: string | null;
+  /** Life changes this phone has seen during the current game. */
+  getHistory?: () => LifeHistory;
   menu: ScoreboardMenuItem[];
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [historyAt, setHistoryAt] = useState<{
+    at: number;
+    history: LifeHistory;
+  } | null>(null);
+  const [confirming, setConfirming] = useState<"me" | "opp" | null>(null);
+  const openHistory = getHistory
+    ? () => setHistoryAt({ at: Date.now(), history: getHistory() })
+    : undefined;
+  const names: Record<LifeSide, string> = {
+    [me.side]: "You",
+    ...(opponent ? { [opponent.side]: opponent.name } : {}),
+  } as Record<LifeSide, string>;
   const flipped = useSyncExternalStore(subscribeFlip, readFlip, () => false);
 
   return (
@@ -128,6 +152,7 @@ export function Scoreboard({
             {...opponent}
             startingLife={startingLife}
             flipped={flipped}
+            onNumberTap={openHistory}
             className="flex-[4] landscape:flex-1"
           />
         ) : (
@@ -143,6 +168,7 @@ export function Scoreboard({
         <LifePanel
           {...me}
           startingLife={startingLife}
+          onNumberTap={openHistory}
           emphasized
           className="flex-[5] landscape:flex-1"
         />
@@ -154,7 +180,7 @@ export function Scoreboard({
           glitch. The one persistent dim is a bye (no one to lose to). */}
       <div className="grid shrink-0 grid-cols-[1fr_1.35fr_auto] gap-2 px-2 pt-2 pb-3">
         <button
-          onClick={onTheyWon}
+          onClick={confirmTheyWon ? () => setConfirming("opp") : onTheyWon}
           disabled={outcomeDisabled || !opponent}
           className={`h-14 touch-manipulation select-none rounded-[14px] btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
             opponent ? "" : "opacity-40"
@@ -163,7 +189,7 @@ export function Scoreboard({
           They won
         </button>
         <button
-          onClick={onIWon}
+          onClick={confirmIWon ? () => setConfirming("me") : onIWon}
           disabled={outcomeDisabled}
           className="h-14 touch-manipulation select-none rounded-[14px] btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
@@ -179,9 +205,57 @@ export function Scoreboard({
         </button>
       </div>
 
+      {confirming && (
+        <Sheet label="Confirm match result" onClose={() => setConfirming(null)}>
+          <div className="px-3 pt-3 pb-2">
+            <div className="label-caps text-gold">This decides the match</div>
+            <p className="mt-2 text-base leading-snug">
+              {confirming === "me" ? confirmIWon : confirmTheyWon}
+            </p>
+            <p className="mt-2 text-sm text-ink-dim">
+              The result and ELO are recorded right away. Only the organizer
+              can undo it after that.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 p-1">
+            <button
+              onClick={() => setConfirming(null)}
+              className={`${sheetRowClass} justify-center border border-line`}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                const who = confirming;
+                setConfirming(null);
+                if (who === "me") onIWon();
+                else onTheyWon();
+              }}
+              className="flex min-h-14 items-center justify-center rounded-[14px] text-base btn-gold"
+            >
+              Record it
+            </button>
+          </div>
+        </Sheet>
+      )}
+
+      {historyAt && (
+        <HistorySheet
+          history={historyAt.history}
+          now={historyAt.at}
+          names={names}
+          onClose={() => setHistoryAt(null)}
+        />
+      )}
+
       {menuOpen && (
         <MenuSheet
-          items={menu}
+          items={[
+            ...(openHistory
+              ? [{ label: "Life history", onSelect: openHistory }]
+              : []),
+            ...menu,
+          ]}
           flipped={flipped}
           canFlip={!!opponent}
           onFlip={() => writeFlip(!flipped)}
@@ -282,6 +356,84 @@ function MenuSheet({
       </button>
     </Sheet>
   );
+}
+
+function HistorySheet({
+  history,
+  now,
+  names,
+  onClose,
+}: {
+  history: LifeHistory;
+  now: number;
+  names: Record<LifeSide, string>;
+  onClose: () => void;
+}) {
+  const entries = [...history.entries].reverse();
+  return (
+    <Sheet label="Life history" onClose={onClose}>
+      <div className="px-3 pt-3 pb-1">
+        <div className="label-caps text-ink-dim">Life history · this game</div>
+      </div>
+      {entries.length === 0 ? (
+        <p className="px-3 py-6 text-center text-sm text-ink-dim">
+          No life changes yet this game.
+        </p>
+      ) : (
+        <ol className="max-h-[55svh] overflow-y-auto overscroll-contain px-1">
+          {entries.map((e, i) => {
+            const delta = e.to - e.from;
+            return (
+              <li
+                key={`${e.at}-${i}`}
+                className="flex items-center gap-3 border-b border-white/5 px-2 py-2.5 last:border-b-0"
+              >
+                <span className="label-caps w-20 shrink-0 truncate text-ink-dim">
+                  {names[e.side] ?? e.side}
+                </span>
+                <span className="flex-1 font-display text-lg font-bold tabular-nums">
+                  {e.from}
+                  <span className="px-1.5 text-ink-faint">→</span>
+                  {e.to}
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-1 text-xs font-bold tabular-nums ${
+                    delta < 0
+                      ? "bg-rose-500/15 text-rose-200"
+                      : "bg-emerald-500/15 text-emerald-200"
+                  }`}
+                >
+                  {delta > 0 ? `+${delta}` : `−${-delta}`}
+                </span>
+                <span className="w-14 shrink-0 text-right text-xs text-ink-faint tabular-nums">
+                  {ago(now - e.lastAt)}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      <p className="px-3 pt-2 pb-1 text-xs text-ink-faint">
+        Kept on this phone for the current game only. Tap a life total to
+        open this any time.
+      </p>
+      <button
+        onClick={onClose}
+        className={`${sheetRowClass} mt-1 justify-center border border-line text-ink-dim`}
+      >
+        Close
+      </button>
+    </Sheet>
+  );
+}
+
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 10) return "now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.round(m / 60)}h ago`;
 }
 
 /** Two dots per player — best of three. */

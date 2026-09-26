@@ -133,6 +133,7 @@ export function BroadcastClient({
         msg.type === "match_complete" ||
         msg.type === "match_reopened" ||
         msg.type === "game_complete" ||
+        msg.type === "game_reopened" ||
         msg.type === "round_started" ||
         msg.type === "round_completed" ||
         msg.type === "event_state_changed"
