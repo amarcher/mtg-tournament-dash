@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, players } from "@/db/schema";
 import { getCurrentPlayer } from "@/lib/auth";
+import { isLeagueOrganizer } from "@/lib/authz";
 import {
   getActiveMatchForPlayer,
   getEvent,
@@ -361,6 +362,7 @@ export default async function PlayPage({
 
   // Figure out which side I am.
   const mySide: "a" | "b" = me.playerId === match.playerAId ? "a" : "b";
+  const organizer = league ? await isLeagueOrganizer(league) : false;
 
   return (
     <PlayClient
@@ -374,6 +376,7 @@ export default async function PlayPage({
       startingLife={event.startingLife}
       initialGame={activeGame}
       initialWins={{ a: aWins, b: bWins }}
+      organizeHref={organizer ? `/events/${id}/manage` : undefined}
     />
   );
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useWakeLock } from "@/lib/use-wake-lock";
 import {
@@ -11,7 +10,8 @@ import {
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
-import { LifePanel, avatarsFor } from "@/app/components/LifePanel";
+import { avatarsFor } from "@/app/components/LifePanel";
+import { GamePips, Scoreboard } from "@/app/components/Scoreboard";
 
 type Props = {
   eventId: string;
@@ -24,6 +24,8 @@ type Props = {
   startingLife: number;
   initialGame: Game;
   initialWins: { a: number; b: number };
+  /** Set for organizers: the chip that jumps back to the event console. */
+  organizeHref?: string;
 };
 
 export function PlayClient({
@@ -37,6 +39,7 @@ export function PlayClient({
   startingLife,
   initialGame,
   initialWins,
+  organizeHref,
 }: Props) {
   const [aLife, setALife] = useState(initialGame.playerALife);
   const [bLife, setBLife] = useState(initialGame.playerBLife);
@@ -240,161 +243,74 @@ export function PlayClient({
 
   const reportDraw = () => {
     if (!players.b) return;
-    if (
-      !window.confirm(
-        "Call this match a draw? This finalizes it and ends the round for both of you."
-      )
-    ) {
-      return;
-    }
     startOutcomeTransition(async () => {
       await reportMatchDrawAction({ matchId });
     });
   };
 
+  const oppPlayer = mySide === "a" ? players.b : players.a;
+  const myWins = mySide === "a" ? wins.a : wins.b;
+  const oppWins = mySide === "a" ? wins.b : wins.a;
+  const winLabel = (n: number) => `${n} win${n === 1 ? "" : "s"}`;
+
   return (
-    <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-4 landscape:h-dvh landscape:max-w-4xl landscape:gap-2 landscape:overflow-hidden landscape:py-2">
-      <nav className="flex flex-wrap gap-2 text-sm landscape:hidden">
-        {leagueSlug && (
-          <Link
-            href={`/leagues/${leagueSlug}`}
-            className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-          >
-            League
-          </Link>
-        )}
-        <Link
-          href={`/events/${eventId}/claim?switch=1`}
-          className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-        >
-          Switch player
-        </Link>
-      </nav>
-      <div className="hidden items-center justify-between gap-3 text-xs text-zinc-400 landscape:flex">
-        <span className="min-w-0 truncate">
-          <span className="font-semibold text-zinc-200">{eventName}</span>
-          <span className="text-zinc-500"> · Table {tableNumber}</span>
+    <Scoreboard
+      backHref={leagueSlug ? `/leagues/${leagueSlug}` : "/"}
+      title={`Table ${tableNumber} · ${eventName}`}
+      status={
+        <span className="flex items-center gap-2">
+          <GamePips wins={myWins} />
+          <span className="h-3 w-px bg-line" aria-hidden />
+          <GamePips wins={oppWins} />
         </span>
-        <span className="flex shrink-0 items-center gap-2">
-          <GamePips wins={mySide === "a" ? wins.b : wins.a} />
-          <span className="text-zinc-500">games</span>
-          <GamePips wins={mySide === "a" ? wins.a : wins.b} />
-        </span>
-      </div>
-      <header className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 landscape:hidden">
-        <div className="mb-3 min-w-0">
-          <div className="truncate text-lg font-semibold">{eventName}</div>
-          <div className="text-xs uppercase tracking-wide text-zinc-500">
-            Table {tableNumber} · scorekeeper
-          </div>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-zinc-500">
-              You
-            </div>
-            <div className="flex items-baseline gap-2">
-              <div className="text-lg font-semibold">{myName}</div>
-              {myPlayerId && (
-                <Link
-                  href={`/players/${myPlayerId}`}
-                  className="text-xs text-amber-400/80 transition hover:text-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-                >
-                  Edit portrait
-                </Link>
-              )}
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">
-              vs
-            </div>
-            <div className="text-lg font-semibold">{oppName ?? "BYE"}</div>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex items-center justify-center gap-3 text-sm landscape:hidden">
-        <GamePips wins={mySide === "a" ? wins.a : wins.b} />
-        <span className="text-zinc-500">games</span>
-        <GamePips wins={mySide === "a" ? wins.b : wins.a} />
-      </div>
-
-      {/* Portrait stacks opponent above you — your counter sits nearest you
-          with the phone on the table. Landscape puts you side-by-side,
-          opponent left, you right. */}
-      <div className="flex min-h-0 flex-col gap-6 landscape:flex-1 landscape:flex-row landscape:gap-3">
-        {oppName && (
-          <LifePanel
-            label={oppName}
-            life={oppLife}
-            startingLife={startingLife}
-            avatars={avatarsFor(mySide === "a" ? players.b : players.a)}
-            onAdjust={(d) => adjust(oppSide, d)}
-          />
-        )}
-
-        <LifePanel
-          label={`${myName ?? "You"} (you)`}
-          life={myLife}
-          startingLife={startingLife}
-          avatars={avatarsFor(mySide === "a" ? players.a : players.b)}
-          onAdjust={(d) => adjust(mySide, d)}
-          emphasized
-        />
-      </div>
-
-      {/* These stay disabled while their own action commits — reporting a
-          winner twice would finalize the match twice — but carry no disabled
-          styling for that. The commit is short, and a dimmed flash on a button
-          nobody is waiting on reads as a glitch rather than as feedback. The
-          one dim that stays is `!oppName`, a bye: a persistent state worth
-          showing, not a transient one. */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => reportWinner("opp")}
-          disabled={outcomePending || !oppName}
-          className={`touch-manipulation select-none rounded-xl bg-zinc-700 py-3 font-semibold transition-colors hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
-            oppName ? "" : "opacity-50"
-          }`}
-        >
-          They won
-        </button>
-        <button
-          onClick={() => reportWinner("me")}
-          disabled={outcomePending}
-          className="touch-manipulation select-none rounded-xl bg-emerald-500 py-3 font-semibold text-zinc-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-        >
-          I won this game
-        </button>
-      </div>
-
-      {players.b && (
-        <button
-          onClick={reportDraw}
-          disabled={outcomePending}
-          className="touch-manipulation select-none rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 landscape:py-1.5 landscape:text-xs"
-        >
-          Call this match a draw
-        </button>
-      )}
-    </main>
-  );
-}
-
-function GamePips({ wins }: { wins: number }) {
-  return (
-    <span className="flex gap-1">
-      {[0, 1].map((i) => (
-        <span
-          key={i}
-          className={
-            i < wins
-              ? "h-3 w-3 rounded-full bg-amber-500"
-              : "h-3 w-3 rounded-full border border-zinc-700"
-          }
-        />
-      ))}
-    </span>
+      }
+      organizeHref={organizeHref}
+      opponent={
+        oppName && oppPlayer
+          ? {
+              name: oppName,
+              detail: winLabel(oppWins),
+              life: oppLife,
+              avatars: avatarsFor(oppPlayer),
+              onAdjust: (d) => adjust(oppSide, d),
+            }
+          : null
+      }
+      me={{
+        name: myName ? `You · ${myName}` : "You",
+        detail: winLabel(myWins),
+        life: myLife,
+        avatars: avatarsFor(mySide === "a" ? players.a : players.b),
+        onAdjust: (d) => adjust(mySide, d),
+      }}
+      startingLife={startingLife}
+      onIWon={() => reportWinner("me")}
+      onTheyWon={() => reportWinner("opp")}
+      outcomeDisabled={outcomePending}
+      menu={[
+        ...(players.b
+          ? [
+              {
+                label: "Call the match a draw",
+                confirm:
+                  "Finalizes the match and ends the round for both of you.",
+                tone: "danger" as const,
+                onSelect: reportDraw,
+              },
+            ]
+          : []),
+        ...(myPlayerId
+          ? [{ label: "Edit my portrait", href: `/players/${myPlayerId}` }]
+          : []),
+        {
+          label: "Switch player",
+          confirm: "Only if this phone is scoring for someone else.",
+          href: `/events/${eventId}/claim?switch=1`,
+        },
+        ...(leagueSlug
+          ? [{ label: "League", href: `/leagues/${leagueSlug}` }]
+          : []),
+      ]}
+    />
   );
 }
