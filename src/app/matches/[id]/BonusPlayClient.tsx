@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useWakeLock } from "@/lib/use-wake-lock";
 import {
   adjustLifeAction,
   endBonusGameAction,
@@ -176,28 +177,7 @@ export function BonusPlayClient({
     };
   }, [matchId]);
 
-  // Keep the phone awake during the game — same approach as PlayClient.
-  useEffect(() => {
-    let sentinel: WakeLockSentinel | null = null;
-    let cancelled = false;
-    const acquire = async () => {
-      try {
-        sentinel = await navigator.wakeLock?.request("screen");
-      } catch {
-        /* user gesture missing, permission denied, or unsupported */
-      }
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible" && !cancelled) void acquire();
-    };
-    void acquire();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisibility);
-      void sentinel?.release().catch(() => {});
-    };
-  }, []);
+  useWakeLock();
 
   const myLife = mySide === "a" ? aLife : bLife;
   const oppLife = mySide === "a" ? bLife : aLife;
