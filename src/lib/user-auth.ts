@@ -12,11 +12,24 @@ import { db } from "@/db/client";
 
 function resolveBaseUrl() {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  // Preview deployments: magic links point at the preview's own URL. Sessions
-  // are then scoped per-deployment — expected, not a bug.
+  // Preview deployments: magic links point at the branch alias people actually
+  // open (…-git-<branch>-….vercel.app), falling back to the per-deployment
+  // URL. Sessions are then scoped per-preview — expected, not a bug.
+  if (process.env.VERCEL_BRANCH_URL)
+    return `https://${process.env.VERCEL_BRANCH_URL}`;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   return "http://localhost:3000";
 }
+
+// better-auth rejects requests whose Origin isn't the baseURL ("Invalid
+// origin"). A preview is reachable at both its branch alias and its
+// per-deployment URL, so trust both.
+const trustedOrigins = [
+  process.env.VERCEL_BRANCH_URL,
+  process.env.VERCEL_URL,
+]
+  .filter((host): host is string => Boolean(host))
+  .map((host) => `https://${host}`);
 
 async function sendMagicLink({ email, url }: { email: string; url: string }) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -41,6 +54,7 @@ async function sendMagicLink({ email, url }: { email: string; url: string }) {
 
 export const auth = betterAuth({
   baseURL: resolveBaseUrl(),
+  trustedOrigins,
   database: drizzleAdapter(db, {
     provider: "pg",
     // The neon-http driver has no transaction support; the adapter falls back
