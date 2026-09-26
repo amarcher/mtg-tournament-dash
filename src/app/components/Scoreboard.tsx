@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { Sheet, sheetRowClass } from "@/app/components/Sheet";
 import { LifePanel } from "@/app/components/LifePanel";
 import type { AvatarTiers } from "@/lib/avatar-tier";
 
@@ -206,102 +207,80 @@ function MenuSheet({
 }) {
   const [armed, setArmed] = useState<string | null>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const rowClass =
-    "flex min-h-14 w-full items-center justify-between gap-3 rounded-[14px] px-4 text-left text-base font-semibold transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70";
-
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <button
-        aria-label="Close menu"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-[3px] motion-safe:animate-[fade-in_180ms_ease-out]"
-      />
-      <div
-        role="dialog"
-        aria-label="Game options"
-        className="relative mx-2 mb-[max(0.5rem,env(safe-area-inset-bottom))] rounded-[22px] border border-line bg-surface p-2 shadow-e3 motion-safe:animate-[sheet-up_260ms_var(--ease-out-expo)]"
-      >
-        {canFlip && (
-          <button onClick={onFlip} className={rowClass} role="switch" aria-checked={flipped}>
-            <span>
-              Flip opponent&apos;s side
-              <span className="block text-xs font-normal text-ink-dim">
-                For one phone lying between you
-              </span>
+    <Sheet label="Game options" onClose={onClose}>
+      {canFlip && (
+        <button onClick={onFlip} className={sheetRowClass} role="switch" aria-checked={flipped}>
+          <span>
+            Flip opponent&apos;s side
+            <span className="block text-xs font-normal text-ink-dim">
+              For one phone lying between you
             </span>
+          </span>
+          <span
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+              flipped ? "bg-amber-500" : "bg-white/10"
+            }`}
+          >
             <span
-              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                flipped ? "bg-amber-500" : "bg-white/10"
+              className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-ink transition-[left] duration-200 ease-[var(--ease-spring)] ${
+                flipped ? "left-[23px]" : "left-[3px]"
               }`}
-            >
-              <span
-                className={`absolute top-[3px] h-[22px] w-[22px] rounded-full bg-ink transition-[left] duration-200 ease-[var(--ease-spring)] ${
-                  flipped ? "left-[23px]" : "left-[3px]"
-                }`}
-              />
-            </span>
-          </button>
-        )}
-        {items.map((item) => {
-          const isArmed = armed === item.label;
-          const tone =
-            item.tone === "danger" ? "text-rose-300" : "text-ink";
-          if (item.href && !item.confirm) {
-            return (
-              <Link key={item.label} href={item.href} className={`${rowClass} ${tone}`}>
-                {item.label}
-                <ChevronRight />
-              </Link>
-            );
-          }
+            />
+          </span>
+        </button>
+      )}
+      {items.map((item) => {
+        const isArmed = armed === item.label;
+        const tone =
+          item.tone === "danger" ? "text-rose-300" : "text-ink";
+        if (item.href && !item.confirm) {
           return (
-            <button
-              key={item.label}
-              onClick={() => {
-                if (item.confirm && !isArmed) {
-                  setArmed(item.label);
-                  return;
-                }
-                onClose();
-                if (item.href) window.location.href = item.href;
-                else item.onSelect?.();
-              }}
-              className={`${rowClass} ${tone} ${
-                isArmed ? "bg-rose-500/10 ring-1 ring-rose-400/40" : ""
-              }`}
-            >
-              <span>
-                {item.label}
-                {isArmed && (
-                  <span className="block text-xs font-normal text-rose-200">
-                    {item.confirm}
-                  </span>
-                )}
-              </span>
+            <Link key={item.label} href={item.href} className={`${sheetRowClass} ${tone}`}>
+              {item.label}
+              <ChevronRight />
+            </Link>
+          );
+        }
+        return (
+          <button
+            key={item.label}
+            onClick={() => {
+              if (item.confirm && !isArmed) {
+                setArmed(item.label);
+                return;
+              }
+              onClose();
+              if (item.href) window.location.href = item.href;
+              else item.onSelect?.();
+            }}
+            className={`${sheetRowClass} ${tone} ${
+              isArmed ? "bg-rose-500/10 ring-1 ring-rose-400/40" : ""
+            }`}
+          >
+            <span>
+              {item.label}
               {isArmed && (
-                <span className="label-caps shrink-0 text-rose-200">
-                  Tap to confirm
+                <span className="block text-xs font-normal text-rose-200">
+                  {item.confirm}
                 </span>
               )}
-            </button>
-          );
-        })}
-        <button
-          onClick={onClose}
-          className={`${rowClass} mt-1 justify-center border border-line text-ink-dim`}
-        >
-          Close
-        </button>
-      </div>
-    </div>
+            </span>
+            {isArmed && (
+              <span className="label-caps shrink-0 text-rose-200">
+                Tap to confirm
+              </span>
+            )}
+          </button>
+        );
+      })}
+      <button
+        onClick={onClose}
+        className={`${sheetRowClass} mt-1 justify-center border border-line text-ink-dim`}
+      >
+        Close
+      </button>
+    </Sheet>
   );
 }
 

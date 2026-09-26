@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, type Player } from "@/db/schema";
-import { getBonusGame, getLeague } from "@/db/queries";
+import { getBonusGame, getLeague, getPlayer } from "@/db/queries";
+import { getOrganizerView } from "@/lib/organizer-mode";
+import { AppChrome } from "@/app/components/AppChrome";
 import { getBonusGameCallerId } from "@/lib/bonus-game";
 import { pickMatchOutcomeAvatar, type AvatarTiers } from "@/lib/avatar-tier";
 import { qrDataUrl } from "@/lib/qr";
@@ -84,6 +86,21 @@ export default async function BonusGamePage({
   const callerId = await getBonusGameCallerId(match);
   const isParticipant =
     callerId === playerA.id || (playerB !== null && callerId === playerB.id);
+  const [viewer, view] = await Promise.all([
+    callerId ? getPlayer(callerId) : Promise.resolve(null),
+    getOrganizerView(league),
+  ]);
+  const chrome = (children: React.ReactNode) => (
+    <AppChrome
+      league={league}
+      player={viewer}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
+      active="play"
+    >
+      {children}
+    </AppChrome>
+  );
 
   const allGames = await db
     .select()
@@ -102,7 +119,7 @@ export default async function BonusGamePage({
 
   if (match.status === "complete") {
     const aOutcome = aWins >= bWins ? "won" : "lost";
-    return (
+    return chrome(
       <main className="mx-auto w-full max-w-md px-4 py-8 text-center">
         <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
           Bonus Game over
@@ -161,7 +178,7 @@ export default async function BonusGamePage({
       const baseUrl = await getPublicBaseUrl();
       const joinUrl = `${baseUrl}/matches/${match.id}`;
       const qr = await qrDataUrl(joinUrl);
-      return (
+      return chrome(
         <main className="mx-auto w-full max-w-md px-4 py-8 text-center">
           <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
             Bonus Game
@@ -197,7 +214,7 @@ export default async function BonusGamePage({
     }
 
     // A recognized league wizard who isn't the creator: offer the seat.
-    return (
+    return chrome(
       <main className="mx-auto w-full max-w-md px-4 py-8 text-center">
         <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
           Bonus Game
@@ -234,7 +251,7 @@ export default async function BonusGamePage({
 
   // In progress.
   if (!isParticipant || !playerB) {
-    return (
+    return chrome(
       <main className="mx-auto w-full max-w-md px-4 py-12 text-center">
         <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
           Bonus Game

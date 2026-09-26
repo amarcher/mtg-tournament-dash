@@ -1041,3 +1041,40 @@ export async function listOpenBonusGamesForEvent(eventId: string) {
     )
     .orderBy(desc(matches.createdAt));
 }
+
+/**
+ * Open seats in any of this league's bonus games — the Play home's "looking
+ * for a game" list. Same 12-hour window bonus-game.ts uses for "active", so a
+ * seat someone opened and walked away from yesterday doesn't linger.
+ */
+export async function listOpenBonusGamesForLeague(leagueId: string) {
+  return db
+    .select({
+      matchId: matches.id,
+      createdAt: matches.createdAt,
+      playerAId: players.id,
+      playerAName: players.displayName,
+      playerAAvatarUrl: players.avatarUrl,
+    })
+    .from(matches)
+    .innerJoin(players, eq(players.id, matches.playerAId))
+    .where(
+      and(
+        eq(matches.leagueId, leagueId),
+        sql`${matches.roundId} IS NULL`,
+        eq(matches.status, "pending"),
+        sql`${matches.playerBId} IS NULL`,
+        sql`${matches.createdAt} > now() - interval '12 hours'`
+      )
+    )
+    .orderBy(desc(matches.createdAt));
+}
+
+/** Date polls still collecting votes, newest first. */
+export async function listOpenLeaguePolls(leagueId: string) {
+  return db
+    .select()
+    .from(datePolls)
+    .where(and(eq(datePolls.leagueId, leagueId), eq(datePolls.status, "open")))
+    .orderBy(desc(datePolls.createdAt));
+}

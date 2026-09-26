@@ -9,7 +9,7 @@ import {
   type PollVoteRow,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   castPollVotesAction,
   finalizeDatePollAction,
@@ -75,12 +75,12 @@ export default async function SchedulePollPage({
   const poll = await getDatePoll(pollId);
   if (!poll || poll.leagueId !== league.id) notFound();
 
-  const [options, leaguePlayers, me, organizer, promotedEvent] =
+  const [options, leaguePlayers, me, view, promotedEvent] =
     await Promise.all([
       getPollDetail(poll.id),
       listLeaguePlayers(league.id),
       getCurrentLeaguePlayer(league.id),
-      isLeagueOrganizer(league),
+      getOrganizerView(league),
       getEventBySourcePoll(poll.id),
     ]);
 
@@ -188,7 +188,13 @@ export default async function SchedulePollPage({
   });
 
   return (
-    <AppChrome league={league} player={me} isOrganizer={organizer} active="schedule">
+    <AppChrome
+      league={league}
+      player={me}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
+      active="schedule"
+    >
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-8">
           <div className="flex flex-wrap items-center gap-3">
@@ -218,12 +224,16 @@ export default async function SchedulePollPage({
             </div>
             {promotedEvent ? (
               <Link
-                href={`/events/${promotedEvent.id}/manage`}
+                href={
+                  view.organizerMode
+                    ? `/events/${promotedEvent.id}/manage`
+                    : `/events/${promotedEvent.id}/play`
+                }
                 className="mt-3 inline-block rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
               >
                 Open event: {promotedEvent.name} →
               </Link>
-            ) : organizer ? (
+            ) : view.organizerMode ? (
               <form
                 action={promoteDatePollAction}
                 className="mt-4 flex flex-wrap items-center gap-2"
@@ -283,7 +293,7 @@ export default async function SchedulePollPage({
           <ul className="space-y-3">{optionCards}</ul>
         )}
 
-        {(me || organizer) && isOpen && (
+        {(me || view.organizerMode) && isOpen && (
           <section className="mt-12">
             <h2 className="text-lg font-medium text-zinc-300">Lock it in</h2>
             <p className="mt-1 text-xs text-zinc-500">
@@ -311,7 +321,7 @@ export default async function SchedulePollPage({
                         </button>
                       </form>
                     )}
-                    {organizer && (
+                    {view.organizerMode && (
                       <form action={promoteDatePollAction}>
                         <input type="hidden" name="pollId" value={poll.id} />
                         <input type="hidden" name="optionId" value={o.id} />

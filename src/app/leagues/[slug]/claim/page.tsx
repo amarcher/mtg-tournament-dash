@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueBySlug, listLeaguePlayers } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   claimLeaguePlayerAction,
   createLeaguePlayerAction,
@@ -29,17 +29,22 @@ export default async function LeagueClaimPage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [roster, me, organizer] = await Promise.all([
+  const [roster, me, view] = await Promise.all([
     listLeaguePlayers(league.id),
     getCurrentLeaguePlayer(league.id),
-    isLeagueOrganizer(league),
+    getOrganizerView(league),
   ]);
 
   const switchMode = sp.switch === "1";
   const showBanner = me && !switchMode;
 
   return (
-    <AppChrome league={league} player={me} isOrganizer={organizer} active="players">
+    <AppChrome
+      league={league}
+      player={me}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
+    >
       <main className="mx-auto w-full max-w-3xl px-4 py-8">
       <div className="mb-6">
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">

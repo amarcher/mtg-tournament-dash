@@ -1,166 +1,189 @@
 import Link from "next/link";
-import type { Event, League, Player } from "@/db/schema";
+import type { League, Player } from "@/db/schema";
+import { AccountMenu } from "@/app/components/AccountMenu";
+
+export type AppTab = "play" | "schedule" | "league" | "organize";
 
 type AppChromeProps = {
-  league?: Pick<League, "name" | "slug"> | null;
+  league?: Pick<League, "id" | "name" | "slug"> | null;
   player?: Pick<Player, "id" | "displayName" | "avatarUrl"> | null;
-  currentEvent?: Pick<Event, "id" | "name" | "status"> | null;
-  /** Hides organizer-only nav (New Event, Settings). Actions are the real
-   * authz boundary — this is progressive disclosure, not security. */
+  /** Can this viewer organize the league at all? Drives the account menu's
+   * organizer-mode switch. Actions are the real authz boundary — this is
+   * progressive disclosure, not security. */
   isOrganizer?: boolean;
-  active?:
-    | "league"
-    | "players"
-    | "events"
-    | "play"
-    | "manage"
-    | "schedule"
-    | "settings"
-    | "me";
+  /** Organizer with organizer mode switched on: adds the Organize tab. */
+  organizerMode?: boolean;
+  active?: AppTab;
   children: React.ReactNode;
 };
 
-const linkBase =
-  "rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70";
-const linkActive = "bg-zinc-800 text-zinc-50";
-
+/**
+ * Slim top bar (league name + account menu) and, inside a league, the bottom
+ * tab bar: Play · Schedule · League for everyone, plus Organize in organizer
+ * mode. The scorekeeper and broadcast views don't use this — they're
+ * full-screen on purpose.
+ */
 export function AppChrome({
   league,
   player,
-  currentEvent,
   isOrganizer = false,
+  organizerMode = false,
   active,
   children,
 }: AppChromeProps) {
   const leagueHref = league ? `/leagues/${league.slug}` : "/";
-  const eventHref = currentEvent ? `/events/${currentEvent.id}/manage` : null;
-  const playHref = currentEvent ? `/events/${currentEvent.id}/play` : null;
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-zinc-900/90 bg-zinc-950/90 backdrop-blur">
-        <nav className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+        <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4">
           <Link
-            href="/"
-            className="mr-2 rounded-md py-2 font-display text-sm font-bold tracking-tight text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            href={leagueHref}
+            className="min-w-0 truncate rounded-md py-2 font-display text-base font-bold tracking-tight text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
           >
-            MTG Dash
+            {league?.name ?? "MTG Dash"}
           </Link>
-          <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-1 sm:order-none sm:w-auto sm:flex-1">
-            <Link
-              href={leagueHref}
-              className={`${linkBase} ${active === "league" ? linkActive : ""}`}
-            >
-              League
-            </Link>
-            {league && (
-              <>
-                <Link
-                  href={`${leagueHref}/claim`}
-                  className={`${linkBase} ${active === "players" ? linkActive : ""}`}
-                >
-                  Players
-                </Link>
-                {isOrganizer && (
-                  <Link
-                    href={`${leagueHref}/events/new`}
-                    className={`${linkBase} ${active === "events" ? linkActive : ""}`}
-                  >
-                    New Event
-                  </Link>
-                )}
-                <Link
-                  href={`${leagueHref}/schedule`}
-                  className={`${linkBase} ${active === "schedule" ? linkActive : ""}`}
-                >
-                  Schedule
-                </Link>
-                {isOrganizer && (
-                  <Link
-                    href={`${leagueHref}/settings`}
-                    className={`${linkBase} ${active === "settings" ? linkActive : ""}`}
-                  >
-                    Settings
-                  </Link>
-                )}
-              </>
-            )}
-            {eventHref && (
-              <Link
-                href={eventHref}
-                className={`${linkBase} ${active === "manage" ? linkActive : ""}`}
-              >
-                Manage
-              </Link>
-            )}
-            {playHref && (
-              <Link
-                href={playHref}
-                className={`${linkBase} ${active === "play" ? linkActive : ""}`}
-              >
-                Scorekeeper
-              </Link>
-            )}
+          {organizerMode && (
+            <span className="label-caps hidden shrink-0 rounded-full bg-amber-500/15 px-2.5 py-1.5 text-gold sm:inline">
+              Organizer
+            </span>
+          )}
+          <div className="ml-auto shrink-0">
+            <AccountMenu
+              league={league ? { id: league.id, slug: league.slug, name: league.name } : null}
+              player={player ?? null}
+              isOrganizer={isOrganizer}
+              organizerMode={organizerMode}
+            />
           </div>
-          <div className="ml-auto flex min-w-0 items-center gap-2">
-            {currentEvent ? (
-              <div className="min-w-0 max-w-[8rem] truncate text-right text-xs text-zinc-600 sm:max-w-none">
-                {currentEvent.name}
-              </div>
-            ) : null}
-            {player ? (
-              <Link
-                href={`/players/${player.id}`}
-                aria-label={`Your wizard, ${player.displayName} — edit portrait`}
-                className={`flex min-h-11 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition hover:bg-zinc-800 active:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
-                  active === "me" ? "bg-zinc-800" : ""
-                }`}
-              >
-                {player.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={player.avatarUrl}
-                    alt=""
-                    className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-amber-500/50"
-                  />
-                ) : (
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-dashed border-amber-500/60 font-mono text-xs text-amber-400/80">
-                    {player.displayName.charAt(0).toUpperCase()}
-                  </span>
-                )}
-                <span className="min-w-0 text-left text-xs leading-tight">
-                  <span className="block truncate text-emerald-300">
-                    {player.displayName}
-                  </span>
-                  <span className="block truncate text-zinc-500">
-                    Your wizard
-                  </span>
-                </span>
-              </Link>
-            ) : league ? (
-              <div className="min-w-0 truncate text-right text-xs text-zinc-500">
-                {league.name}
-              </div>
-            ) : null}
-          </div>
-        </nav>
+        </div>
       </header>
+
       {children}
+
+      {league && (
+        <>
+          {/* Keeps the last row of content clear of the fixed tab bar. */}
+          <div aria-hidden className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
+          <nav
+            aria-label="Main"
+            className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-[rgb(14_11_7/0.94)] pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
+          >
+            <div
+              className={`mx-auto grid max-w-md ${organizerMode ? "grid-cols-4" : "grid-cols-3"}`}
+            >
+              <Tab href={leagueHref} label="Play" on={active === "play"} icon={<StarIcon />} />
+              <Tab
+                href={`${leagueHref}/schedule`}
+                label="Schedule"
+                on={active === "schedule"}
+                icon={<CalendarIcon />}
+              />
+              <Tab
+                href={`${leagueHref}/standings`}
+                label="League"
+                on={active === "league"}
+                icon={<TrophyIcon />}
+              />
+              {organizerMode && (
+                <Tab
+                  href={`${leagueHref}/organize`}
+                  label="Organize"
+                  on={active === "organize"}
+                  icon={<SlidersIcon />}
+                />
+              )}
+            </div>
+          </nav>
+        </>
+      )}
     </>
+  );
+}
+
+function Tab({
+  href,
+  label,
+  on,
+  icon,
+}: {
+  href: string;
+  label: string;
+  on: boolean;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={on ? "page" : undefined}
+      className={`flex min-h-14 flex-col items-center justify-center gap-1 pt-2 pb-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400/70 ${
+        on ? "text-gold" : "text-ink-faint hover:text-ink-dim"
+      }`}
+    >
+      {icon}
+      {label}
+    </Link>
+  );
+}
+
+const iconProps = {
+  viewBox: "0 0 24 24",
+  width: 22,
+  height: 22,
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true,
+};
+
+function StarIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="3.5" y="5" width="17" height="15" rx="3" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </svg>
+  );
+}
+
+function TrophyIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0z" />
+      <path d="M17 5h3v2a3 3 0 01-3 3M7 5H4v2a3 3 0 003 3" />
+    </svg>
+  );
+}
+
+function SlidersIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" />
+      <circle cx="16" cy="6" r="2" />
+      <circle cx="10" cy="12" r="2" />
+      <circle cx="18" cy="18" r="2" />
+    </svg>
   );
 }
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
     status === "complete" || status === "finalized"
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+      ? "bg-emerald-500/12 text-emerald-300"
       : status === "active" || status === "open"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-        : "border-zinc-700 bg-zinc-900 text-zinc-400";
+        ? "bg-amber-500/15 text-gold"
+        : "bg-white/6 text-ink-dim";
   return (
-    <span
-      className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${tone}`}
-    >
+    <span className={`label-caps rounded-full px-2.5 py-1.5 ${tone}`}>
       {status}
     </span>
   );

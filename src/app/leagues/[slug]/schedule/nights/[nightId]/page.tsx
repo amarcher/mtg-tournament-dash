@@ -6,7 +6,7 @@ import {
   listLeaguePlayers,
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   deleteGameNightAction,
   promoteGameNightAction,
@@ -65,10 +65,10 @@ export default async function GameNightPage({
   const night = await getNightDetail(nightId);
   if (!night || night.leagueId !== league.id) notFound();
 
-  const [leaguePlayers, me, organizer] = await Promise.all([
+  const [leaguePlayers, me, view] = await Promise.all([
     listLeaguePlayers(league.id),
     getCurrentLeaguePlayer(league.id),
-    isLeagueOrganizer(league),
+    getOrganizerView(league),
   ]);
 
   const byResponse = (r: PollResponseValue) =>
@@ -84,7 +84,8 @@ export default async function GameNightPage({
     <AppChrome
       league={league}
       player={me}
-      isOrganizer={organizer}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
       active="schedule"
     >
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
@@ -186,7 +187,7 @@ export default async function GameNightPage({
           )}
         </section>
 
-        {organizer && (
+        {view.organizerMode && (
           <section className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
             <h2 className="text-lg font-medium text-zinc-200">The plan</h2>
             <p className="mt-1 text-xs text-zinc-500">
@@ -284,14 +285,18 @@ export default async function GameNightPage({
               Event created
             </div>
             <Link
-              href={`/events/${night.event.id}/manage`}
+              href={
+                view.organizerMode
+                  ? `/events/${night.event.id}/manage`
+                  : `/events/${night.event.id}/play`
+              }
               className="mt-1 inline-block text-lg font-semibold text-emerald-100 hover:text-emerald-50"
             >
               {night.event.name} →
             </Link>
           </section>
         ) : (
-          organizer &&
+          view.organizerMode &&
           !canceled && (
             <section className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900/60 p-5">
               <h2 className="text-lg font-medium text-zinc-200">
@@ -331,7 +336,7 @@ export default async function GameNightPage({
           )
         )}
 
-        {organizer && !night.event && (
+        {view.organizerMode && !night.event && (
           <form action={deleteGameNightAction}>
             <input type="hidden" name="nightId" value={night.id} />
             <button

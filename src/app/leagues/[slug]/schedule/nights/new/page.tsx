@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueBySlug } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
 import { createGameNightsAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
 import { NightSeriesField } from "./NightSeriesField";
@@ -17,16 +17,17 @@ export default async function NewGameNightsPage({
   const { slug } = await params;
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
-  const [me, organizer] = await Promise.all([
+  const [me, view] = await Promise.all([
     getCurrentLeaguePlayer(league.id),
-    isLeagueOrganizer(league),
+    getOrganizerView(league),
   ]);
 
   return (
     <AppChrome
       league={league}
       player={me}
-      isOrganizer={organizer}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
       active="schedule"
     >
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
@@ -46,7 +47,7 @@ export default async function NewGameNightsPage({
           </p>
         </div>
 
-        {!organizer ? (
+        {!view.isOrganizer ? (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6 text-sm text-zinc-400">
             Only league organizers can open dates. Anyone can still{" "}
             <Link

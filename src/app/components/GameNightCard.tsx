@@ -156,10 +156,14 @@ export function GameNightCard({
   night,
   leagueSlug,
   playerId,
+  organizerMode = false,
 }: {
   night: NightWithRsvps;
   leagueSlug: string;
   playerId?: string | null;
+  /** Organizers in organizer mode jump to the console; everyone else to
+   * their seat. */
+  organizerMode?: boolean;
 }) {
   const tally = tallyResponses(night.rsvps.map((r) => r.response));
   const canceled = night.status === "canceled";
@@ -227,7 +231,11 @@ export function GameNightCard({
 
       {night.event && (
         <Link
-          href={`/events/${night.event.id}/manage`}
+          href={
+            organizerMode
+              ? `/events/${night.event.id}/manage`
+              : `/events/${night.event.id}/play`
+          }
           className="mt-1 inline-block text-sm font-medium text-emerald-300 hover:text-emerald-200"
         >
           Event ready: {night.event.name} →

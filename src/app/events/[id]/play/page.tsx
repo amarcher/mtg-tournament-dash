@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, players } from "@/db/schema";
 import { getCurrentPlayer } from "@/lib/auth";
-import { isLeagueOrganizer } from "@/lib/authz";
+import { getOrganizerView } from "@/lib/organizer-mode";
+import { AppChrome } from "@/app/components/AppChrome";
 import {
   getActiveMatchForPlayer,
   getEvent,
@@ -12,6 +13,7 @@ import {
   getEventRoster,
   getEventStandings,
   getLeague,
+  getPlayer,
   listLeaguePlayers,
   listOpenBonusGamesForEvent,
 } from "@/db/queries";
@@ -27,43 +29,6 @@ import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { PlayClient } from "./PlayClient";
 import { WaitForRound } from "./WaitForRound";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
-
-function EventContextLinks({
-  leagueSlug,
-  eventId,
-  playerId,
-}: {
-  leagueSlug?: string;
-  eventId: string;
-  playerId?: string;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2 text-sm">
-      {leagueSlug && (
-        <Link
-          href={`/leagues/${leagueSlug}`}
-          className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-        >
-          League
-        </Link>
-      )}
-      {playerId && (
-        <Link
-          href={`/players/${playerId}`}
-          className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-        >
-          Edit portrait
-        </Link>
-      )}
-      <Link
-        href={`/events/${eventId}/claim?switch=1`}
-        className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-      >
-        Switch player
-      </Link>
-    </div>
-  );
-}
 
 export const dynamic = "force-dynamic";
 
@@ -198,7 +163,22 @@ export default async function PlayPage({
   // roster grid to everyone else. Never strand the player on a dead end.
   if (!me) redirect(`/events/${id}/claim`);
 
-  const match = await getActiveMatchForPlayer(id, me.playerId);
+  const [match, mePlayer, view] = await Promise.all([
+    getActiveMatchForPlayer(id, me.playerId),
+    getPlayer(me.playerId),
+    getOrganizerView(league),
+  ]);
+  const chrome = (children: React.ReactNode) => (
+    <AppChrome
+      league={league}
+      player={mePlayer}
+      isOrganizer={view.isOrganizer}
+      organizerMode={view.organizerMode}
+      active="play"
+    >
+      {children}
+    </AppChrome>
+  );
 
   if (event.status === "complete") {
     const [standings, roster, history] = await Promise.all([
@@ -239,15 +219,8 @@ export default async function PlayPage({
     const myRank =
       ranking.findIndex((r) => r.playerId === me.playerId) + 1;
     const bonus = await loadBonusData(league?.id, id, me.playerId);
-    return (
+    return chrome(
       <main className="mx-auto w-full max-w-md px-4 py-6">
-        <div className="mb-4">
-          <EventContextLinks
-            leagueSlug={league?.slug}
-            eventId={id}
-            playerId={me.playerId}
-          />
-        </div>
         <div className="mb-4 text-center">
           <div className="text-xs uppercase tracking-[0.2em] text-amber-300">
             Tournament complete
@@ -302,15 +275,8 @@ export default async function PlayPage({
             : `You lost your match against ${oppName}.`;
     }
     const bonus = await loadBonusData(league?.id, id, me.playerId);
-    return (
-      <main className="mx-auto max-w-md w-full px-6 py-12 text-center">
-        <div className="mb-6 text-left">
-          <EventContextLinks
-            leagueSlug={league?.slug}
-            eventId={id}
-            playerId={me.playerId}
-          />
-        </div>
+    return chrome(
+      <main className="mx-auto max-w-md w-full px-6 py-10 text-center">
         <h1 className="text-2xl font-semibold">Hi {me.displayName}</h1>
         {resultLine && (
           <p className="mt-3 font-medium text-amber-300">{resultLine}</p>
@@ -362,7 +328,6 @@ export default async function PlayPage({
 
   // Figure out which side I am.
   const mySide: "a" | "b" = me.playerId === match.playerAId ? "a" : "b";
-  const organizer = league ? await isLeagueOrganizer(league) : false;
 
   return (
     <PlayClient
@@ -376,7 +341,7 @@ export default async function PlayPage({
       startingLife={event.startingLife}
       initialGame={activeGame}
       initialWins={{ a: aWins, b: bWins }}
-      organizeHref={organizer ? `/events/${id}/manage` : undefined}
+      organizeHref={view.organizerMode ? `/events/${id}/manage` : undefined}
     />
   );
 }
