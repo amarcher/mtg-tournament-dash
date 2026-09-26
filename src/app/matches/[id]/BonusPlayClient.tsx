@@ -11,7 +11,8 @@ import {
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
-import { LifePanel, avatarsFor } from "@/app/components/LifePanel";
+import { avatarsFor } from "@/app/components/LifePanel";
+import { Scoreboard } from "@/app/components/Scoreboard";
 
 type Props = {
   matchId: string;
@@ -228,13 +229,6 @@ export function BonusPlayClient({
   };
 
   const endGame = () => {
-    if (
-      !window.confirm(
-        "End this bonus game? The tally stays as the final score."
-      )
-    ) {
-      return;
-    }
     startOutcomeTransition(async () => {
       await endBonusGameAction({ matchId });
       window.location.reload();
@@ -242,115 +236,59 @@ export function BonusPlayClient({
   };
 
   return (
-    <main className="mx-auto flex max-w-md w-full flex-col gap-6 px-4 py-4 landscape:h-dvh landscape:max-w-4xl landscape:gap-2 landscape:overflow-hidden landscape:py-2">
-      {roundStarted && eventId && (
-        <Link
-          href={`/events/${eventId}/play`}
-          className="rounded-xl border border-emerald-500/50 bg-emerald-500/15 px-4 py-3 text-center text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-        >
-          The next round just started — tap to go to your table
-        </Link>
-      )}
-      <nav className="flex flex-wrap gap-2 text-sm landscape:hidden">
-        {leagueSlug && (
+    <Scoreboard
+      backHref={leagueSlug ? `/leagues/${leagueSlug}` : "/"}
+      title={`Bonus game · ${leagueName}`}
+      status={
+        <span className="font-display text-sm font-bold tabular-nums text-gold">
+          {myWins}
+          <span className="px-1.5 text-ink-faint">–</span>
+          {oppWins}
+        </span>
+      }
+      banner={
+        roundStarted && eventId ? (
           <Link
-            href={`/leagues/${leagueSlug}`}
-            className="rounded-md px-2 py-1 text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+            href={`/events/${eventId}/play`}
+            className="block rounded-[14px] border border-emerald-400/50 bg-emerald-500/15 px-4 py-3 text-center text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
           >
-            League
+            The next round just started. Tap to go to your table →
           </Link>
-        )}
-      </nav>
-      <div className="hidden items-center justify-between gap-3 text-xs text-zinc-400 landscape:flex">
-        <span className="min-w-0 truncate">
-          <span className="font-semibold text-amber-300">Bonus Game</span>
-          <span className="text-zinc-500"> · {leagueName}</span>
-        </span>
-        <span className="shrink-0 tabular-nums">
-          {oppWins} <span className="text-zinc-500">games</span> {myWins}
-        </span>
-      </div>
-      <header className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 landscape:hidden">
-        <div className="mb-3 min-w-0">
-          <div className="truncate text-lg font-semibold text-amber-300">
-            Bonus Game
-          </div>
-          <div className="text-xs uppercase tracking-wide text-zinc-500">
-            {leagueName} · just for fun
-          </div>
-        </div>
-        <div className="flex items-baseline justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-zinc-500">
-              You
-            </div>
-            <div className="text-lg font-semibold">{me.displayName}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">
-              vs
-            </div>
-            <div className="text-lg font-semibold">{opp.displayName}</div>
-          </div>
-        </div>
-      </header>
-
-      <div className="flex items-center justify-center gap-3 text-sm landscape:hidden">
-        <span className="text-2xl font-bold tabular-nums">{myWins}</span>
-        <span className="text-zinc-500">games</span>
-        <span className="text-2xl font-bold tabular-nums">{oppWins}</span>
-      </div>
-
-      {/* Portrait stacks opponent above you — your counter sits nearest you
-          with the phone on the table. Landscape puts you side-by-side,
-          opponent left, you right. */}
-      <div className="flex min-h-0 flex-col gap-6 landscape:flex-1 landscape:flex-row landscape:gap-3">
-        <LifePanel
-          label={opp.displayName}
-          life={oppLife}
-          startingLife={startingLife}
-          avatars={avatarsFor(opp)}
-          onAdjust={(d) => adjust(oppSide, d)}
-        />
-
-        <LifePanel
-          label={`${me.displayName} (you)`}
-          life={myLife}
-          startingLife={startingLife}
-          avatars={avatarsFor(me)}
-          onAdjust={(d) => adjust(mySide, d)}
-          emphasized
-        />
-      </div>
-
-      {/* These stay disabled while their own action commits — reporting a
-          winner twice would deal two games — but carry no disabled styling.
-          The commit is short, and a dimmed flash on a button nobody is
-          waiting on reads as a glitch rather than as feedback. */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => reportWinner("opp")}
-          disabled={outcomePending}
-          className="touch-manipulation select-none rounded-xl bg-zinc-700 py-3 font-semibold transition-colors hover:bg-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-        >
-          They won
-        </button>
-        <button
-          onClick={() => reportWinner("me")}
-          disabled={outcomePending}
-          className="touch-manipulation select-none rounded-xl bg-emerald-500 py-3 font-semibold text-zinc-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-        >
-          I won this game
-        </button>
-      </div>
-
-      <button
-        onClick={endGame}
-        disabled={outcomePending}
-        className="touch-manipulation select-none rounded-xl border border-zinc-700 bg-zinc-950 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 landscape:py-1.5 landscape:text-xs"
-      >
-        End Bonus Game
-      </button>
-    </main>
+        ) : undefined
+      }
+      opponent={{
+        name: opp.displayName,
+        detail: `${oppWins} win${oppWins === 1 ? "" : "s"}`,
+        life: oppLife,
+        avatars: avatarsFor(opp),
+        onAdjust: (d) => adjust(oppSide, d),
+      }}
+      me={{
+        name: `You · ${me.displayName}`,
+        detail: `${myWins} win${myWins === 1 ? "" : "s"}`,
+        life: myLife,
+        avatars: avatarsFor(me),
+        onAdjust: (d) => adjust(mySide, d),
+      }}
+      startingLife={startingLife}
+      onIWon={() => reportWinner("me")}
+      onTheyWon={() => reportWinner("opp")}
+      outcomeDisabled={outcomePending}
+      menu={[
+        {
+          label: "End bonus game",
+          confirm: "The tally stays as the final score.",
+          tone: "danger",
+          onSelect: endGame,
+        },
+        { label: "Edit my portrait", href: `/players/${me.id}` },
+        ...(eventId
+          ? [{ label: "Back to the tournament", href: `/events/${eventId}/play` }]
+          : []),
+        ...(leagueSlug
+          ? [{ label: "League", href: `/leagues/${leagueSlug}` }]
+          : []),
+      ]}
+    />
   );
 }
