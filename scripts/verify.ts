@@ -1745,7 +1745,7 @@ async function runBonusGamePass() {
   });
   assert(
     paired.status === "in_progress" && paired.playerBId === pc.id,
-    "direct challenge seats the opponent and starts immediately"
+    "direct challenge seats the opponent (not on the event roster) and starts immediately"
   );
   const [pairedG1] = await db
     .select()

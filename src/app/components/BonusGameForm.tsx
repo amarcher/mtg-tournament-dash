@@ -1,12 +1,31 @@
 "use client";
 
-import { useActionState } from "react";
+import { Fragment, useActionState } from "react";
 import {
   createBonusGameAction,
   type BonusGameFormState,
 } from "@/app/events/actions";
+import type { BonusOpponent } from "@/lib/bonus-opponents";
 
 const initialState: BonusGameFormState = { error: null };
+
+function renderOption(o: BonusOpponent) {
+  return (
+    <option key={o.playerId} value={o.playerId} disabled={o.busy}>
+      {o.busy ? `${o.displayName} — mid-game` : o.displayName}
+    </option>
+  );
+}
+
+function groupOpponents(opponents: BonusOpponent[]) {
+  const groups: { group: string | undefined; members: BonusOpponent[] }[] = [];
+  for (const o of opponents) {
+    const last = groups[groups.length - 1];
+    if (last && last.group === o.group) last.members.push(o);
+    else groups.push({ group: o.group, members: [o] });
+  }
+  return groups;
+}
 
 /**
  * Challenge form for bonus games. Busy wizards stay listed but disabled so
@@ -21,7 +40,7 @@ export function BonusGameForm({
 }: {
   leagueSlug: string;
   eventId?: string;
-  opponents: { playerId: string; displayName: string; busy: boolean }[];
+  opponents: BonusOpponent[];
   idPrefix: string;
 }) {
   const [state, formAction, pending] = useActionState(
@@ -42,11 +61,15 @@ export function BonusGameForm({
         className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-2 text-base"
       >
         <option value="">Anyone — show a QR code</option>
-        {opponents.map((o) => (
-          <option key={o.playerId} value={o.playerId} disabled={o.busy}>
-            {o.busy ? `${o.displayName} — mid-game` : o.displayName}
-          </option>
-        ))}
+        {groupOpponents(opponents).map(({ group, members }) =>
+          group ? (
+            <optgroup key={group} label={group}>
+              {members.map(renderOption)}
+            </optgroup>
+          ) : (
+            <Fragment key="ungrouped">{members.map(renderOption)}</Fragment>
+          )
+        )}
       </select>
       <div className="flex items-center gap-2">
         <label htmlFor={`${idPrefix}-life`} className="sr-only">
