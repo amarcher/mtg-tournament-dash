@@ -11,12 +11,17 @@ import {
   getEventRoster,
   getEventStandings,
   getLeague,
+  listLeaguePlayers,
   listOpenBonusGamesForEvent,
 } from "@/db/queries";
 import {
   findActiveBonusGameForPlayer,
   listBusyBonusPlayerIds,
 } from "@/lib/bonus-game";
+import {
+  buildEventBonusOpponents,
+  type BonusOpponent,
+} from "@/lib/bonus-opponents";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { PlayClient } from "./PlayClient";
 import { WaitForRound } from "./WaitForRound";
@@ -80,7 +85,7 @@ function BonusGameSection({
     playerAName: string;
     playerAAvatarUrl: string | null;
   }[];
-  opponents: { playerId: string; displayName: string; busy: boolean }[];
+  opponents: BonusOpponent[];
 }) {
   return (
     <section className="mt-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-left">
@@ -128,9 +133,10 @@ function BonusGameSection({
             </ul>
           )}
           <p className="mt-3 text-xs text-zinc-400">
-            Challenge a wizard directly and their phone jumps straight into
-            the game — or open a seat and let anyone scan the QR. Games until
-            you quit, no ELO on the line.
+            Challenge any wizard in the league — even one sitting out the
+            draft — and their phone jumps straight into the game. Or open a
+            seat and let anyone scan the QR. Games until you quit, no ELO on
+            the line.
           </p>
           <BonusGameForm
             leagueSlug={leagueSlug}
@@ -156,22 +162,22 @@ async function loadBonusData(
       opponents: [] as never[],
     };
   }
-  const [mine, open, roster, busyIds] = await Promise.all([
+  const [mine, open, roster, leaguePlayers, busyIds] = await Promise.all([
     findActiveBonusGameForPlayer(leagueId, playerId),
     listOpenBonusGamesForEvent(eventId),
     getEventRoster(eventId),
+    listLeaguePlayers(leagueId),
     listBusyBonusPlayerIds(leagueId),
   ]);
   return {
     myActiveMatchId: mine?.id ?? null,
     openGames: open.filter((g) => g.playerAId !== playerId),
-    opponents: roster
-      .filter((r) => r.playerId !== playerId)
-      .map((r) => ({
-        playerId: r.playerId,
-        displayName: r.displayName,
-        busy: busyIds.has(r.playerId),
-      })),
+    opponents: buildEventBonusOpponents({
+      me: playerId,
+      roster,
+      leaguePlayers,
+      busyIds,
+    }),
   };
 }
 
