@@ -16,9 +16,15 @@ export const responseRing: Record<PollResponseValue, string> = {
 };
 
 const rsvpTone: Record<PollResponseValue, string> = {
-  yes: "border-emerald-500 bg-emerald-500/15 text-emerald-200",
-  if_need_be: "border-amber-500 bg-amber-500/15 text-amber-200",
-  no: "border-rose-500 bg-rose-500/15 text-rose-200",
+  yes: "border-emerald-400/70 bg-emerald-500/15 text-emerald-200",
+  if_need_be: "border-amber-400/70 bg-amber-500/15 text-amber-100",
+  no: "border-rose-400/70 bg-rose-500/15 text-rose-200",
+};
+
+export const responseDot: Record<PollResponseValue, string> = {
+  yes: "bg-emerald-400",
+  if_need_be: "bg-amber-400",
+  no: "bg-rose-400",
 };
 
 /**
@@ -61,12 +67,13 @@ export function RsvpButtons({
                 ? `Tap again to clear your ${POLL_RESPONSE_LABELS[r]} answer`
                 : undefined
             }
-            className={`min-h-11 rounded-md border px-2 text-sm font-medium transition active:scale-[0.98] disabled:opacity-40 ${
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-[12px] border px-2 text-sm font-semibold transition active:scale-[0.98] disabled:opacity-40 ${
               isMine
                 ? rsvpTone[r]
-                : "border-zinc-700 text-zinc-300 hover:bg-zinc-800 active:bg-zinc-800"
+                : "border-line text-ink-dim hover:bg-white/5 active:bg-white/5"
             }`}
           >
+            <span aria-hidden className={`h-2 w-2 rounded-full ${responseDot[r]}`} />
             {POLL_RESPONSE_LABELS[r]}
           </button>
         );
@@ -115,7 +122,7 @@ export function RsvpFaces({ rsvps }: { rsvps: NightWithRsvps["rsvps"] }) {
         <span
           key={r.playerId}
           title={`${r.displayName}: ${POLL_RESPONSE_LABELS[r.response]}`}
-          className="flex items-center gap-1.5 rounded-full bg-zinc-950/60 py-0.5 pl-0.5 pr-2 text-xs text-zinc-300"
+          className="flex items-center gap-1.5 rounded-full bg-white/[0.05] py-0.5 pl-0.5 pr-2 text-xs text-ink"
         >
           {r.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -146,9 +153,9 @@ export function NightPlanLine({ night }: { night: NightWithRsvps }) {
     night.venue,
   ].filter(Boolean);
   return bits.length ? (
-    <p className="text-sm text-zinc-400">{bits.join(" · ")}</p>
+    <p className="text-sm text-ink-dim">{bits.join(" · ")}</p>
   ) : (
-    <p className="text-sm text-zinc-600">Set and host still to be decided</p>
+    <p className="text-sm text-ink-faint">Set and host still to be decided</p>
   );
 }
 
@@ -173,18 +180,18 @@ export function GameNightCard({
 
   return (
     <li
-      className={`rounded-lg border p-4 ${
+      className={`rounded-[18px] border p-4 shadow-e1 ${
         canceled
-          ? "border-zinc-800 bg-zinc-900/40 opacity-70"
+          ? "border-line bg-surface opacity-60"
           : night.status === "confirmed"
-            ? "border-emerald-500/50 bg-emerald-500/5"
-            : "border-zinc-800 bg-zinc-900"
+            ? "border-emerald-400/40 bg-[linear-gradient(135deg,rgb(79_224_139/0.08),transparent_60%),var(--color-surface)]"
+            : "border-line bg-surface"
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <Link
           href={`/leagues/${leagueSlug}/schedule/nights/${night.id}`}
-          className="text-lg font-semibold transition hover:text-amber-400 active:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          className="font-display text-base font-bold transition hover:text-gold active:text-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
           {formatPollDate(night.startsAt)}
           {canceled && (
@@ -193,8 +200,13 @@ export function GameNightCard({
             </span>
           )}
         </Link>
-        <span className="font-mono text-xs text-zinc-400">
-          ✅ {tally.yes} · 🟡 {tally.ifNeedBe} · ❌ {tally.no}
+        <span
+          className="flex items-center gap-2.5 text-xs font-semibold tabular-nums text-ink-dim"
+          aria-label={`${tally.yes} yes, ${tally.ifNeedBe} maybe, ${tally.no} no`}
+        >
+          <span className="flex items-center gap-1"><span aria-hidden className={`h-2 w-2 rounded-full ${responseDot.yes}`} />{tally.yes}</span>
+          <span className="flex items-center gap-1"><span aria-hidden className={`h-2 w-2 rounded-full ${responseDot.if_need_be}`} />{tally.ifNeedBe}</span>
+          <span className="flex items-center gap-1"><span aria-hidden className={`h-2 w-2 rounded-full ${responseDot.no}`} />{tally.no}</span>
         </span>
       </div>
 

@@ -65,25 +65,22 @@ export default async function SchedulePage({
       organizerMode={view.organizerMode}
       active="schedule"
     >
-      <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Draft night scheduling
-          </h1>
-          <p className="mt-2 text-sm text-zinc-500">
-            The calendar is the standing set of dates — RSVP to any of them,
-            and change your mind whenever. Polls are for settling a date that
-            isn&apos;t on it yet.
+      <main className="mx-auto w-full max-w-3xl px-4 py-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold">Schedule</h1>
+          <p className="mt-1 text-sm text-ink-dim">
+            RSVP to any night and change your mind whenever. Polls settle a
+            date that isn&apos;t on the calendar yet.
           </p>
         </div>
 
-        <section className="mb-12">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <h2 className="text-lg font-medium text-zinc-200">The calendar</h2>
+        <section className="mb-10">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="label-caps text-ink-dim">Game nights</h2>
             {view.organizerMode && (
               <Link
                 href={`/leagues/${league.slug}/schedule/nights/new`}
-                className="flex min-h-11 items-center rounded-md bg-amber-500 px-4 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 active:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                className="flex min-h-11 items-center rounded-[12px] px-4 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
               >
                 Open dates
               </Link>
@@ -91,7 +88,7 @@ export default async function SchedulePage({
           </div>
 
           {upcoming.length === 0 ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-sm text-zinc-500">
+            <div className="surface-card p-5 text-sm text-ink-dim">
               No dates on the calendar yet.
               {view.organizerMode
                 ? " Open a run — every other Monday, say — and the league starts RSVPing."
@@ -112,7 +109,7 @@ export default async function SchedulePage({
           )}
 
           {past.length > 0 && (
-            <details className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3">
+            <details className="mt-3 rounded-[14px] border border-line bg-surface px-4 py-3">
               <summary className="cursor-pointer text-sm text-zinc-400">
                 {past.length} past night{past.length === 1 ? "" : "s"}
               </summary>
@@ -136,23 +133,23 @@ export default async function SchedulePage({
         </section>
 
         <section>
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-medium text-zinc-200">Date polls</h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                Doodle-style: propose a few candidates, pick the winner.
+              <h2 className="label-caps text-ink-dim">Date polls</h2>
+              <p className="mt-2 text-sm text-ink-dim">
+                Propose a few dates and let everyone vote.
               </p>
             </div>
             <Link
               href={`/leagues/${league.slug}/schedule/new`}
-              className="flex min-h-11 items-center rounded-md border border-zinc-700 px-4 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800 active:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="flex min-h-11 items-center rounded-[12px] px-4 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Propose dates
             </Link>
           </div>
 
           {polls.length === 0 ? (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-sm text-zinc-500">
+            <div className="surface-card p-5 text-sm text-ink-dim">
               No polls yet. Propose a few dates to get an off-calendar draft
               night settled.
             </div>
@@ -162,7 +159,7 @@ export default async function SchedulePage({
                 <li key={poll.id}>
                   <Link
                     href={`/leagues/${league.slug}/schedule/${poll.id}`}
-                    className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-900 px-5 py-4 transition hover:border-zinc-700 hover:bg-zinc-800/60 active:bg-zinc-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                    className="flex min-h-14 items-center justify-between gap-4 surface-card px-4 py-3 transition hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                   >
                     <span className="flex min-w-0 items-center gap-3">
                       <span className="truncate font-medium">{poll.title}</span>
