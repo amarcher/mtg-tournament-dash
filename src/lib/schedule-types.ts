@@ -10,9 +10,9 @@ export const POLL_RESPONSES = ["yes", "if_need_be", "no"] as const;
 export type PollResponseValue = (typeof POLL_RESPONSES)[number];
 
 export const POLL_RESPONSE_LABELS: Record<PollResponseValue, string> = {
-  yes: "✅ Yes",
-  if_need_be: "🟡 If need be",
-  no: "❌ No",
+  yes: "Yes",
+  if_need_be: "Maybe",
+  no: "No",
 };
 
 export function isPollResponse(value: unknown): value is PollResponseValue {

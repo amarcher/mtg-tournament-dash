@@ -172,13 +172,11 @@ export default async function PlayHomePage({
                             name={g.playerAName}
                             url={g.playerAAvatarUrl}
                           />
-                          <span className="min-w-0 flex-1 truncate text-sm">
+                          <span className="min-w-0 flex-1 text-sm leading-snug">
                             <strong className="font-semibold">
                               {g.playerAName}
                             </strong>{" "}
-                            <span className="text-ink-dim">
-                              is looking for a game
-                            </span>
+                            <span className="text-ink-dim">wants a game</span>
                           </span>
                           <span className="shrink-0 text-sm font-semibold text-emerald-300">
                             Join →

@@ -323,17 +323,17 @@ export default async function ManagePage({
               <form action={addRound}>
                 <button
                   type="submit"
-                  className="rounded-md border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-200 transition hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  className="rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                   title="Reopen the event and schedule one more round"
                 >
                   Add a round
                 </button>
               </form>
               <details className="group">
-                <summary className="cursor-pointer list-none rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
+                <summary className="cursor-pointer list-none rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
                   Reopen…
                 </summary>
-                <div className="mt-2 w-full max-w-md rounded-md border border-zinc-700 bg-zinc-950 p-3">
+                <div className="mt-2 w-full max-w-md rounded-[14px] border border-line bg-canvas p-4">
                   <p className="mb-3 text-xs text-zinc-400">
                     Unlock final standings and set the event back to in-progress
                     so you can play more rounds or re-end it. Match results and
@@ -342,7 +342,7 @@ export default async function ManagePage({
                   <form action={reopenEvent}>
                     <button
                       type="submit"
-                      className="rounded-md bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                      className="rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                     >
                       Reopen event
                     </button>
@@ -379,7 +379,7 @@ export default async function ManagePage({
               <button
                 type="submit"
                 disabled={incompleteCount > 0}
-                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:bg-emerald-500/30 disabled:text-zinc-950/60"
+                className="rounded-[12px] bg-emerald-400 px-5 py-3 text-sm font-bold text-zinc-950 shadow-e1 transition hover:bg-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-transparent disabled:text-ink-faint disabled:shadow-none"
                 title={
                   incompleteCount > 0
                     ? `${incompleteCount} match(es) need a result first`
@@ -394,10 +394,10 @@ export default async function ManagePage({
           )}
           {activeRound && !roundHasAnyResult && !pendingRound && (
             <details className="group">
-              <summary className="cursor-pointer list-none rounded-md border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
+              <summary className="cursor-pointer list-none rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
                 Un-start round…
               </summary>
-              <div className="mt-2 w-full max-w-md rounded-md border border-zinc-700 bg-zinc-950 p-3">
+              <div className="mt-2 w-full max-w-md rounded-[14px] border border-line bg-canvas p-4">
                 <p className="mb-3 text-xs text-zinc-400">
                   Retract round {activeRound.roundNumber} and go back to the
                   review-pairings screen — swap, drop, or re-roll, then confirm
@@ -408,7 +408,7 @@ export default async function ManagePage({
                 <form action={revertActive}>
                   <button
                     type="submit"
-                    className="rounded-md bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                    className="rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                   >
                     Back to pairings
                   </button>
@@ -418,10 +418,10 @@ export default async function ManagePage({
           )}
           {(completedRoundsCount >= 1 || activeRound) && (
             <details className="group">
-              <summary className="cursor-pointer list-none rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70">
+              <summary className="cursor-pointer list-none rounded-[12px] border border-rose-400/40 bg-rose-500/10 px-5 py-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70">
                 End event early…
               </summary>
-              <div className="mt-2 w-full max-w-md rounded-md border border-red-500/30 bg-zinc-950 p-3">
+              <div className="mt-2 w-full max-w-md rounded-[14px] border border-rose-400/30 bg-canvas p-4">
                 {activeRound && incompleteCount > 0 ? (
                   <p className="text-xs text-amber-200">
                     Report the {incompleteCount} pending match
@@ -439,7 +439,7 @@ export default async function ManagePage({
                     <form action={endEvent}>
                       <button
                         type="submit"
-                        className="rounded-md bg-red-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
+                        className="rounded-[12px] bg-rose-400 px-5 py-3 text-sm font-bold text-zinc-950 transition hover:bg-rose-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
                       >
                         End event &amp; tabulate winner
                       </button>
@@ -850,7 +850,7 @@ export default async function ManagePage({
             </select>
             <button
               type="submit"
-              className="rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="rounded-[12px] px-4 py-2.5 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Add to event
             </button>
