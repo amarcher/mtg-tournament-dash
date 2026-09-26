@@ -40,6 +40,14 @@ export const realtimeSchema = {
     matchId: z.string(),
     winnerId: z.string(),
   }),
+  // A player undid the last game win in a still-running match: the freshly
+  // dealt game was discarded and the previous game reopened with its life
+  // totals. Both phones reload to pick up the restored game.
+  game_reopened: z.object({
+    ts: z.number(),
+    matchId: z.string(),
+    gameId: z.string(),
+  }),
   // Organizer undid a recorded result — the match is back in progress and
   // the two phones showing "You won/lost" need to rejoin the game.
   match_reopened: z.object({ ts: z.number(), matchId: z.string() }),
@@ -61,6 +69,7 @@ export const REALTIME_EVENT_NAMES = [
   "event_state_changed",
   "life_changed",
   "game_complete",
+  "game_reopened",
   "match_complete",
   "match_reopened",
   "bonus_game_opened",
@@ -97,6 +106,7 @@ export type EventMessage =
       nextGameNumber: number;
       newGameId: string;
     }
+  | { type: "game_reopened"; ts: number; matchId: string; gameId: string }
   | { type: "match_complete"; ts: number; matchId: string; winnerId: string }
   | { type: "match_reopened"; ts: number; matchId: string }
   | { type: "bonus_game_opened"; ts: number; matchId: string }
@@ -113,6 +123,7 @@ export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set
   "match_complete",
   "match_reopened",
   "game_complete",
+  "game_reopened",
   "bonus_game_opened",
   "bonus_game_started",
   "bonus_game_ended",

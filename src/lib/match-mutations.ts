@@ -242,3 +242,64 @@ export async function applyGameWinner(args: {
     });
   }
 }
+
+/**
+ * Undo the most recent game win in a match that is still running: discard
+ * the freshly dealt game and reopen the one before it, life totals intact,
+ * so play resumes exactly where the mistaken tap left it. Refuses once the
+ * match itself is complete — that result (and its ELO) is the organizer's to
+ * clear from the console.
+ *
+ * `gameId` is the open game the caller is looking at. The undo only applies
+ * if that game is still the open one, so two phones tapping Undo at once
+ * can't peel back two games.
+ */
+export async function undoLastGameWin(args: {
+  matchId: string;
+  gameId: string;
+}): Promise<{ reopenedGameId: string }> {
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchId));
+  if (!match) throw new Error("Match not found");
+  if (match.status !== "in_progress")
+    throw new Error(
+      "This match is already decided — ask the organizer to undo the result"
+    );
+
+  const allGames = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, args.matchId))
+    .orderBy(games.gameNumber);
+  const open = allGames.find((g) => g.winnerId === null);
+  if (!open || open.id !== args.gameId)
+    throw new Error("The game changed — reload and try again");
+  const previous = allGames.find(
+    (g) => g.gameNumber === open.gameNumber - 1 && g.winnerId !== null
+  );
+  if (!previous) throw new Error("There's no finished game to undo");
+
+  await db.delete(games).where(eq(games.id, open.id));
+  await db
+    .update(games)
+    .set({ winnerId: null, completedAt: null })
+    .where(eq(games.id, previous.id));
+
+  const reopened = {
+    type: "game_reopened" as const,
+    matchId: match.id,
+    gameId: previous.id,
+  };
+  if (match.roundId) {
+    const [round] = await db
+      .select()
+      .from(rounds)
+      .where(eq(rounds.id, match.roundId));
+    await publish(round.eventId, reopened);
+  } else {
+    await publishToChannel(channelForMatch(match.id), reopened);
+  }
+  return { reopenedGameId: previous.id };
+}

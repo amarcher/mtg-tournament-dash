@@ -7,7 +7,9 @@ import {
   adjustLifeAction,
   endBonusGameAction,
   reportGameWinnerAction,
+  undoLastGameWinAction,
 } from "@/app/events/actions";
+import { useLifeHistory } from "@/lib/use-life-history";
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
@@ -109,7 +111,10 @@ export function BonusPlayClient({
       // Ended on either phone → the server page renders the final tally.
       // A started event carrying a different matchId is the pair moving on
       // to a fresh bonus game — follow them.
-      if (msg.type === "bonus_game_ended" && msg.matchId === matchId) {
+      if (
+        (msg.type === "bonus_game_ended" || msg.type === "game_reopened") &&
+        msg.matchId === matchId
+      ) {
         window.location.reload();
       }
       if (msg.type === "bonus_game_started" && msg.matchId !== matchId) {
@@ -179,6 +184,7 @@ export function BonusPlayClient({
   }, [matchId]);
 
   useWakeLock();
+  const getHistory = useLifeHistory(currentGameId, aLife, bLife);
 
   const myLife = mySide === "a" ? aLife : bLife;
   const oppLife = mySide === "a" ? bLife : aLife;
@@ -228,6 +234,19 @@ export function BonusPlayClient({
     });
   };
 
+  const undoLastGame = () => {
+    startOutcomeTransition(async () => {
+      try {
+        await undoLastGameWinAction({
+          matchId,
+          gameId: currentGameId.current,
+        });
+      } finally {
+        window.location.reload();
+      }
+    });
+  };
+
   const endGame = () => {
     startOutcomeTransition(async () => {
       await endBonusGameAction({ matchId });
@@ -257,6 +276,7 @@ export function BonusPlayClient({
         ) : undefined
       }
       opponent={{
+        side: oppSide,
         name: opp.displayName,
         detail: `${oppWins} win${oppWins === 1 ? "" : "s"}`,
         life: oppLife,
@@ -264,6 +284,7 @@ export function BonusPlayClient({
         onAdjust: (d) => adjust(oppSide, d),
       }}
       me={{
+        side: mySide,
         name: `You · ${me.displayName}`,
         detail: `${myWins} win${myWins === 1 ? "" : "s"}`,
         life: myLife,
@@ -274,7 +295,18 @@ export function BonusPlayClient({
       onIWon={() => reportWinner("me")}
       onTheyWon={() => reportWinner("opp")}
       outcomeDisabled={outcomePending}
+      getHistory={getHistory}
       menu={[
+        ...(myWins + oppWins > 0
+          ? [
+              {
+                label: "Undo last game result",
+                confirm:
+                  "Reopens the last game with its life totals. Anything played since is discarded.",
+                onSelect: undoLastGame,
+              },
+            ]
+          : []),
         {
           label: "End bonus game",
           confirm: "The tally stays as the final score.",

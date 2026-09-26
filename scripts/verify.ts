@@ -58,7 +58,11 @@ import {
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
 } from "../src/app/events/actions";
-import { applyGameWinner, applyLifeAdjust } from "../src/lib/match-mutations";
+import {
+  applyGameWinner,
+  applyLifeAdjust,
+  undoLastGameWin,
+} from "../src/lib/match-mutations";
 import {
   createBonusGame,
   endBonusGame,
@@ -1673,6 +1677,32 @@ async function runBonusGamePass() {
       openGame.playerBLife === 40,
     "fresh game resets both players to starting life"
   );
+
+  // Undo the last game win: the freshly dealt game goes away and the one
+  // before it reopens with its life totals.
+  const lastWon = allGames[allGames.length - 2];
+  let staleUndoBlocked = false;
+  try {
+    await undoLastGameWin({ matchId: match.id, gameId: lastWon.id });
+  } catch {
+    staleUndoBlocked = true;
+  }
+  assert(staleUndoBlocked, "undo refuses a game id that isn't the open game");
+  await undoLastGameWin({ matchId: match.id, gameId: openGame.id });
+  const afterUndo = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, match.id))
+    .orderBy(games.gameNumber);
+  assert(
+    afterUndo.length === allGames.length - 1 &&
+      afterUndo[afterUndo.length - 1].id === lastWon.id &&
+      afterUndo[afterUndo.length - 1].winnerId === null &&
+      afterUndo[afterUndo.length - 1].playerALife === lastWon.playerALife,
+    "undo reopens the previous game with its life totals"
+  );
+  // Put the game win back so the rest of the pass sees the same state.
+  await applyGameWinner({ matchId: match.id, winnerId: lastWon.winnerId! });
 
   let outsiderBlocked = false;
   try {

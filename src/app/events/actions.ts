@@ -69,7 +69,11 @@ import {
 import { publish } from "@/lib/pubsub";
 import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
-import { applyGameWinner, applyLifeAdjust } from "@/lib/match-mutations";
+import {
+  applyGameWinner,
+  applyLifeAdjust,
+  undoLastGameWin,
+} from "@/lib/match-mutations";
 import {
   createBonusGame,
   endBonusGame,
@@ -1169,6 +1173,26 @@ export async function reportGameWinnerAction(args: {
   // Revalidation lives in the action wrapper (not the domain core) so the
   // request-scoped swallowing `revalidatePath` above is used — trusted callers
   // like the verify harness drive `applyGameWinner` directly, outside a request.
+  if (round) {
+    revalidatePath(`/events/${round.eventId}/play`);
+    revalidatePath(`/events/${round.eventId}/broadcast`);
+    revalidatePath(`/events/${round.eventId}/manage`);
+  } else {
+    revalidatePath(`/matches/${match.id}`);
+  }
+}
+
+/**
+ * Player self-service: take back the last game win in a running match (a
+ * mis-tapped "I won" / "They won"). Same participant gate as reporting it.
+ */
+export async function undoLastGameWinAction(args: {
+  matchId: string;
+  /** The open game the phone is showing — see undoLastGameWin. */
+  gameId: string;
+}) {
+  const { match, round } = await authorizeMatchParticipant(args.matchId);
+  await undoLastGameWin(args);
   if (round) {
     revalidatePath(`/events/${round.eventId}/play`);
     revalidatePath(`/events/${round.eventId}/broadcast`);

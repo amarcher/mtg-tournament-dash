@@ -37,6 +37,7 @@ export function LifePanel({
   onAdjust,
   emphasized,
   flipped,
+  onNumberTap,
   className = "",
 }: {
   name: string;
@@ -49,6 +50,8 @@ export function LifePanel({
   emphasized?: boolean;
   /** Rotate 180° so a player across the table reads it right way up. */
   flipped?: boolean;
+  /** Tapping the big number — the scorekeeper opens life history. */
+  onNumberTap?: () => void;
   className?: string;
 }) {
   const activeTier = tierForLife(life, startingLife);
@@ -107,8 +110,12 @@ export function LifePanel({
       </div>
 
       <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center [container-type:size]">
-        <span
-          className="font-display font-black leading-none tabular-nums tracking-[-0.045em] text-white"
+        <button
+          type="button"
+          onClick={onNumberTap}
+          disabled={!onNumberTap}
+          aria-label={onNumberTap ? `${life} life. Show life history` : undefined}
+          className="touch-manipulation select-none rounded-2xl px-2 font-display font-black leading-none tabular-nums tracking-[-0.045em] text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:cursor-default"
           style={{
             fontSize: "min(82cqh, 44cqw)",
             textShadow:
@@ -116,7 +123,7 @@ export function LifePanel({
           }}
         >
           {life}
-        </span>
+        </button>
       </div>
 
       {/* Deliberately never disabled while a write is in flight: taps are
