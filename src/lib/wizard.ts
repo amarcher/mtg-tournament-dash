@@ -180,13 +180,13 @@ const HOBBIT_DETAILS: Record<HobbitArchetype, string> = {
 
 const TMNT_DETAILS: Record<TmntArchetype, string> = {
   Leonardo:
-    "Leonardo-inspired ninja gear: a narrow blue eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, twin katana hilts visible over the shoulders, moonlit New York rooftops behind them",
+    "Leonardo's gear: a blue cloth mask tied across their eyes, their own two eyes showing through the eye holes, green shoulder armor and a turtle-shell chest plate, twin katana hilts over the shoulders, with moonlit New York rooftops behind them",
   Raphael:
-    "Raphael-inspired ninja gear: a narrow red eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, twin sai held beside the shoulders, gritty brick walls and warm city lights behind them",
+    "Raphael's gear: a red cloth mask tied across their eyes, their own two eyes showing through the eye holes, green shoulder armor and a turtle-shell chest plate, twin sai at their shoulders, with gritty brick walls and warm city lights behind them",
   Donatello:
-    "Donatello-inspired ninja gear: a narrow purple eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, a wooden bo staff rising over one shoulder, circuit boards and softly glowing monitors in a sewer workshop behind them",
+    "Donatello's gear: a purple cloth mask tied across their eyes, their own two eyes showing through the eye holes, green shoulder armor and a turtle-shell chest plate, a wooden bo staff over one shoulder, with a sewer workshop of glowing monitors behind them",
   Michelangelo:
-    "Michelangelo-inspired ninja gear: a narrow orange eye mask with generous eye openings, green shoulder armor, a domed shell rising behind the shoulders, a tan plastron chest plate, nunchaku slung over one shoulder, a pizza box and colorful skateboard in a cozy sewer lair behind them",
+    "Michelangelo's gear: an orange cloth mask tied across their eyes, their own two eyes showing through the eye holes, green shoulder armor and a turtle-shell chest plate, nunchaku over one shoulder, with a cozy sewer lair behind them",
   Splinter:
     "Splinter, the wise mutant rat sensei: warm brown fur, rounded rat ears, a whiskered muzzle, a worn burgundy martial-arts robe, a wooden walking staff beside one shoulder, a candlelit sewer dojo behind them",
   "April O'Neil":
@@ -198,7 +198,7 @@ const TMNT_DETAILS: Record<TmntArchetype, string> = {
   Shredder:
     "Shredder, the armored leader of the Foot Clan: a polished steel kabuto helmet, angular bladed shoulder armor and a purple cape, the metal face guard lowered to reveal their entire recognizable face, a shadowy rooftop dojo behind them",
   Krang:
-    "Krang-inspired sci-fi portrait: this person's unchanged human face framed by a soft pink brain-shaped surround, with stylized folds confined to the surround outside their face and hair, small decorative tentacles beside the surround, all inside the transparent belly cockpit of an android body; their face fills most of the portrait, the android's head stays outside the crop, a glowing Technodrome control room behind them — playful costume effects, no exposed organs, no gore",
+    "a Krang-inspired sci-fi setting: seat them inside the transparent belly cockpit of an android body, a soft pink brain-shaped halo with small tentacles behind their head, with a glowing Technodrome control room behind them",
   "Casey Jones":
     "Casey Jones, the streetwise hockey vigilante: a hockey mask pushed up onto their forehead to leave their entire face visible, a weathered sleeveless sports vest, hockey sticks rising over one shoulder from a gear bag, a floodlit New York street hockey court behind them",
 };
@@ -279,23 +279,16 @@ export function buildWizardPrompt(
   if (theme === "tmnt") archetype = archetypeForTheme(theme, archetype);
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
   const style =
-    `${theme === "tmnt" && archetype === "Krang" ? "Close-up portrait of the person's face inside the android belly cockpit" : "Shoulders-up portrait"}, painterly oil-painting style, dramatic chiaroscuro lighting.` +
+    "Shoulders-up portrait, painterly oil-painting style, dramatic chiaroscuro lighting." +
     (theme === "tmnt" ? " Family-friendly comic-book adventure, no blood or gore." : "");
-  if (theme === "tmnt" && archetype === "Krang") {
+  if (theme === "tmnt" && (TURTLE_ARCHETYPES.has(archetype) || archetype === "Krang")) {
+    // Phrased as a repaint of the photo with a short costume clause. Listing
+    // facial features to "preserve" (or long costume/scene descriptions) makes
+    // FLUX draw a generic face from the words and ignore the reference entirely.
     return (
-      `Keep this exact person from the reference photo. Preserve their human face shape, eyes, nose, mouth, jawline, skin tone, age, hairline, hairstyle, and beard or facial hair. ` +
-      `Create a ${TMNT_DETAILS.Krang}.${extra} ` +
-      `Keep their entire face unobstructed and recognizable. Do not sculpt brain folds into their face or replace it with Krang's cartoon face. ` +
-      style
-    );
-  }
-  if (theme === "tmnt" && TURTLE_ARCHETYPES.has(archetype)) {
-    return (
-      `Keep this exact person from the reference photo. Preserve their human face shape, eyes, nose, mouth, jawline, skin tone, age, hairline, hairstyle, and beard or facial hair. ` +
-      `Dress this person in ${TMNT_DETAILS[archetype as TmntArchetype]}.${extra} ` +
-      `Their own face is the portrait's focal point; keep the mask narrow and the eyes clearly visible. ` +
-      `Do not replace their face with the fictional character's face, a turtle muzzle, or a generic cartoon head. ` +
-      style
+      `Repaint the subject of this exact photo as a painterly oil-painting portrait, keeping their face, age, skin tone, hair color and hairstyle exactly as in the photo. ` +
+      `Add ${TMNT_DETAILS[archetype as TmntArchetype]}.${extra} ` +
+      `Family-friendly comic-book style, no blood or gore.`
     );
   }
   if (theme !== "standard") {
@@ -406,16 +399,18 @@ export type WizardVariantResult = {
 export type ImageEditor = (
   selfie: Buffer,
   prompt: string,
+  seed: number,
   signal?: AbortSignal
 ) => Promise<Buffer>;
 
-const localFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
+const localFluxEditor: ImageEditor = async (selfieBuf, prompt, seed, signal) => {
   const fd = new FormData();
   fd.set("prompt", prompt);
   fd.set("width", "1024");
   fd.set("height", "1024");
   fd.set("steps", "4");
   fd.set("guidance", "1.0");
+  fd.set("seed", String(seed));
   fd.set(
     "images",
     new Blob([new Uint8Array(selfieBuf)], { type: "image/jpeg" }),
@@ -448,7 +443,7 @@ const localFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
 // The `signal` is honored on the result download so a `after()` budget kill
 // cancels the in-flight bytes; the subscribe poll itself runs sub-second on
 // Klein in practice so isn't worth threading.
-const falFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
+const falFluxEditor: ImageEditor = async (selfieBuf, prompt, seed, signal) => {
   if (!process.env.FAL_KEY) {
     throw new Error("IMAGE_GEN_PROVIDER=fal but FAL_KEY is not set");
   }
@@ -464,6 +459,7 @@ const falFluxEditor: ImageEditor = async (selfieBuf, prompt, signal) => {
       input: {
         prompt,
         image_urls: [imageUrl],
+        seed,
       },
       logs: false,
     });
@@ -593,9 +589,13 @@ export async function generateWizardVariantsFromSelfie(args: {
   ];
   const buffers: Record<WizardTier, Buffer> = {} as Record<WizardTier, Buffer>;
   const edit = getImageEditor();
+  // One seed per generation, shared by all tiers: a fixed seed made every
+  // player's costume and background come out in the same layout, while
+  // per-tier seeds would make the five life states drift apart.
+  const seed = Math.floor(Math.random() * 2 ** 31);
   for (const tier of tiers) {
     const prompt = buildVariantPrompt(theme, archetype, freeform, tier);
-    buffers[tier] = await edit(selfieBuf, prompt, signal);
+    buffers[tier] = await edit(selfieBuf, prompt, seed, signal);
   }
 
   // Versioned keys per generation: the portraitId segment means a regen
