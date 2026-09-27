@@ -31,7 +31,7 @@ export function OrganizerGate({
           <div className="mt-6 flex flex-col gap-2">
             <Link
               href={`/sign-in?next=${encodeURIComponent(next)}`}
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="rounded-md btn-gold px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Sign in
             </Link>

@@ -61,7 +61,7 @@ function BonusGameSection({
       {myActiveMatchId ? (
         <Link
           href={`/matches/${myActiveMatchId}`}
-          className="mt-3 block w-full rounded-xl bg-amber-500 py-3 text-center font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          className="mt-3 block w-full rounded-xl btn-gold py-3 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
           Return to your Bonus Game →
         </Link>

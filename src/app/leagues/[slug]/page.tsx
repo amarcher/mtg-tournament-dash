@@ -108,7 +108,7 @@ export default async function PlayHomePage({
               Pick your name from the league (or make a new wizard) so this
               phone knows who you are. You only do this once.
             </p>
-            <span className="mt-4 inline-flex rounded-[12px] px-4 py-2.5 text-sm btn-gold">
+            <span className="mt-4 inline-flex rounded-[8px] px-4 py-2.5 text-sm btn-gold">
               Claim wizard →
             </span>
           </Link>
@@ -133,7 +133,7 @@ export default async function PlayHomePage({
                 ? "Tap to keep score."
                 : "Stand by here. The scorekeeper opens when the round starts."}
             </p>
-            <span className="mt-4 inline-flex rounded-[12px] px-5 py-3 text-sm btn-gold">
+            <span className="mt-4 inline-flex rounded-[8px] px-5 py-3 text-sm btn-gold">
               {activeMatch ? "Keep score →" : "Stand by →"}
             </span>
           </Link>
@@ -147,7 +147,7 @@ export default async function PlayHomePage({
             {myBonusGame ? (
               <Link
                 href={`/matches/${myBonusGame.id}`}
-                className="mt-3 flex items-center justify-between gap-3 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                className="mt-3 flex items-center justify-between gap-3 rounded-[10px] border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 transition hover:bg-emerald-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 <span className="font-semibold text-emerald-100">
                   {myBonusGame.status === "pending"
@@ -166,7 +166,7 @@ export default async function PlayHomePage({
                       <li key={g.matchId}>
                         <Link
                           href={`/matches/${g.matchId}`}
-                          className="flex items-center gap-3 rounded-[14px] border border-line bg-white/[0.03] px-3 py-2.5 transition hover:border-emerald-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                          className="flex items-center gap-3 rounded-[10px] border border-line bg-white/[0.03] px-3 py-2.5 transition hover:border-emerald-400/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                         >
                           <SmallAvatar
                             name={g.playerAName}
@@ -234,7 +234,7 @@ export default async function PlayHomePage({
                         Pick the dates that work for you
                       </span>
                     </span>
-                    <span className="shrink-0 rounded-[12px] px-4 py-2.5 text-sm btn-gold">
+                    <span className="shrink-0 rounded-[8px] px-4 py-2.5 text-sm btn-gold">
                       Vote
                     </span>
                   </Link>
@@ -279,14 +279,14 @@ export default async function PlayHomePage({
                 <span className="flex shrink-0 gap-2">
                   <Link
                     href={`/events/${e.id}/broadcast`}
-                    className="rounded-[12px] px-3 py-2 text-sm btn-ghost"
+                    className="rounded-[8px] px-3 py-2 text-sm btn-ghost"
                   >
                     Watch
                   </Link>
                   {(e.status === "draft" || !me) && (
                     <Link
                       href={`/events/${e.id}/claim`}
-                      className="rounded-[12px] px-3 py-2 text-sm btn-gold"
+                      className="rounded-[8px] px-3 py-2 text-sm btn-gold"
                     >
                       {me ? "Join" : "Claim seat"}
                     </Link>

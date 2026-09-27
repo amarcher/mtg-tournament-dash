@@ -67,7 +67,7 @@ export function RsvpButtons({
                 ? `Tap again to clear your ${POLL_RESPONSE_LABELS[r]} answer`
                 : undefined
             }
-            className={`flex min-h-12 items-center justify-center gap-2 rounded-[12px] border px-2 text-sm font-semibold transition active:scale-[0.98] disabled:opacity-40 ${
+            className={`flex min-h-12 items-center justify-center gap-2 rounded-[8px] border px-2 text-sm font-semibold transition active:scale-[0.98] disabled:opacity-40 ${
               isMine
                 ? rsvpTone[r]
                 : "border-line text-ink-dim hover:bg-white/5 active:bg-white/5"
@@ -180,7 +180,7 @@ export function GameNightCard({
 
   return (
     <li
-      className={`rounded-[18px] border p-4 shadow-e1 ${
+      className={`rounded-[12px] border p-4 shadow-e1 ${
         canceled
           ? "border-line bg-surface opacity-60"
           : night.status === "confirmed"

@@ -87,7 +87,7 @@ export function BonusGameForm({
         <button
           type="submit"
           disabled={pending}
-          className="flex-1 rounded-md bg-amber-500 px-4 py-2 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:cursor-not-allowed disabled:bg-amber-500/40"
+          className="flex-1 rounded-md btn-gold px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:cursor-not-allowed"
         >
           {pending ? "Starting…" : "Start a Bonus Game"}
         </button>

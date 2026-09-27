@@ -74,7 +74,7 @@ export default async function ClaimPage({
             <input type="hidden" name="playerId" value={leagueMe.id} />
             <button
               type="submit"
-              className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="rounded-md btn-gold px-3 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Continue as {leagueMe.displayName} →
             </button>
@@ -93,7 +93,7 @@ export default async function ClaimPage({
             <input type="hidden" name="eventId" value={id} />
             <button
               type="submit"
-              className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="rounded-md btn-gold px-3 py-1.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Join as {leagueMe.displayName} →
             </button>

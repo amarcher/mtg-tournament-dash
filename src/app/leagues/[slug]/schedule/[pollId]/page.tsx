@@ -284,7 +284,7 @@ export default async function SchedulePollPage({
             <ul className="space-y-3">{optionCards}</ul>
             <button
               type="submit"
-              className="mt-6 w-full rounded-full bg-amber-500 px-6 py-2.5 font-semibold text-zinc-950 hover:bg-amber-400 sm:w-auto"
+              className="mt-6 w-full rounded-full btn-gold px-6 py-2.5 sm:w-auto"
             >
               Save availability
             </button>

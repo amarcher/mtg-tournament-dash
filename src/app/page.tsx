@@ -42,7 +42,7 @@ export default async function HomePage() {
           {user ? (
             <Link
               href="/leagues/new"
-              className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="rounded-md btn-gold px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               New league
             </Link>
@@ -56,7 +56,7 @@ export default async function HomePage() {
               </Link>
               <Link
                 href="/leagues/new"
-                className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                className="rounded-md btn-gold px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
               >
                 Create your league
               </Link>

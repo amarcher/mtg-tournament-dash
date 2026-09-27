@@ -151,7 +151,7 @@ export default async function BonusGamePage({
             <input type="hidden" name="matchId" value={match.id} />
             <button
               type="submit"
-              className="w-full rounded-xl bg-amber-500 py-3 font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="w-full rounded-xl btn-gold py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Bonus Game
             </button>

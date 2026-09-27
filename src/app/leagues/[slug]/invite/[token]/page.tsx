@@ -71,7 +71,7 @@ export default async function ManagerInvitePage({
               </p>
               <Link
                 href={`/leagues/${league.slug}`}
-                className="mt-6 inline-block rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400"
+                className="mt-6 inline-block rounded-md btn-gold px-4 py-2 text-sm"
               >
                 Open {league.name}
               </Link>
@@ -88,7 +88,7 @@ export default async function ManagerInvitePage({
                 <input type="hidden" name="token" value={token} />
                 <button
                   type="submit"
-                  className="w-full rounded-md bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  className="w-full rounded-md btn-gold px-4 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
                   Join as organizer
                 </button>

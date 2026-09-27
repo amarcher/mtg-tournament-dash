@@ -78,7 +78,7 @@ export default async function NewSchedulePollPage({
             </div>
             <button
               type="submit"
-              className="rounded-full bg-amber-500 px-6 py-2.5 font-semibold text-zinc-950 hover:bg-amber-400"
+              className="rounded-full btn-gold px-6 py-2.5"
             >
               Open poll
             </button>

@@ -66,14 +66,14 @@ export default async function StandingsPage({
                 <li key={p.id}>
                   <Link
                     href={`/players/${p.id}`}
-                    className={`flex min-h-14 items-center gap-3 rounded-[14px] border px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
+                    className={`flex min-h-14 items-center gap-3 rounded-[10px] border px-3 py-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
                       isMe
                         ? "border-line-strong bg-amber-500/[0.07]"
                         : "border-line bg-surface hover:border-line-strong"
                     }`}
                   >
                     <span
-                      className={`w-7 shrink-0 text-right font-display text-sm font-bold tabular-nums ${
+                      className={`w-7 shrink-0 text-right font-numeral text-sm font-bold tabular-nums ${
                         i < 3 ? "text-gold" : "text-ink-faint"
                       }`}
                     >
@@ -97,7 +97,7 @@ export default async function StandingsPage({
                         <span className="label-caps ml-2 text-gold">You</span>
                       )}
                     </span>
-                    <span className="shrink-0 font-display text-base font-bold tabular-nums">
+                    <span className="shrink-0 font-numeral text-base font-bold tabular-nums">
                       {p.currentElo}
                     </span>
                   </Link>
