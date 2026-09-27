@@ -256,7 +256,7 @@ export default async function ManagePage({
             {myRosterRow && !isComplete && (
               <Link
                 href={`/events/${id}/join/${myRosterRow.joinToken}`}
-                className="rounded-[12px] px-4 py-2.5 text-sm btn-gold"
+                className="rounded-[8px] px-4 py-2.5 text-sm btn-gold"
               >
                 My table →
               </Link>
@@ -264,7 +264,7 @@ export default async function ManagePage({
             <Link
               href={`/events/${id}/broadcast`}
               target="_blank"
-              className="rounded-[12px] px-4 py-2.5 text-sm btn-ghost"
+              className="rounded-[8px] px-4 py-2.5 text-sm btn-ghost"
             >
               Broadcast ↗
             </Link>
@@ -283,7 +283,7 @@ export default async function ManagePage({
                   step < now.step
                     ? "bg-emerald-400/70"
                     : step === now.step
-                      ? "bg-gold shadow-[0_0_8px_rgb(255_215_106/0.6)]"
+                      ? "bg-gold"
                       : "bg-white/10"
                 }`}
               />
@@ -316,24 +316,24 @@ export default async function ManagePage({
               <Link
                 href={`/events/${id}/broadcast`}
                 target="_blank"
-                className="rounded-[12px] px-5 py-3 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                className="rounded-[8px] px-5 py-3 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
               >
                 View results
               </Link>
               <form action={addRound}>
                 <button
                   type="submit"
-                  className="rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  className="rounded-[8px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                   title="Reopen the event and schedule one more round"
                 >
                   Add a round
                 </button>
               </form>
               <details className="group">
-                <summary className="cursor-pointer list-none rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
+                <summary className="cursor-pointer list-none rounded-[8px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
                   Reopen…
                 </summary>
-                <div className="mt-2 w-full max-w-md rounded-[14px] border border-line bg-canvas p-4">
+                <div className="mt-2 w-full max-w-md rounded-[10px] border border-line bg-canvas p-4">
                   <p className="mb-3 text-xs text-zinc-400">
                     Unlock final standings and set the event back to in-progress
                     so you can play more rounds or re-end it. Match results and
@@ -342,7 +342,7 @@ export default async function ManagePage({
                   <form action={reopenEvent}>
                     <button
                       type="submit"
-                      className="rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                      className="rounded-[8px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                     >
                       Reopen event
                     </button>
@@ -359,7 +359,7 @@ export default async function ManagePage({
               <form action={previewNext}>
                 <button
                   type="submit"
-                  className="rounded-[12px] px-5 py-3 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                  className="rounded-[8px] px-5 py-3 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
                   Preview round {nextRoundNumber}
                 </button>
@@ -379,7 +379,7 @@ export default async function ManagePage({
               <button
                 type="submit"
                 disabled={incompleteCount > 0}
-                className="rounded-[12px] bg-emerald-400 px-5 py-3 text-sm font-bold text-zinc-950 shadow-e1 transition hover:bg-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-transparent disabled:text-ink-faint disabled:shadow-none"
+                className="rounded-[8px] bg-emerald-400 px-5 py-3 text-sm font-bold text-zinc-950 shadow-e1 transition hover:bg-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-transparent disabled:text-ink-faint disabled:shadow-none"
                 title={
                   incompleteCount > 0
                     ? `${incompleteCount} match(es) need a result first`
@@ -394,10 +394,10 @@ export default async function ManagePage({
           )}
           {activeRound && !roundHasAnyResult && !pendingRound && (
             <details className="group">
-              <summary className="cursor-pointer list-none rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
+              <summary className="cursor-pointer list-none rounded-[8px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70">
                 Un-start round…
               </summary>
-              <div className="mt-2 w-full max-w-md rounded-[14px] border border-line bg-canvas p-4">
+              <div className="mt-2 w-full max-w-md rounded-[10px] border border-line bg-canvas p-4">
                 <p className="mb-3 text-xs text-zinc-400">
                   Retract round {activeRound.roundNumber} and go back to the
                   review-pairings screen — swap, drop, or re-roll, then confirm
@@ -408,7 +408,7 @@ export default async function ManagePage({
                 <form action={revertActive}>
                   <button
                     type="submit"
-                    className="rounded-[12px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                    className="rounded-[8px] px-5 py-3 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                   >
                     Back to pairings
                   </button>
@@ -418,10 +418,10 @@ export default async function ManagePage({
           )}
           {(completedRoundsCount >= 1 || activeRound) && (
             <details className="group">
-              <summary className="cursor-pointer list-none rounded-[12px] border border-rose-400/40 bg-rose-500/10 px-5 py-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70">
+              <summary className="cursor-pointer list-none rounded-[8px] border border-rose-400/40 bg-rose-500/10 px-5 py-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70">
                 End event early…
               </summary>
-              <div className="mt-2 w-full max-w-md rounded-[14px] border border-rose-400/30 bg-canvas p-4">
+              <div className="mt-2 w-full max-w-md rounded-[10px] border border-rose-400/30 bg-canvas p-4">
                 {activeRound && incompleteCount > 0 ? (
                   <p className="text-xs text-amber-200">
                     Report the {incompleteCount} pending match
@@ -439,7 +439,7 @@ export default async function ManagePage({
                     <form action={endEvent}>
                       <button
                         type="submit"
-                        className="rounded-[12px] bg-rose-400 px-5 py-3 text-sm font-bold text-zinc-950 transition hover:bg-rose-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
+                        className="rounded-[8px] bg-rose-400 px-5 py-3 text-sm font-bold text-zinc-950 transition hover:bg-rose-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70"
                       >
                         End event &amp; tabulate winner
                       </button>
@@ -606,7 +606,7 @@ export default async function ManagePage({
                   </select>
                   <button
                     type="submit"
-                    className="rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+                    className="rounded-md btn-gold px-3 py-1.5 text-xs"
                   >
                     Add pairing
                   </button>
@@ -796,7 +796,7 @@ export default async function ManagePage({
       </section>
       <details
         open={event.status === "draft"}
-        className="mt-10 rounded-[14px] border border-line bg-surface"
+        className="mt-10 rounded-[10px] border border-line bg-surface"
       >
         <summary className="flex min-h-14 cursor-pointer select-none items-center justify-between gap-3 px-4 py-3 font-semibold">
           <span>
@@ -850,7 +850,7 @@ export default async function ManagePage({
             </select>
             <button
               type="submit"
-              className="rounded-[12px] px-4 py-2.5 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="rounded-[8px] px-4 py-2.5 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Add to event
             </button>
@@ -967,7 +967,7 @@ export default async function ManagePage({
         </div>
       </details>
 
-        <details className="mt-3 rounded-[14px] border border-line bg-surface">
+        <details className="mt-3 rounded-[10px] border border-line bg-surface">
           <summary className="flex min-h-14 cursor-pointer select-none items-center px-4 py-3 font-semibold">
             Event details
           </summary>
@@ -1006,7 +1006,7 @@ export default async function ManagePage({
             <div>
               <button
                 type="submit"
-                className="rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400"
+                className="rounded-full btn-gold px-5 py-2 text-sm"
               >
                 Save details
               </button>
@@ -1088,7 +1088,7 @@ function ActiveSwapPicker({
         </select>
         <button
           type="submit"
-          className="rounded-md bg-amber-500 px-3 py-1 text-xs font-semibold text-zinc-950 hover:bg-amber-400"
+          className="rounded-md btn-gold px-3 py-1 text-xs"
         >
           Swap
         </button>

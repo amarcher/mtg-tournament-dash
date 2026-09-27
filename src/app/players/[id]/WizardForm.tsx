@@ -212,7 +212,7 @@ function FormBody({
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-sm font-semibold text-zinc-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-500/40 disabled:text-zinc-950/60"
+          className="inline-flex items-center gap-2 rounded-full btn-gold px-5 py-2 text-sm disabled:cursor-not-allowed"
         >
           {busy && (
             <svg

@@ -270,7 +270,7 @@ export default async function GameNightPage({
               <div className="sm:col-span-2">
                 <button
                   type="submit"
-                  className="min-h-11 w-full rounded-full bg-amber-500 px-6 font-semibold text-zinc-950 transition hover:bg-amber-400 active:bg-amber-400 sm:w-auto"
+                  className="min-h-11 w-full rounded-full btn-gold px-6 sm:w-auto"
                 >
                   Save the plan
                 </button>

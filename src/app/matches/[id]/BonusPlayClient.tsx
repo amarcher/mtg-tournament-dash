@@ -259,7 +259,7 @@ export function BonusPlayClient({
       backHref={leagueSlug ? `/leagues/${leagueSlug}` : "/"}
       title={`Bonus game · ${leagueName}`}
       status={
-        <span className="font-display text-sm font-bold tabular-nums text-gold">
+        <span className="font-numeral text-sm font-bold tabular-nums text-gold">
           {myWins}
           <span className="px-1.5 text-ink-faint">–</span>
           {oppWins}
@@ -269,7 +269,7 @@ export function BonusPlayClient({
         roundStarted && eventId ? (
           <Link
             href={`/events/${eventId}/play`}
-            className="block rounded-[14px] border border-emerald-400/50 bg-emerald-500/15 px-4 py-3 text-center text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+            className="block rounded-[10px] border border-emerald-400/50 bg-emerald-500/15 px-4 py-3 text-center text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
           >
             The next round just started. Tap to go to your table →
           </Link>

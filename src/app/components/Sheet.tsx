@@ -36,7 +36,7 @@ export function Sheet({
       <div
         role="dialog"
         aria-label={label}
-        className="relative mx-auto mb-[max(0.5rem,env(safe-area-inset-bottom))] w-[calc(100%-1rem)] max-w-md rounded-[22px] border border-line bg-surface p-2 shadow-e3 motion-safe:animate-[sheet-up_260ms_var(--ease-out-expo)]"
+        className="relative mx-auto mb-[max(0.5rem,env(safe-area-inset-bottom))] w-[calc(100%-1rem)] max-w-md rounded-[14px] border border-line bg-surface p-2 shadow-e3 motion-safe:animate-[sheet-up_260ms_var(--ease-out-expo)]"
       >
         {children}
       </div>
@@ -46,4 +46,4 @@ export function Sheet({
 }
 
 export const sheetRowClass =
-  "flex min-h-14 w-full items-center justify-between gap-3 rounded-[14px] px-4 text-left text-base font-semibold transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70";
+  "flex min-h-14 w-full items-center justify-between gap-3 rounded-[10px] px-4 text-left text-base font-semibold transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70";

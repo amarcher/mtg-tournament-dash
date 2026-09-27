@@ -1,17 +1,28 @@
 import type { Metadata, Viewport } from "next";
-import { Geist_Mono, Inter, Unbounded } from "next/font/google";
+import { Cinzel, Crimson_Pro, Geist_Mono, Marcellus } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+// Free stand-ins for the card faces: Marcellus has Beleren's flared,
+// chiseled letterforms (card names); Crimson Pro reads like the Plantin rules
+// text; Cinzel's heavy roman numerals carry the life totals.
+const marcellus = Marcellus({
+  variable: "--font-marcellus",
   subsets: ["latin"],
+  weight: "400",
 });
 
-const unbounded = Unbounded({
-  variable: "--font-unbounded",
+const crimson = Crimson_Pro({
+  variable: "--font-crimson",
   subsets: ["latin"],
-  weight: ["500", "700", "800", "900"],
+  weight: ["400", "600", "700"],
+  style: ["normal", "italic"],
+});
+
+const cinzel = Cinzel({
+  variable: "--font-cinzel",
+  subsets: ["latin"],
+  weight: ["700", "900"],
 });
 
 const geistMono = Geist_Mono({
@@ -80,7 +91,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${unbounded.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${marcellus.variable} ${crimson.variable} ${cinzel.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body
         suppressHydrationWarning

@@ -74,10 +74,12 @@ export function LifePanel({
   return (
     <section
       aria-label={`${name}: ${life} life`}
-      className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[22px] bg-surface p-3 ${
+      className={`relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[14px] bg-surface p-3 ${
+        // A card frame: dark outer line, a band of worn gold, and a fine
+        // inner rule. The player's own panel gets the brighter gold.
         emphasized
-          ? "shadow-[0_0_0_1.5px_rgb(255_215_106/0.55),0_0_32px_-8px_rgb(255_200_90/0.45)]"
-          : "shadow-[0_0_0_1px_var(--color-line)]"
+          ? "shadow-[0_0_0_1px_#120c06,0_0_0_4px_#b58c3f,0_0_0_5px_#120c06,inset_0_0_0_1px_rgb(255_230_170/0.45)]"
+          : "shadow-[0_0_0_1px_#120c06,0_0_0_4px_#5c4623,0_0_0_5px_#120c06,inset_0_0_0_1px_rgb(232_196_120/0.25)]"
       } ${flipped ? "rotate-180" : ""} ${className}`}
     >
       {layers.map(({ tier, url }) => (
@@ -102,10 +104,15 @@ export function LifePanel({
         }`}
       />
 
-      <div className="relative z-10 flex items-center justify-between gap-2 px-1 [text-shadow:0_1px_4px_rgb(0_0_0/0.9)]">
-        <span className="label-caps min-w-0 truncate text-ink">{name}</span>
+      {/* Nameplate, like the title bar across the top of a card. */}
+      <div className="parchment relative z-10 flex items-center justify-between gap-2 rounded-[6px] px-2.5 py-1.5">
+        <span className="min-w-0 truncate font-display text-base leading-none">
+          {name}
+        </span>
         {detail && (
-          <span className="label-caps shrink-0 text-ink-dim">{detail}</span>
+          <span className="shrink-0 text-sm font-semibold leading-none text-[#4b3b25]">
+            {detail}
+          </span>
         )}
       </div>
 
@@ -115,11 +122,11 @@ export function LifePanel({
           onClick={onNumberTap}
           disabled={!onNumberTap}
           aria-label={onNumberTap ? `${life} life. Show life history` : undefined}
-          className="touch-manipulation select-none rounded-2xl px-2 font-display font-black leading-none tabular-nums tracking-[-0.045em] text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:cursor-default"
+          className="touch-manipulation select-none rounded-2xl px-2 font-numeral font-black leading-none tabular-nums tracking-[-0.02em] text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 disabled:cursor-default"
           style={{
             fontSize: "min(82cqh, 44cqw)",
             textShadow:
-              "0 6px 28px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,1)",
+              "0 4px 20px rgba(0,0,0,0.9), 0 2px 0 rgba(0,0,0,0.9)",
           }}
         >
           {life}
@@ -162,7 +169,7 @@ function LifeButton({
       aria-label={label}
       // `transition-colors`, not `transition`: an all-property transition made
       // the active:scale-95 press lag behind fast repeated taps.
-      className="h-14 touch-manipulation select-none rounded-[14px] border border-white/15 bg-black/45 font-display text-lg font-bold tabular-nums text-ink backdrop-blur-md transition-colors hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 active:bg-white/15"
+      className="h-14 touch-manipulation select-none rounded-[8px] border border-[rgb(232_196_120/0.35)] bg-[rgb(22_15_8/0.78)] font-numeral text-lg font-bold tabular-nums text-ink shadow-[inset_0_1px_0_rgb(255_240_210/0.08)] transition-colors hover:bg-[rgb(34_24_14/0.85)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 active:bg-white/15"
     >
       {children}
     </button>

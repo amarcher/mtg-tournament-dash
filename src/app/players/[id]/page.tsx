@@ -154,7 +154,7 @@ export default async function PlayerPage({
                     : "Waiting for the next round — tap to stand by"}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-zinc-950">
+              <span className="shrink-0 rounded-full btn-gold px-4 py-2 text-sm">
                 ▶ Scorekeeper
               </span>
             </Link>
@@ -271,7 +271,7 @@ export default async function PlayerPage({
                           />
                           <button
                             type="submit"
-                            className="w-full rounded-md bg-amber-500 px-2 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-amber-400"
+                            className="w-full rounded-md btn-gold px-2 py-1.5 text-xs"
                           >
                             Use this one
                           </button>

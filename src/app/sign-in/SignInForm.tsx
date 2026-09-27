@@ -59,7 +59,7 @@ export function SignInForm({ next }: { next: string }) {
       <button
         type="submit"
         disabled={state === "sending"}
-        className="rounded-md bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-amber-400 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+        className="rounded-md btn-gold px-4 py-2.5 text-sm disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
       >
         {state === "sending" ? "Sending…" : "Email me a sign-in link"}
       </button>

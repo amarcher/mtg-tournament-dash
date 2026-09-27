@@ -36,10 +36,10 @@
   --color-amber-900: #4a320b;
   --color-amber-950: #2a1c06;
 
-  --color-canvas: #0d0a07;
-  --color-surface: #19140e;
-  --color-surface-2: #2a231a;
-  --color-ink: #f5ecd9;
+  --color-canvas: #0e0a07;
+  --color-surface: #19130c;
+  --color-surface-2: #2a2016;
+  --color-ink: #f1e6cd;
   --color-ink-dim: #b9ab92;
   --color-ink-faint: #7d715e;
   --color-gold: #ffd76a;
@@ -49,18 +49,24 @@
   --color-win: #4fe08b;
   --color-loss: #ff7a88;
 
-  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: var(--font-unbounded), var(--font-inter), system-ui, sans-serif;
+  --font-sans: var(--font-crimson), "Iowan Old Style", Georgia, serif;
+  --font-display: var(--font-marcellus), "Optima", Georgia, serif;
+  --font-numeral: var(--font-cinzel), var(--font-marcellus), Georgia, serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
-  --radius-tile: 14px;
-  --radius-panel: 20px;
+  --radius-tile: 10px;
+  --radius-panel: 14px;
 
   --shadow-e1: 0 1px 2px hsl(30 45% 3% / 0.28), 0 2px 6px -1px hsl(30 45% 3% / 0.2);
   --shadow-e2: 0 2px 4px hsl(30 45% 3% / 0.35), 0 10px 24px -6px hsl(30 45% 3% / 0.55);
   --shadow-e3: 0 4px 8px hsl(30 45% 3% / 0.3), 0 18px 40px -8px hsl(30 45% 3% / 0.5),
     0 48px 90px -24px hsl(30 45% 3% / 0.4);
-  --shadow-gold: 0 8px 22px rgb(255 190 70 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.7);
+  /* Burnished metal, not a glow: bright top edge, dark pressed bottom. */
+  --shadow-gold: inset 0 1px 0 rgb(255 250 225 / 0.65), inset 0 -2px 0 rgb(60 35 5 / 0.35),
+    0 2px 4px rgb(0 0 0 / 0.45);
+  /* Card-frame double rule: dark outer line, gold inner hairline. */
+  --shadow-frame: 0 0 0 1px rgb(0 0 0 / 0.6), inset 0 0 0 1px rgb(232 196 120 / 0.14),
+    0 3px 10px rgb(0 0 0 / 0.45);
 
   --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -68,9 +74,11 @@
 
 @utility btn-gold {
   color: var(--color-gold-ink);
-  background: linear-gradient(180deg, #ffe79a, #ffc54a);
+  background: linear-gradient(180deg, #f4d98f, #c99a3c);
+  border: 1px solid #7a5a1e;
   box-shadow: var(--shadow-gold);
-  font-weight: 700;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
   transition: transform 140ms var(--ease-out-expo), filter 140ms var(--ease-out-expo);
   &:hover {
     filter: brightness(1.05);
@@ -87,12 +95,14 @@
 
 @utility btn-ghost {
   color: var(--color-ink);
-  background: rgb(255 255 255 / 0.05);
-  border: 1px solid var(--color-line);
-  font-weight: 600;
+  background: linear-gradient(180deg, #221a11, #17110b);
+  border: 1px solid rgb(232 196 120 / 0.32);
+  box-shadow: inset 0 1px 0 rgb(255 240 210 / 0.06);
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
   transition: background-color 140ms var(--ease-out-expo), transform 140ms var(--ease-out-expo);
   &:hover {
-    background: rgb(255 255 255 / 0.09);
+    background: linear-gradient(180deg, #2a2016, #1c150d);
   }
   &:active {
     transform: scale(0.97);
@@ -100,34 +110,59 @@
 }
 
 @utility surface-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
+  background: linear-gradient(180deg, #1d160e, #16100a);
+  border: 1px solid rgb(232 196 120 / 0.28);
   border-radius: var(--radius-tile);
-  box-shadow: var(--shadow-e1), inset 0 1px 0 rgb(255 240 210 / 0.06);
+  box-shadow: var(--shadow-frame);
+}
+
+/* A card's rules-text box: warm parchment, dark ink. */
+@utility parchment {
+  color: #22190e;
+  background: linear-gradient(180deg, #efe3c4, #dfcda3);
+  border: 1px solid #7a5e2c;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.5), 0 1px 2px rgb(0 0 0 / 0.4);
 }
 
 @utility label-caps {
   font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
+/* Dark tooled-leather ground: a faint grain plus a warm lamp-light corner. */
 body {
   background:
-    radial-gradient(1100px 600px at 10% -10%, rgb(255 190 90 / 0.07), transparent 60%),
+    radial-gradient(900px 520px at 12% -8%, rgb(200 140 60 / 0.09), transparent 60%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .55  0 0 0 0 .42  0 0 0 0 .28  0 0 0 .07 0'/></filter><rect width='180' height='180' filter='url(%23n)'/></svg>"),
     var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  /* Crimson Pro's x-height is small next to a UI sans; normalize it so
+     14–16px body text stays readable on a phone. */
+  font-size-adjust: 0.47;
 }
 
 h1,
 h2 {
   font-family: var(--font-display);
-  letter-spacing: -0.015em;
   text-wrap: balance;
+}
+
+/* Marcellus and Cinzel carry their own proportions — don't let the body's
+   x-height normalization resize them — and Marcellus ships one weight, so
+   never fake a bold from it. */
+h1,
+h2,
+.font-display,
+.font-numeral,
+.label-caps,
+.btn-gold,
+.btn-ghost {
+  font-size-adjust: none;
+  font-synthesis: none;
 }
 
 ::selection {

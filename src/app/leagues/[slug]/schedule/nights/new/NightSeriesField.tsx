@@ -172,7 +172,7 @@ export function NightSeriesField() {
       <button
         type="submit"
         disabled={dates.length === 0}
-        className="min-h-11 w-full rounded-full bg-amber-500 px-6 font-semibold text-zinc-950 transition hover:bg-amber-400 active:bg-amber-400 disabled:opacity-40 sm:w-auto"
+        className="min-h-11 w-full rounded-full btn-gold px-6 disabled:opacity-40 sm:w-auto"
       >
         Open {dates.length || ""} date{dates.length === 1 ? "" : "s"}
       </button>

@@ -80,7 +80,7 @@ export default async function SchedulePage({
             {view.organizerMode && (
               <Link
                 href={`/leagues/${league.slug}/schedule/nights/new`}
-                className="flex min-h-11 items-center rounded-[12px] px-4 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                className="flex min-h-11 items-center rounded-[8px] px-4 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
               >
                 Open dates
               </Link>
@@ -109,7 +109,7 @@ export default async function SchedulePage({
           )}
 
           {past.length > 0 && (
-            <details className="mt-3 rounded-[14px] border border-line bg-surface px-4 py-3">
+            <details className="mt-3 rounded-[10px] border border-line bg-surface px-4 py-3">
               <summary className="cursor-pointer text-sm text-zinc-400">
                 {past.length} past night{past.length === 1 ? "" : "s"}
               </summary>
@@ -142,7 +142,7 @@ export default async function SchedulePage({
             </div>
             <Link
               href={`/leagues/${league.slug}/schedule/new`}
-              className="flex min-h-11 items-center rounded-[12px] px-4 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              className="flex min-h-11 items-center rounded-[8px] px-4 text-sm btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
             >
               Propose dates
             </Link>

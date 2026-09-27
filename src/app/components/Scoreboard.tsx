@@ -156,7 +156,7 @@ export function Scoreboard({
             className="flex-[4] landscape:flex-1"
           />
         ) : (
-          <div className="grid flex-[2] place-items-center rounded-[22px] border border-dashed border-line text-center landscape:flex-1">
+          <div className="grid flex-[2] place-items-center rounded-[14px] border border-dashed border-line text-center landscape:flex-1">
             <div>
               <div className="label-caps text-gold">Bye</div>
               <p className="mt-2 text-sm text-ink-dim">
@@ -182,7 +182,7 @@ export function Scoreboard({
         <button
           onClick={confirmTheyWon ? () => setConfirming("opp") : onTheyWon}
           disabled={outcomeDisabled || !opponent}
-          className={`h-14 touch-manipulation select-none rounded-[14px] btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
+          className={`h-14 touch-manipulation select-none rounded-[10px] btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 ${
             opponent ? "" : "opacity-40"
           }`}
         >
@@ -191,7 +191,7 @@ export function Scoreboard({
         <button
           onClick={confirmIWon ? () => setConfirming("me") : onIWon}
           disabled={outcomeDisabled}
-          className="h-14 touch-manipulation select-none rounded-[14px] btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          className="h-14 touch-manipulation select-none rounded-[10px] btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
           I won
         </button>
@@ -199,7 +199,7 @@ export function Scoreboard({
           onClick={() => setMenuOpen(true)}
           aria-label="More options"
           aria-haspopup="dialog"
-          className="grid h-14 w-14 touch-manipulation place-items-center rounded-[14px] btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          className="grid h-14 w-14 touch-manipulation place-items-center rounded-[10px] btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
         >
           <DotsIcon />
         </button>
@@ -231,7 +231,7 @@ export function Scoreboard({
                 if (who === "me") onIWon();
                 else onTheyWon();
               }}
-              className="flex min-h-14 items-center justify-center rounded-[14px] text-base btn-gold"
+              className="flex min-h-14 items-center justify-center rounded-[10px] text-base btn-gold"
             >
               Record it
             </button>
@@ -391,7 +391,7 @@ function HistorySheet({
                 <span className="label-caps w-20 shrink-0 truncate text-ink-dim">
                   {names[e.side] ?? e.side}
                 </span>
-                <span className="flex-1 font-display text-lg font-bold tabular-nums">
+                <span className="flex-1 font-numeral text-lg font-bold tabular-nums">
                   {e.from}
                   <span className="px-1.5 text-ink-faint">→</span>
                   {e.to}
@@ -445,7 +445,7 @@ export function GamePips({ wins }: { wins: number }) {
           key={i}
           className={
             i < wins
-              ? "h-2 w-2 rounded-full bg-gold shadow-[0_0_6px_rgb(255_215_106/0.7)]"
+              ? "h-2 w-2 rounded-full bg-gold"
               : "h-2 w-2 rounded-full border border-ink-faint"
           }
         />

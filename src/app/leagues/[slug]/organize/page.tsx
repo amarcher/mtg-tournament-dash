@@ -66,7 +66,7 @@ export default async function OrganizePage({
           <h1 className="text-2xl font-bold">Organize</h1>
           <Link
             href={`${base}/events/new`}
-            className="rounded-[12px] px-4 py-2.5 text-sm btn-gold"
+            className="rounded-[8px] px-4 py-2.5 text-sm btn-gold"
           >
             New event
           </Link>
@@ -75,7 +75,7 @@ export default async function OrganizePage({
         {!view.organizerMode && (
           <form
             action={setOrganizerModeAction}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-dashed border-line-strong p-4"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-dashed border-line-strong p-4"
           >
             <input type="hidden" name="leagueId" value={league.id} />
             <input type="hidden" name="on" value="1" />
@@ -85,7 +85,7 @@ export default async function OrganizePage({
               for players. Turn it on for the Organize tab and scorekeeper
               shortcut.
             </p>
-            <button type="submit" className="rounded-[12px] px-4 py-2.5 text-sm btn-ghost">
+            <button type="submit" className="rounded-[8px] px-4 py-2.5 text-sm btn-ghost">
               Turn on
             </button>
           </form>
@@ -123,14 +123,14 @@ export default async function OrganizePage({
                 <div className="mt-3 grid grid-cols-[1.4fr_1fr] gap-2">
                   <Link
                     href={`/events/${event.id}/manage`}
-                    className="rounded-[12px] px-4 py-3 text-center text-sm btn-gold"
+                    className="rounded-[8px] px-4 py-3 text-center text-sm btn-gold"
                   >
                     Run event →
                   </Link>
                   <Link
                     href={`/events/${event.id}/broadcast`}
                     target="_blank"
-                    className="rounded-[12px] px-4 py-3 text-center text-sm btn-ghost"
+                    className="rounded-[8px] px-4 py-3 text-center text-sm btn-ghost"
                   >
                     Broadcast
                   </Link>
