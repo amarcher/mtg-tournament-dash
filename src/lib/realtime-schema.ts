@@ -18,6 +18,11 @@ export const realtimeSchema = {
     ts: z.number(),
     status: z.enum(["active", "complete"]),
   }),
+  // The organizer previewed, edited, or cancelled not-yet-confirmed
+  // pairings. Only the broadcast listens — it shows round-1 draft seating
+  // before the event starts — so players' phones don't reload on every
+  // re-roll.
+  pairings_changed: z.object({ ts: z.number() }),
   life_changed: z.object({
     ts: z.number(),
     matchId: z.string(),
@@ -67,6 +72,7 @@ export const REALTIME_EVENT_NAMES = [
   "round_started",
   "round_completed",
   "event_state_changed",
+  "pairings_changed",
   "life_changed",
   "game_complete",
   "game_reopened",
@@ -90,6 +96,7 @@ export type EventMessage =
       ts: number;
       status: "active" | "complete";
     }
+  | { type: "pairings_changed"; ts: number }
   | {
       type: "life_changed";
       ts: number;
@@ -120,6 +127,7 @@ export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set
   "round_started",
   "round_completed",
   "event_state_changed",
+  "pairings_changed",
   "match_complete",
   "match_reopened",
   "game_complete",

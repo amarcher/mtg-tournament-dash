@@ -9,6 +9,7 @@ import {
   type AvatarTiers,
 } from "@/lib/avatar-tier";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
+import { DraftSeating, type DraftSeat } from "../DraftSeating";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
 
 export type { AvatarTiers };
@@ -53,7 +54,9 @@ type Props = {
     totalRounds: number;
     startingLife: number;
     roundDurationSec: number;
+    setName: string | null;
   };
+  draftSeats: DraftSeat[];
   eventStatus: "draft" | "active" | "complete";
   finalRanking: FinalRankingPlayer[];
   currentRoundNumber: number | null;
@@ -68,6 +71,7 @@ type Props = {
 export function BroadcastClient({
   eventId,
   event,
+  draftSeats,
   eventStatus,
   finalRanking,
   currentRoundNumber,
@@ -136,7 +140,8 @@ export function BroadcastClient({
         msg.type === "game_reopened" ||
         msg.type === "round_started" ||
         msg.type === "round_completed" ||
-        msg.type === "event_state_changed"
+        msg.type === "event_state_changed" ||
+        msg.type === "pairings_changed"
       ) {
         // Hard refresh — server has the source of truth.
         window.location.reload();
@@ -245,7 +250,9 @@ export function BroadcastClient({
               ? "Final results"
               : currentRoundNumber
                 ? `Round ${currentRoundNumber} of ${event.totalRounds}`
-                : "Awaiting round start"}
+                : draftSeats.length > 0
+                  ? "Draft seating"
+                  : "Awaiting round start"}
           </div>
         </div>
         <div className="flex items-center justify-between gap-4 sm:justify-end sm:gap-6">
@@ -281,6 +288,17 @@ export function BroadcastClient({
       <main className="@container flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-8 sm:py-6">
         {isEventComplete ? (
           <FinalRanking players={finalRanking} />
+        ) : draftSeats.length > 0 ? (
+          <section className="flex min-h-0 flex-1 items-center justify-center">
+            {/* Sized off the viewport height so the square pod fits a TV
+                without scrolling; svh rather than dvh so it doesn't resize
+                as a phone's toolbar collapses. */}
+            <DraftSeating
+              seats={draftSeats}
+              setName={event.setName}
+              className="max-w-[max(18rem,calc(100svh-9rem))]"
+            />
+          </section>
         ) : (
           <>
             <section
