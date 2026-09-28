@@ -8,12 +8,15 @@ import {
   getEventMatchHistory,
   getEventRoster,
   getEventStandings,
+  getPendingRound,
   getRoundMatches,
 } from "@/db/queries";
+import { draftSeatOrder } from "@/lib/draft-seating";
 import { qrDataUrl } from "@/lib/qr";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { BroadcastClient, type BroadcastMatch } from "./BroadcastClient";
 import type { FinalRankingPlayer } from "../FinalRanking";
+import type { DraftSeat } from "../DraftSeating";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +129,30 @@ export default async function BroadcastPage({
     );
   }
 
+  // Before the event starts, previewed round-1 pairings double as the draft
+  // pod's seating chart — the TV shows who sits where, not who plays whom.
+  let draftSeats: DraftSeat[] = [];
+  if (!round && event.status === "draft") {
+    const pending = await getPendingRound(id);
+    if (pending?.roundNumber === 1) {
+      const pendingMatches = await getRoundMatches(pending.id);
+      const byId = new Map<string, DraftSeat>();
+      for (const { playerA, playerB } of pendingMatches) {
+        for (const p of [playerA, playerB]) {
+          if (p)
+            byId.set(p.id, {
+              playerId: p.id,
+              name: p.displayName,
+              avatarUrl: p.avatarUrl,
+            });
+        }
+      }
+      draftSeats = draftSeatOrder(
+        pendingMatches.map(({ match }) => match)
+      ).map((pid) => byId.get(pid)!);
+    }
+  }
+
   // Pre-load all players (for fallback names if standings is empty).
   void (await db.select().from(players));
 
@@ -144,7 +171,9 @@ export default async function BroadcastPage({
         totalRounds: event.totalRounds,
         startingLife: event.startingLife,
         roundDurationSec: event.roundDurationSec,
+        setName: event.setName,
       }}
+      draftSeats={draftSeats}
       eventStatus={event.status}
       finalRanking={finalRanking}
       currentRoundNumber={round?.roundNumber ?? null}

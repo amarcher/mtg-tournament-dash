@@ -530,7 +530,9 @@ export async function previewNextRoundAction(eventId: string) {
     }))
   );
 
+  await publish(eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
   return { roundId: newRound.id, alreadyPending: false };
 }
 
@@ -661,7 +663,9 @@ export async function regeneratePendingPairingsAction(eventId: string) {
       status: "pending" as const,
     }))
   );
+  await publish(eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
 }
 
 /**
@@ -704,7 +708,9 @@ export async function swapMatchPlayersAction(args: {
     .set(args.sideB === "a" ? { playerAId: aHas } : { playerBId: aHas })
     .where(eq(matches.id, mB.id));
 
+  await publish(swapRound.eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${swapRound.eventId}/manage`);
+  revalidatePath(`/events/${swapRound.eventId}/broadcast`);
 }
 
 /**
@@ -725,7 +731,9 @@ export async function dropPendingMatchAction(args: { matchId: string }) {
 
   await db.delete(matches).where(eq(matches.id, m.id));
 
+  await publish(round.eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${round.eventId}/manage`);
+  revalidatePath(`/events/${round.eventId}/broadcast`);
 }
 
 /**
@@ -779,7 +787,9 @@ export async function addManualPairingAction(args: {
     status: "pending",
   });
 
+  await publish(round.eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${round.eventId}/manage`);
+  revalidatePath(`/events/${round.eventId}/broadcast`);
 }
 
 /**
@@ -953,7 +963,9 @@ export async function cancelPendingRoundAction(eventId: string) {
   if (!pending) return;
   await db.delete(matches).where(eq(matches.roundId, pending.id));
   await db.delete(rounds).where(eq(rounds.id, pending.id));
+  await publish(eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
 }
 
 export async function completeRoundAction(eventId: string) {

@@ -40,7 +40,9 @@ import { readOrganizerModeCookie } from "@/lib/organizer-mode";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
+import { draftSeatOrder } from "@/lib/draft-seating";
 import { ResultButton, UndoResultButton } from "./ResultButtons";
+import { DraftSeating } from "../DraftSeating";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +98,28 @@ export default async function ManagePage({
     pairedIds.add(match.playerAId);
     if (match.playerBId) pairedIds.add(match.playerBId);
   }
+  const pendingPlayersById = new Map(
+    pendingMatches.flatMap(({ playerA, playerB }) =>
+      [playerA, playerB].flatMap((p) =>
+        p
+          ? [
+              [
+                p.id,
+                { playerId: p.id, name: p.displayName, avatarUrl: p.avatarUrl },
+              ] as const,
+            ]
+          : []
+      )
+    )
+  );
+  // Round-1 pairings previewed before the event starts define the draft pod's
+  // seating (the broadcast shows the same chart).
+  const draftSeats =
+    pendingRound?.roundNumber === 1 && event.status === "draft"
+      ? draftSeatOrder(pendingMatches.map(({ match }) => match)).map(
+          (pid) => pendingPlayersById.get(pid)!
+        )
+      : [];
   const unpaired = pendingRound
     ? roster.filter((p) => !pairedIds.has(p.playerId) && !p.droppedAt)
     : [];
@@ -502,6 +526,25 @@ export default async function ManagePage({
             keep their current match open on their phone), or add a manual
             pairing.
           </p>
+
+          {draftSeats.length > 0 && (
+            <div className="mb-5 rounded-lg border border-amber-500/20 bg-zinc-950 p-3">
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-amber-300">
+                  Draft seating
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Round-1 opponents sit across from each other. Also on the
+                  broadcast screen.
+                </p>
+              </div>
+              <DraftSeating
+                seats={draftSeats}
+                setName={event.setName}
+                className="mx-auto max-w-lg"
+              />
+            </div>
+          )}
 
           <ul className="space-y-2">
             {pendingMatches.map(({ match, playerA, playerB }) => (
