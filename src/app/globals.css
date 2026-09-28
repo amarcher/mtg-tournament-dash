@@ -165,6 +165,13 @@ h2,
   font-synthesis: none;
 }
 
+/* Geist Mono's x-height is already large, so the body normalization shrinks
+   it — and a TV browser that measures the adjusted width but draws the glyphs
+   unadjusted spills them out of their box (the broadcast Join host). */
+.font-mono {
+  font-size-adjust: none;
+}
+
 ::selection {
   background: rgb(255 215 106 / 0.35);
   color: var(--color-ink);

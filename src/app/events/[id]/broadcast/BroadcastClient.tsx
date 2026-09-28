@@ -260,7 +260,7 @@ export function BroadcastClient({
             href={claimUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-900/90 px-2.5 py-1.5 shadow-sm hover:border-amber-500/60 sm:gap-3 sm:px-3 sm:py-2"
+            className="flex shrink-0 items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-900/90 px-2.5 py-1.5 shadow-sm hover:border-amber-500/60 sm:gap-3 sm:px-3 sm:py-2"
             aria-label="Open claim page"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
