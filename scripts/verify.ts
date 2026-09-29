@@ -471,12 +471,14 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
     );
   }
 
-  // Third match: B takes game 1 on the phones, then the organizer calls the
-  // match for A. The phone-recorded game must stand — the call fills in A's
-  // two wins after it (2-1), never rewrites game 1 (Sept 28 draft night).
+  // Third match: 1-1 on the phones with game 3 unfinished, then the organizer
+  // calls the match for A. Recorded games stand exactly as played — the call
+  // settles the match, it never rewrites or invents games (Sept 28 draft
+  // night rewrote B's game-1 win this way).
   {
     const { match, playerA, playerB } = real[2];
     await applyGameWinner({ matchId: match.id, winnerId: playerB!.id });
+    await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
     await setMatchResultAction(
       makeFormData({ matchId: match.id, outcome: "a" })
     );
@@ -486,9 +488,9 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
       .where(eq(games.matchId, match.id))
       .orderBy(games.gameNumber);
     assert(
-      gs.map((g) => g.winnerId).join() ===
-        [playerB!.id, playerA.id, playerA.id].join(),
-      "override keeps a phone-recorded game win and records the call as 2-1"
+      gs.map((g) => g.winnerId ?? "open").join() ===
+        [playerB!.id, playerA.id, "open"].join(),
+      "override leaves phone-recorded games exactly as played"
     );
     await clearMatchResultAction(makeFormData({ matchId: match.id }));
     const [g1] = await db
@@ -501,8 +503,24 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
     );
   }
 
+  // Fourth match: A wins game 1, then time runs out mid game 2 and the
+  // organizer calls it for A — a 1-0 match win, not a synthesized 2-0.
+  {
+    const { match, playerA } = real[3];
+    await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+    await setMatchResultAction(
+      makeFormData({ matchId: match.id, outcome: "a" })
+    );
+    const gs = await db.select().from(games).where(eq(games.matchId, match.id));
+    assert(
+      gs.filter((g) => g.winnerId === playerA.id).length === 1 &&
+        gs.every((g) => g.winnerId === null || g.winnerId === playerA.id),
+      "calling a match after time on a 1-0 records a 1-0 win"
+    );
+  }
+
   // Remaining: a/b override based on names
-  for (const { match, playerA, playerB } of real.slice(1)) {
+  for (const { match, playerA, playerB } of real.slice(1, 3)) {
     await setMatchResultAction(
       makeFormData({
         matchId: match.id,

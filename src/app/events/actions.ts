@@ -1534,17 +1534,19 @@ async function finalizeMatchOutcome(args: {
 
   // Synthesize game rows for decisive overrides so MTG game-win% tiebreakers
   // still mean something on mixed-input tournaments (some matches reported via
-  // phone, some called by the organizer). Games already decided on the phones
-  // stand as played; open games go to the called winner, then untouched-life
-  // games are added until they have two wins (a 2-0 sweep when nothing was
-  // recorded). For draws, leave game rows untouched: the actual game state is
-  // genuinely unknown, and the match-level draw is enough for MP.
-  if (winnerId && !isDraw) {
-    const existing = await db
-      .select()
-      .from(games)
-      .where(eq(games.matchId, match.id))
-      .orderBy(games.gameNumber);
+  // phone, some called by the organizer). Once any game has a recorded winner
+  // the games stand exactly as played — a match that runs out of time after
+  // game 1 is a 1-0 win, and the call only settles the match. With nothing
+  // recorded, open games go to the called winner and untouched-life games
+  // fill out a 2-0 sweep. For draws, leave game rows untouched: the actual
+  // game state is genuinely unknown, and the match-level draw is enough for MP.
+  const existing = await db
+    .select()
+    .from(games)
+    .where(eq(games.matchId, match.id))
+    .orderBy(games.gameNumber);
+  const anyGamePlayed = existing.some((g) => g.winnerId !== null);
+  if (winnerId && !isDraw && !anyGamePlayed) {
     const now = new Date();
     const [roundForEvent] = await db
       .select()
@@ -1555,10 +1557,9 @@ async function finalizeMatchOutcome(args: {
       .from(events)
       .where(eq(events.id, roundForEvent.eventId));
     const startingLife = eventRow?.startingLife ?? 20;
-    let wins = existing.filter((g) => g.winnerId === winnerId).length;
+    let wins = 0;
     for (const g of existing) {
       if (wins >= 2) break;
-      if (g.winnerId !== null) continue;
       await db
         .update(games)
         .set({ winnerId, completedAt: now })
