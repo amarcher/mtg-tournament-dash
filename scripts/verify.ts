@@ -471,6 +471,36 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
     );
   }
 
+  // Third match: B takes game 1 on the phones, then the organizer calls the
+  // match for A. The phone-recorded game must stand — the call fills in A's
+  // two wins after it (2-1), never rewrites game 1 (Sept 28 draft night).
+  {
+    const { match, playerA, playerB } = real[2];
+    await applyGameWinner({ matchId: match.id, winnerId: playerB!.id });
+    await setMatchResultAction(
+      makeFormData({ matchId: match.id, outcome: "a" })
+    );
+    const gs = await db
+      .select()
+      .from(games)
+      .where(eq(games.matchId, match.id))
+      .orderBy(games.gameNumber);
+    assert(
+      gs.map((g) => g.winnerId).join() ===
+        [playerB!.id, playerA.id, playerA.id].join(),
+      "override keeps a phone-recorded game win and records the call as 2-1"
+    );
+    await clearMatchResultAction(makeFormData({ matchId: match.id }));
+    const [g1] = await db
+      .select()
+      .from(games)
+      .where(and(eq(games.matchId, match.id), eq(games.gameNumber, 1)));
+    assert(
+      g1.winnerId === playerB!.id,
+      "clearing that override leaves the phone-recorded game 1 intact"
+    );
+  }
+
   // Remaining: a/b override based on names
   for (const { match, playerA, playerB } of real.slice(1)) {
     await setMatchResultAction(
