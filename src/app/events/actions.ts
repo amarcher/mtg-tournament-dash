@@ -1534,9 +1534,11 @@ async function finalizeMatchOutcome(args: {
 
   // Synthesize game rows for decisive overrides so MTG game-win% tiebreakers
   // still mean something on mixed-input tournaments (some matches reported via
-  // phone, some called by the organizer). Assume a 2-0 BO3 sweep — the most
-  // common outcome. For draws, leave game rows untouched: the actual game
-  // state is genuinely unknown, and the match-level draw is enough for MP.
+  // phone, some called by the organizer). Games already decided on the phones
+  // stand as played; open games go to the called winner, then untouched-life
+  // games are added until they have two wins (a 2-0 sweep when nothing was
+  // recorded). For draws, leave game rows untouched: the actual game state is
+  // genuinely unknown, and the match-level draw is enough for MP.
   if (winnerId && !isDraw) {
     const existing = await db
       .select()
@@ -1553,43 +1555,30 @@ async function finalizeMatchOutcome(args: {
       .from(events)
       .where(eq(events.id, roundForEvent.eventId));
     const startingLife = eventRow?.startingLife ?? 20;
-    if (existing.length === 0) {
-      await db.insert(games).values([
-        {
-          matchId: match.id,
-          gameNumber: 1,
-          playerALife: startingLife,
-          playerBLife: startingLife,
-          winnerId,
-          completedAt: now,
-        },
-        {
-          matchId: match.id,
-          gameNumber: 2,
-          playerALife: startingLife,
-          playerBLife: startingLife,
-          winnerId,
-          completedAt: now,
-        },
-      ]);
-    } else {
-      // Update the in-progress game and add a second decisive game.
-      const g1 = existing[0];
+    let wins = existing.filter((g) => g.winnerId === winnerId).length;
+    for (const g of existing) {
+      if (wins >= 2) break;
+      if (g.winnerId !== null) continue;
       await db
         .update(games)
         .set({ winnerId, completedAt: now })
-        .where(eq(games.id, g1.id));
-      if (existing.length === 1) {
-        await db.insert(games).values({
-          matchId: match.id,
-          gameNumber: 2,
-          playerALife: startingLife,
-          playerBLife: startingLife,
-          winnerId,
-          completedAt: now,
-        });
-      }
+        .where(eq(games.id, g.id));
+      wins++;
     }
+    let nextGameNumber =
+      existing.reduce((n, g) => Math.max(n, g.gameNumber), 0) + 1;
+    const added = [];
+    for (; wins < 2; wins++) {
+      added.push({
+        matchId: match.id,
+        gameNumber: nextGameNumber++,
+        playerALife: startingLife,
+        playerBLife: startingLife,
+        winnerId,
+        completedAt: now,
+      });
+    }
+    if (added.length > 0) await db.insert(games).values(added);
   }
 
   const [round] = await db
