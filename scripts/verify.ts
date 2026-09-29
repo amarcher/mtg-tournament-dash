@@ -17,7 +17,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config({ path: ".env" });
 
-import { asc, eq, like, and, inArray, isNull } from "drizzle-orm";
+import { asc, eq, like, and, inArray, isNull, sql } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { db } from "../src/db/client";
@@ -97,6 +97,7 @@ import {
   getEventRounds,
   getEventStandings,
   getPendingRound,
+  getResultsSincePendingDraw,
   getPollDetail,
   getRoundMatches,
   listOpenBonusGamesForEvent,
@@ -1170,6 +1171,32 @@ async function runReviewFlowPass() {
   await previewNextRoundAction(event.id);
   const r3Pending = await getPendingRound(event.id);
   assert(r3Pending !== null, "R3 preview created");
+
+  // A result that lands after the draw marks the preview stale until a
+  // re-roll (Sept 28: a round-1 result recorded 31 s after round 2 was drawn).
+  assert(
+    (await getResultsSincePendingDraw(event.id, r3Pending!.id)).length === 0,
+    "a fresh preview has no results newer than its draw"
+  );
+  const lateMatch = r2Live.find((m) => m.playerB)!.match;
+  await db
+    .update(matches)
+    .set({ completedAt: sql`now() + interval '1 minute'` })
+    .where(eq(matches.id, lateMatch.id));
+  const late = await getResultsSincePendingDraw(event.id, r3Pending!.id);
+  assert(
+    late.length === 1 && late[0].match.id === lateMatch.id,
+    "a result recorded after the draw flags the preview as stale"
+  );
+  await db
+    .update(matches)
+    .set({ completedAt: lateMatch.completedAt })
+    .where(eq(matches.id, lateMatch.id));
+  await regeneratePendingPairingsAction(event.id);
+  assert(
+    (await getResultsSincePendingDraw(event.id, r3Pending!.id)).length === 0,
+    "re-rolling clears the stale-preview flag"
+  );
   await cancelPendingRoundAction(event.id);
   const r3PendingAfterCancel = await getPendingRound(event.id);
   assert(
