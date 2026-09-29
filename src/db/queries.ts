@@ -3,9 +3,11 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   lt,
+  ne,
   sql,
 } from "drizzle-orm";
 import { db } from "./client";
@@ -527,6 +529,37 @@ export async function getGameWinsByMatch(matchIds: string[]) {
     wins.set(matchId, byPlayer);
   }
   return wins;
+}
+
+/**
+ * Results recorded after a pending round's pairings were drawn. Swiss only
+ * sees results that exist at draw time, so a match reported seconds after
+ * "Preview" leaves the preview pairing blind (Sept 28 draft: Zach's round-1
+ * win landed 31 s after round 2 was drawn, so he and Andrew were paired
+ * down). Re-rolls and hand-built rounds insert fresh rows, which clears this.
+ */
+export async function getResultsSincePendingDraw(
+  eventId: string,
+  pendingRoundId: string
+) {
+  const [drawn] = await db
+    .select({ at: sql<Date>`min(${matches.createdAt})` })
+    .from(matches)
+    .where(eq(matches.roundId, pendingRoundId));
+  if (!drawn?.at) return [];
+  return db
+    .select({ match: matches })
+    .from(matches)
+    .innerJoin(rounds, eq(rounds.id, matches.roundId))
+    .where(
+      and(
+        eq(rounds.eventId, eventId),
+        ne(matches.roundId, pendingRoundId),
+        eq(matches.status, "complete"),
+        gt(matches.completedAt, new Date(drawn.at))
+      )
+    )
+    .orderBy(asc(matches.completedAt));
 }
 
 export async function getEventPlayerByToken(token: string) {

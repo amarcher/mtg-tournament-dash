@@ -8,6 +8,7 @@ import {
   getGameWinsByMatch,
   getMatchIdsWithRecordedGames,
   getPairingInputs,
+  getResultsSincePendingDraw,
   getPendingRound,
   getRoundMatches,
   getEventStandings,
@@ -124,6 +125,20 @@ export default async function ManagePage({
           (pid) => pendingPlayersById.get(pid)!
         )
       : [];
+  const nameById = new Map(roster.map((p) => [p.playerId, p.displayName]));
+  const lateResults = pendingRound
+    ? (await getResultsSincePendingDraw(id, pendingRound.id)).map(
+        ({ match }) => {
+          const a = nameById.get(match.playerAId) ?? "?";
+          const b = match.playerBId ? nameById.get(match.playerBId) ?? "?" : null;
+          if (!b) return `${a} (bye)`;
+          if (match.isDraw) return `${a} drew ${b}`;
+          return match.winnerId === match.playerAId
+            ? `${a} beat ${b}`
+            : `${b} beat ${a}`;
+        }
+      )
+    : [];
   const pastOpponents = pendingRound
     ? Object.fromEntries(
         (await getPairingInputs(id)).map((p) => [p.playerId, p.opponentsFaced])
@@ -532,9 +547,15 @@ export default async function ManagePage({
               <form action={confirmPending}>
                 <button
                   type="submit"
-                  className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+                  className={
+                    lateResults.length > 0
+                      ? "rounded-md border border-emerald-500/50 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                      : "rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950 hover:bg-emerald-400"
+                  }
                 >
-                  Confirm and start →
+                  {lateResults.length > 0
+                    ? "Start with these anyway →"
+                    : "Confirm and start →"}
                 </button>
               </form>
             </div>
@@ -547,6 +568,30 @@ export default async function ManagePage({
               Re-roll once they&apos;re in (unless you&apos;re excusing that
               pair from this round).
             </p>
+          )}
+          {lateResults.length > 0 && (
+            <div className="mb-3 rounded-md border border-rose-400/50 bg-rose-500/10 px-3 py-3">
+              <p className="text-sm font-semibold text-rose-100">
+                These pairings were drawn before{" "}
+                {lateResults.length === 1
+                  ? "a result"
+                  : `${lateResults.length} results`}{" "}
+                came in
+              </p>
+              <p className="mt-1 text-xs text-rose-200/80">
+                {lateResults.join(" · ")} — the draw didn&apos;t count{" "}
+                {lateResults.length === 1 ? "it" : "them"}, so players may be
+                paired against the wrong records.
+              </p>
+              <form action={regeneratePending} className="mt-3">
+                <button
+                  type="submit"
+                  className="min-h-11 rounded-md btn-gold px-4 py-2 text-sm"
+                >
+                  Re-roll with latest results
+                </button>
+              </form>
+            </div>
           )}
           <p className="mb-3 text-xs text-amber-200/70">
             Players won&apos;t see this round until you confirm. Swap players
