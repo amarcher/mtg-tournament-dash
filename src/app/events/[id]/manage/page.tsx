@@ -6,6 +6,7 @@ import {
   getEventRounds,
   getLeague,
   getMatchIdsWithRecordedGames,
+  getPairingInputs,
   getPendingRound,
   getRoundMatches,
   getEventStandings,
@@ -42,6 +43,7 @@ import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
 import { draftSeatOrder } from "@/lib/draft-seating";
 import { ResultButton, UndoResultButton } from "./ResultButtons";
+import { PairingBuilder } from "./PairingBuilder";
 import { DraftSeating } from "../DraftSeating";
 
 export const dynamic = "force-dynamic";
@@ -120,6 +122,11 @@ export default async function ManagePage({
           (pid) => pendingPlayersById.get(pid)!
         )
       : [];
+  const pastOpponents = pendingRound
+    ? Object.fromEntries(
+        (await getPairingInputs(id)).map((p) => [p.playerId, p.opponentsFaced])
+      )
+    : {};
   const unpaired = pendingRound
     ? roster.filter((p) => !pairedIds.has(p.playerId) && !p.droppedAt)
     : [];
@@ -589,6 +596,34 @@ export default async function ManagePage({
               </li>
             ))}
           </ul>
+
+          <details className="group mt-4 rounded-md border border-zinc-800 bg-zinc-950">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-900 active:bg-zinc-900">
+              Pair everyone by hand
+              <span className="text-xs text-zinc-500 group-open:hidden">
+                ignore records, pick every matchup
+              </span>
+            </summary>
+            <div className="border-t border-zinc-800 p-3">
+              <PairingBuilder
+                key={pendingMatches
+                  .map(({ match }) => `${match.playerAId}:${match.playerBId}`)
+                  .join(",")}
+                eventId={id}
+                players={roster
+                  .filter((p) => !p.droppedAt)
+                  .map((p) => ({
+                    playerId: p.playerId,
+                    displayName: p.displayName,
+                  }))}
+                initialTables={pendingMatches.map(({ match }) => ({
+                  a: match.playerAId,
+                  b: match.playerBId,
+                }))}
+                pastOpponents={pastOpponents}
+              />
+            </div>
+          </details>
 
           {unpaired.length > 0 && (
             <div className="mt-4 rounded-md border border-zinc-800 bg-zinc-950 p-3">
