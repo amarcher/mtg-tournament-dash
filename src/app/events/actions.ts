@@ -43,6 +43,10 @@ import {
   listOpenEventsForPlayer,
 } from "@/db/queries";
 import { generateSwissPairings } from "@/lib/pairings/swiss";
+import {
+  validateManualPairings,
+  type ManualPairing,
+} from "@/lib/pairings/manual";
 import { computeMatchElo } from "@/lib/elo";
 import { leagues } from "@/db/schema";
 import {
@@ -790,6 +794,54 @@ export async function addManualPairingAction(args: {
   await publish(round.eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${round.eventId}/manage`);
   revalidatePath(`/events/${round.eventId}/broadcast`);
+}
+
+/**
+ * Replace every pairing in the pending round with a hand-built set — for
+ * nights when the table decides matchups itself rather than by record.
+ * Players left out sit the round out, exactly like a dropped pending pair.
+ */
+export async function setPendingPairingsAction(args: {
+  eventId: string;
+  pairings: ManualPairing[];
+}) {
+  const pairings = args.pairings.map((p) => ({
+    playerAId: p.playerAId,
+    playerBId: p.playerBId || null,
+  }));
+  await requireOrganizerForEvent(args.eventId);
+
+  const [pending] = await db
+    .select()
+    .from(rounds)
+    .where(
+      and(eq(rounds.eventId, args.eventId), eq(rounds.status, "pending"))
+    );
+  if (!pending) throw new Error("Preview the round before pairing by hand");
+
+  const roster = await db
+    .select()
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, args.eventId));
+  validateManualPairings(
+    pairings,
+    new Set(roster.filter((r) => !r.droppedAt).map((r) => r.playerId))
+  );
+
+  await db.delete(matches).where(eq(matches.roundId, pending.id));
+  await db.insert(matches).values(
+    pairings.map((p, i) => ({
+      roundId: pending.id,
+      tableNumber: i + 1,
+      playerAId: p.playerAId,
+      playerBId: p.playerBId,
+      status: "pending" as const,
+    }))
+  );
+
+  await publish(args.eventId, { type: "pairings_changed" });
+  revalidatePath(`/events/${args.eventId}/manage`);
+  revalidatePath(`/events/${args.eventId}/broadcast`);
 }
 
 /**

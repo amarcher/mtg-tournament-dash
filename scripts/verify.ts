@@ -51,6 +51,7 @@ import {
   updateEventAction,
   reopenEventAction,
   regeneratePendingPairingsAction,
+  setPendingPairingsAction,
   revertRoundToPairingsAction,
   clearMatchResultAction,
   setMatchResultAction,
@@ -1183,6 +1184,45 @@ async function runReviewFlowPass() {
     pairThrew = true;
   }
   assert(pairThrew, "addManualPairingAction rejects already-paired players");
+
+  // Pair the whole round by hand: rotate everyone one seat so every table is
+  // a new matchup, then check the round holds exactly those pairs.
+  const ids = r3FinalMatches.flatMap((m) =>
+    m.match.playerBId ? [m.match.playerAId, m.match.playerBId] : [m.match.playerAId]
+  );
+  const rotated = [...ids.slice(1), ids[0]];
+  const handPairs = [];
+  for (let i = 0; i + 1 < rotated.length; i += 2) {
+    handPairs.push({ playerAId: rotated[i], playerBId: rotated[i + 1] });
+  }
+  await setPendingPairingsAction({ eventId: event.id, pairings: handPairs });
+  const handMatches = await getRoundMatches(r3FreshPending!.id);
+  assert(
+    handMatches.length === handPairs.length &&
+      handPairs.every((p, i) =>
+        handMatches[i].match.tableNumber === i + 1 &&
+        handMatches[i].match.playerAId === p.playerAId &&
+        handMatches[i].match.playerBId === p.playerBId
+      ),
+    "setPendingPairingsAction replaces the round with the hand-built tables"
+  );
+
+  let handThrew = false;
+  try {
+    await setPendingPairingsAction({
+      eventId: event.id,
+      pairings: [
+        { playerAId: ids[0], playerBId: ids[1] },
+        { playerAId: ids[1], playerBId: ids[2] },
+      ],
+    });
+  } catch {
+    handThrew = true;
+  }
+  assert(
+    handThrew && (await getRoundMatches(r3FreshPending!.id)).length === handPairs.length,
+    "setPendingPairingsAction rejects double-seating and leaves the round intact"
+  );
 
   await cleanup();
   ok("post-clean review-flow rows");
