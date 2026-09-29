@@ -124,9 +124,13 @@ export async function applyGameWinner(args: {
   if (!game) return;
   if (args.gameId && game.id !== args.gameId) return;
 
+  // The deciding game and the match share one instant: that's how
+  // clearMatchResultAction tells the game that settled the match apart from
+  // games recorded earlier.
+  const decidedAt = new Date();
   await db
     .update(games)
-    .set({ winnerId: args.winnerId, completedAt: new Date() })
+    .set({ winnerId: args.winnerId, completedAt: decidedAt })
     .where(eq(games.id, game.id));
 
   const allGames = await db
@@ -173,7 +177,7 @@ export async function applyGameWinner(args: {
     const winnerId = aWins >= 2 ? match.playerAId : match.playerBId!;
     await db
       .update(matches)
-      .set({ status: "complete", winnerId, completedAt: new Date() })
+      .set({ status: "complete", winnerId, completedAt: decidedAt })
       .where(eq(matches.id, match.id));
 
     if (match.playerBId) {

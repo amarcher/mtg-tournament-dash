@@ -53,6 +53,7 @@ import {
   regeneratePendingPairingsAction,
   setPendingPairingsAction,
   revertRoundToPairingsAction,
+  callTimeAction,
   clearMatchResultAction,
   setMatchResultAction,
   startNextRoundAction,
@@ -472,12 +473,38 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
     );
   }
 
-  // Third match: B takes game 1 on the phones, then the organizer calls the
-  // match for A. The phone-recorded game must stand — the call fills in A's
-  // two wins after it (2-1), never rewrites game 1 (Sept 28 draft night).
+  // Same match, now finished 2-0 on the phones and then cleared: only the
+  // deciding game unwinds; game 1 stays A's and the match is live again.
+  {
+    const { match, playerA } = real[1];
+    await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+    await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+    await clearMatchResultAction(makeFormData({ matchId: match.id }));
+    const [reopened] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, match.id));
+    const gs = await db
+      .select()
+      .from(games)
+      .where(eq(games.matchId, match.id))
+      .orderBy(games.gameNumber);
+    assert(
+      reopened.status === "in_progress" &&
+        gs.map((g) => g.winnerId ?? "open").join() ===
+          [playerA.id, "open"].join(),
+      "clearing a phone-finished 2-0 unwinds only the deciding game"
+    );
+  }
+
+  // Third match: 1-1 on the phones with game 3 unfinished, then the organizer
+  // calls the match for A. Recorded games stand exactly as played — the call
+  // settles the match, it never rewrites or invents games (Sept 28 draft
+  // night rewrote B's game-1 win this way).
   {
     const { match, playerA, playerB } = real[2];
     await applyGameWinner({ matchId: match.id, winnerId: playerB!.id });
+    await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
     await setMatchResultAction(
       makeFormData({ matchId: match.id, outcome: "a" })
     );
@@ -487,9 +514,9 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
       .where(eq(games.matchId, match.id))
       .orderBy(games.gameNumber);
     assert(
-      gs.map((g) => g.winnerId).join() ===
-        [playerB!.id, playerA.id, playerA.id].join(),
-      "override keeps a phone-recorded game win and records the call as 2-1"
+      gs.map((g) => g.winnerId ?? "open").join() ===
+        [playerB!.id, playerA.id, "open"].join(),
+      "override leaves phone-recorded games exactly as played"
     );
     await clearMatchResultAction(makeFormData({ matchId: match.id }));
     const [g1] = await db
@@ -500,10 +527,40 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
       g1.winnerId === playerB!.id,
       "clearing that override leaves the phone-recorded game 1 intact"
     );
+
+    // Back at 1-1 with game 3 open: time is a draw.
+    await callTimeAction(makeFormData({ matchId: match.id }));
+    const [timed] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, match.id));
+    assert(
+      timed.status === "complete" && timed.isDraw && timed.winnerId === null,
+      "time on a 1-1 match records a draw"
+    );
+  }
+
+  // Fourth match: A wins game 1, then time runs out mid game 2 — a 1-0
+  // match win for A, not a synthesized 2-0.
+  {
+    const { match, playerA } = real[3];
+    await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+    await callTimeAction(makeFormData({ matchId: match.id }));
+    const [timed] = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.id, match.id));
+    const gs = await db.select().from(games).where(eq(games.matchId, match.id));
+    assert(
+      timed.winnerId === playerA.id &&
+        gs.filter((g) => g.winnerId === playerA.id).length === 1 &&
+        gs.every((g) => g.winnerId === null || g.winnerId === playerA.id),
+      "time on a 1-0 match records a 1-0 win for the leader"
+    );
   }
 
   // Remaining: a/b override based on names
-  for (const { match, playerA, playerB } of real.slice(1)) {
+  for (const { match, playerA, playerB } of real.slice(1, 2)) {
     await setMatchResultAction(
       makeFormData({
         matchId: match.id,
