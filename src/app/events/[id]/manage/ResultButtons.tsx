@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  callTimeAction,
   clearMatchResultAction,
   setMatchResultAction,
 } from "@/app/events/actions";
@@ -64,6 +65,40 @@ export function ResultButton({
         }
       >
         {armed ? "Tap again — ends the match for the table" : label}
+      </button>
+    </form>
+  );
+}
+
+/** Scores the match from the games finished so far — see outcomeAtTime. */
+export function TimeButton({
+  matchId,
+  label,
+}: {
+  matchId: string;
+  label: string;
+}) {
+  const { armed, arm } = useArmed();
+  return (
+    <form
+      action={callTimeAction}
+      onSubmit={(e) => {
+        if (!armed) {
+          e.preventDefault();
+          arm();
+        }
+      }}
+    >
+      <input type="hidden" name="matchId" value={matchId} />
+      <button
+        type="submit"
+        className={
+          armed
+            ? "w-full rounded-md bg-rose-500 px-3 py-2 text-xs font-semibold text-zinc-950 transition hover:bg-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 sm:w-auto"
+            : "w-full rounded-md border border-sky-400/50 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-200 transition hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 sm:w-auto"
+        }
+      >
+        {armed ? "Tap again — scores the match as it stands" : label}
       </button>
     </form>
   );

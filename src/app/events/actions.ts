@@ -38,11 +38,13 @@ import {
   getEventBySourcePoll,
   getGameNight,
   getEventStandings,
+  getGameWinsByMatch,
   getPairingInputs,
   getRoundMatches,
   listOpenEventsForPlayer,
 } from "@/db/queries";
 import { generateSwissPairings } from "@/lib/pairings/swiss";
+import { outcomeAtTime } from "@/lib/time-call";
 import {
   validateManualPairings,
   type ManualPairing,
@@ -1281,6 +1283,26 @@ export async function setMatchResultAction(formData: FormData) {
 }
 
 /**
+ * Round ran out of time: score the match from the games actually finished
+ * (see outcomeAtTime). Counts at submit time, not render time, so a game
+ * reported while the organizer was reaching for the button still counts.
+ */
+export async function callTimeAction(formData: FormData) {
+  const matchId = String(formData.get("matchId") ?? "");
+  if (!matchId) throw new Error("matchId required");
+  const match = await requireOrganizerForMatch(matchId);
+  if (!match.playerBId) throw new Error("Byes don't go to time");
+  const wins = (await getGameWinsByMatch([matchId])).get(matchId);
+  await finalizeMatchOutcome({
+    matchId,
+    outcome: outcomeAtTime(
+      wins?.get(match.playerAId) ?? 0,
+      wins?.get(match.playerBId) ?? 0
+    ),
+  });
+}
+
+/**
  * Organizer undo for a recorded result: put the match back in progress,
  * reverse its ELO deltas, and unwind whatever game rows the finalizer stamped
  * (synthesized 2-0 sweeps are deleted; a real game that was mid-play when the
@@ -1329,10 +1351,12 @@ export async function clearMatchResultAction(formData: FormData) {
     await db.delete(eloChanges).where(eq(eloChanges.matchId, match.id));
   }
 
-  // Games stamped by the finalizer share the completion instant (within one
-  // request) and carry the match winner. An untouched-life stamped game is a
-  // synthesized sweep row — delete it; one with real life totals was being
-  // played when the result landed — reopen it as it stood.
+  // Games stamped when the result landed carry the match's exact completion
+  // instant (the deciding phone game, or the organizer call's filled-in
+  // games); earlier phone-recorded games never do, so they stand. An
+  // untouched-life stamped game is a synthesized sweep row — delete it; one
+  // with real life totals was being played when the result landed — reopen
+  // it as it stood.
   const completedAtMs = match.completedAt?.getTime() ?? 0;
   const startingLife = event.startingLife;
   const allGames = await db
@@ -1343,8 +1367,7 @@ export async function clearMatchResultAction(formData: FormData) {
   const stamped = allGames.filter(
     (g) =>
       g.winnerId === match.winnerId &&
-      g.completedAt !== null &&
-      Math.abs(g.completedAt.getTime() - completedAtMs) < 5000
+      g.completedAt?.getTime() === completedAtMs
   );
   const deletedIds = new Set<string>();
   let hasOpenGame = allGames.some((g) => g.winnerId === null);
@@ -1522,13 +1545,14 @@ async function finalizeMatchOutcome(args: {
       ? match.playerAId
       : match.playerBId;
 
+  const now = new Date();
   await db
     .update(matches)
     .set({
       status: "complete",
       winnerId,
       isDraw,
-      completedAt: new Date(),
+      completedAt: now,
     })
     .where(eq(matches.id, match.id));
 
@@ -1547,7 +1571,6 @@ async function finalizeMatchOutcome(args: {
     .orderBy(games.gameNumber);
   const anyGamePlayed = existing.some((g) => g.winnerId !== null);
   if (winnerId && !isDraw && !anyGamePlayed) {
-    const now = new Date();
     const [roundForEvent] = await db
       .select()
       .from(rounds)

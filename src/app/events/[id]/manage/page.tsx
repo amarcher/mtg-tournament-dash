@@ -5,6 +5,7 @@ import {
   getEventRoster,
   getEventRounds,
   getLeague,
+  getGameWinsByMatch,
   getMatchIdsWithRecordedGames,
   getPairingInputs,
   getPendingRound,
@@ -42,7 +43,8 @@ import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
 import { draftSeatOrder } from "@/lib/draft-seating";
-import { ResultButton, UndoResultButton } from "./ResultButtons";
+import { ResultButton, TimeButton, UndoResultButton } from "./ResultButtons";
+import { outcomeAtTime } from "@/lib/time-call";
 import { PairingBuilder } from "./PairingBuilder";
 import { DraftSeating } from "../DraftSeating";
 
@@ -147,6 +149,25 @@ export default async function ManagePage({
   const activeMatches = activeRound
     ? await getRoundMatches(activeRound.id)
     : [];
+  const gameWinsByMatch = await getGameWinsByMatch(
+    activeMatches
+      .filter(({ match }) => match.status !== "complete")
+      .map(({ match }) => match.id)
+  );
+  const timeLabel = ({
+    match,
+    playerA,
+    playerB,
+  }: (typeof activeMatches)[number]) => {
+    const wins = gameWinsByMatch.get(match.id);
+    const a = wins?.get(playerA.id) ?? 0;
+    const b = playerB ? wins?.get(playerB.id) ?? 0 : 0;
+    const outcome = outcomeAtTime(a, b);
+    if (outcome === "draw") return `Time — draw (${a}–${b})`;
+    return outcome === "a"
+      ? `Time — ${playerA.displayName} wins ${a}–${b}`
+      : `Time — ${playerB!.displayName} wins ${b}–${a}`;
+  };
   const incompleteCount = activeMatches.filter(
     (r) => r.match.status !== "complete"
   ).length;
@@ -705,7 +726,9 @@ export default async function ManagePage({
               Pick a winner below to finalize any matches that didn&apos;t
               report through the phone view. This records a real result — the
               players&apos; phones end the match and ELO updates — so
-              don&apos;t use it to sketch out hypotheticals.
+              don&apos;t use it to sketch out hypotheticals. Out of time?
+              &ldquo;Time&rdquo; scores it from the games finished: a game
+              lead wins, level games are a draw.
               {swappableActive.length >= 2 && (
                 <>
                   {" "}
@@ -777,6 +800,10 @@ export default async function ManagePage({
                     <span className="text-xs text-zinc-500">automatic</span>
                   ) : (
                     <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                      <TimeButton
+                        matchId={match.id}
+                        label={timeLabel({ match, playerA, playerB })}
+                      />
                       <ResultButton
                         matchId={match.id}
                         outcome="a"

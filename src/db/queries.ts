@@ -513,6 +513,22 @@ export async function getPendingRound(eventId: string) {
   return row ?? null;
 }
 
+/** Finished-game wins per player, keyed by match id. */
+export async function getGameWinsByMatch(matchIds: string[]) {
+  const wins = new Map<string, Map<string, number>>();
+  if (matchIds.length === 0) return wins;
+  const rows = await db
+    .select({ matchId: games.matchId, winnerId: games.winnerId })
+    .from(games)
+    .where(and(inArray(games.matchId, matchIds), isNotNull(games.winnerId)));
+  for (const { matchId, winnerId } of rows) {
+    const byPlayer = wins.get(matchId) ?? new Map<string, number>();
+    byPlayer.set(winnerId!, (byPlayer.get(winnerId!) ?? 0) + 1);
+    wins.set(matchId, byPlayer);
+  }
+  return wins;
+}
+
 export async function getEventPlayerByToken(token: string) {
   const [row] = await db
     .select({
