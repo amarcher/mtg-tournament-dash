@@ -104,13 +104,14 @@ export function LifePanel({
         }`}
       />
 
-      {/* Nameplate, like the title bar across the top of a card. */}
-      <div className="parchment relative z-10 flex items-center justify-between gap-2 rounded-[6px] px-2.5 py-1.5">
-        <span className="min-w-0 truncate font-display text-base leading-none">
+      {/* Same smoked-glass treatment as the life buttons, so the portrait
+          stays the loudest thing in the panel. */}
+      <div className="relative z-10 flex items-start justify-between gap-2">
+        <span className="min-w-0 truncate rounded-full bg-[rgb(22_15_8/0.6)] px-2.5 py-1.5 font-display text-xs leading-none text-ink">
           {name}
         </span>
         {detail && (
-          <span className="shrink-0 text-sm font-semibold leading-none text-[#4b3b25]">
+          <span className="shrink-0 rounded-full bg-[rgb(22_15_8/0.6)] px-2.5 py-1.5 text-xs font-semibold leading-none text-ink-dim">
             {detail}
           </span>
         )}
@@ -169,7 +170,7 @@ function LifeButton({
       aria-label={label}
       // `transition-colors`, not `transition`: an all-property transition made
       // the active:scale-95 press lag behind fast repeated taps.
-      className="h-14 touch-manipulation select-none rounded-[8px] border border-[rgb(232_196_120/0.35)] bg-[rgb(22_15_8/0.78)] font-numeral text-lg font-bold tabular-nums text-ink shadow-[inset_0_1px_0_rgb(255_240_210/0.08)] transition-colors hover:bg-[rgb(34_24_14/0.85)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 active:bg-white/15"
+      className="h-16 touch-manipulation select-none rounded-[8px] border border-[rgb(232_196_120/0.45)] bg-[rgb(22_15_8/0.7)] font-numeral text-[1.75rem] leading-none font-black tabular-nums text-white shadow-[inset_0_1px_0_rgb(255_240_210/0.08)] transition-colors hover:bg-[rgb(34_24_14/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 active:bg-white/15"
     >
       {children}
     </button>
