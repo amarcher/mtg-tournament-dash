@@ -178,8 +178,7 @@ describe("buildWizardPrompt — hobbit theme", () => {
 });
 
 describe("TMNT portraits", () => {
-  it("defaults new generations to TMNT and accepts every character", () => {
-    expect(DEFAULT_PORTRAIT_THEME).toBe("tmnt");
+  it("accepts every character", () => {
     expect(isPortraitTheme("tmnt")).toBe(true);
     for (const character of TMNT_ARCHETYPES) {
       expect(archetypeForTheme("tmnt", character)).toBe(character);
@@ -246,7 +245,8 @@ describe("TMNT portraits", () => {
 });
 
 describe("Reality Fracture portraits", () => {
-  it("accepts every character and falls back to the Theorist", () => {
+  it("defaults new generations to Reality Fracture, accepts every character and falls back to the Theorist", () => {
+    expect(DEFAULT_PORTRAIT_THEME).toBe("reality-fracture");
     expect(isPortraitTheme("reality-fracture")).toBe(true);
     for (const character of REALITY_FRACTURE_ARCHETYPES) {
       expect(archetypeForTheme("reality-fracture", character)).toBe(character);
