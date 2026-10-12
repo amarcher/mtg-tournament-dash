@@ -128,7 +128,7 @@ export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
 
 // What the wizardize form pre-selects. Hardcoded to the current draft's set
 // for now — TBD whether this later derives from the upcoming event.
-export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "tmnt";
+export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "reality-fracture";
 
 export const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
   standard: "archmage",
