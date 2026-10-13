@@ -1203,7 +1203,7 @@ async function authorizeMatchParticipant(matchId: string) {
     const playerId = await getBonusGameCallerId(match);
     if (!isMatchParticipant(playerId, match.playerAId, match.playerBId))
       throw new Error("Not a participant in this bonus game");
-    return { match, round: null };
+    return { match, round: null, callerId: playerId as string };
   }
   const [round] = await db
     .select()
@@ -1212,7 +1212,11 @@ async function authorizeMatchParticipant(matchId: string) {
   const me = await getCurrentPlayer(round.eventId);
   if (!isMatchParticipant(me?.playerId, match.playerAId, match.playerBId))
     throw new Error("Not a participant in this match");
-  return { match, round: round as Round | null };
+  return {
+    match,
+    round: round as Round | null,
+    callerId: me!.playerId,
+  };
 }
 
 export async function adjustLifeAction(args: {
@@ -1224,8 +1228,11 @@ export async function adjustLifeAction(args: {
   /** Life the client displayed for this side before applying its delta. */
   expectedLife: number;
 }) {
-  await authorizeMatchParticipant(args.matchId);
-  return applyLifeAdjust(args);
+  const { match, callerId } = await authorizeMatchParticipant(args.matchId);
+  return applyLifeAdjust({
+    ...args,
+    by: callerId === match.playerAId ? "a" : "b",
+  });
 }
 
 export async function reportGameWinnerAction(args: {
