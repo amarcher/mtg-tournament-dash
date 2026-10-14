@@ -1,3 +1,4 @@
+import { MERGE_WINDOW_MS } from "./life-history";
 import type { EventMessage } from "@/lib/realtime-schema";
 
 type LifeChanged = Extract<EventMessage, { type: "life_changed" }>;
@@ -44,4 +45,29 @@ export function shouldApplyLifeChanged(
   }
   const lastTs = msg.side === "a" ? state.lastTsA : state.lastTsB;
   return msg.ts >= lastTs;
+}
+
+/**
+ * How long one player's edit to a life total holds the other phone's buttons
+ * for that total. Same span the life history treats as "one change", so a
+ * lock lasts exactly as long as the edit it protects is still open.
+ */
+export const REMOTE_EDIT_LOCK_MS = MERGE_WINDOW_MS;
+
+/**
+ * How long (ms) to lock this phone's buttons for `msg.side` because the other
+ * player is editing that total. 0 = don't lock: our own echo, a trusted
+ * server write, or an old event (the SSE reconnect replay re-delivers up to
+ * ~50 past life events, which must not freeze the scorekeeper).
+ */
+export function remoteEditLockMs(
+  msg: LifeChanged,
+  mySide: "a" | "b",
+  now: number
+): number {
+  if (!msg.by || msg.by === mySide) return 0;
+  // A phone clock running behind the server reads a live event as "from the
+  // future"; treat that as just-now rather than extending the lock.
+  const age = Math.max(0, now - msg.ts);
+  return Math.max(0, REMOTE_EDIT_LOCK_MS - age);
 }

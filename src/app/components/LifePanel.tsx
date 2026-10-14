@@ -35,6 +35,7 @@ export function LifePanel({
   startingLife,
   avatars,
   onAdjust,
+  lockedBy,
   emphasized,
   flipped,
   onNumberTap,
@@ -47,6 +48,9 @@ export function LifePanel({
   startingLife: number;
   avatars: AvatarTiers;
   onAdjust: (delta: number) => void;
+  /** Set while the other player is changing this total: their name. The
+   * buttons hold until that change settles so the two edits can't collide. */
+  lockedBy?: string | null;
   emphasized?: boolean;
   /** Rotate 180° so a player across the table reads it right way up. */
   flipped?: boolean;
@@ -134,20 +138,31 @@ export function LifePanel({
         </button>
       </div>
 
-      {/* Deliberately never disabled while a write is in flight: taps are
-          optimistic and the server's compare-and-set rejects anything stale,
-          so dimming here only strobed all eight buttons during fast tapping. */}
+      {/* Deliberately never disabled while this phone's own write is in
+          flight: taps are optimistic, so dimming here only strobed all eight
+          buttons during fast tapping. The one hold is the other player's edit,
+          which lasts seconds rather than a round-trip. */}
       <div className="relative z-10 grid grid-cols-4 gap-2">
-        <LifeButton label="Lose 5 life" onClick={() => onAdjust(-5)}>
+        {lockedBy && (
+          <div
+            role="status"
+            className="pointer-events-none absolute inset-x-0 bottom-full mb-2 flex justify-center"
+          >
+            <span className="max-w-full truncate rounded-full bg-[rgb(22_15_8/0.8)] px-3 py-1.5 text-xs font-semibold leading-none text-gold">
+              {lockedBy} is updating…
+            </span>
+          </div>
+        )}
+        <LifeButton label="Lose 5 life" disabled={!!lockedBy} onClick={() => onAdjust(-5)}>
           −5
         </LifeButton>
-        <LifeButton label="Lose 1 life" onClick={() => onAdjust(-1)}>
+        <LifeButton label="Lose 1 life" disabled={!!lockedBy} onClick={() => onAdjust(-1)}>
           −1
         </LifeButton>
-        <LifeButton label="Gain 1 life" onClick={() => onAdjust(+1)}>
+        <LifeButton label="Gain 1 life" disabled={!!lockedBy} onClick={() => onAdjust(+1)}>
           +1
         </LifeButton>
-        <LifeButton label="Gain 5 life" onClick={() => onAdjust(+5)}>
+        <LifeButton label="Gain 5 life" disabled={!!lockedBy} onClick={() => onAdjust(+5)}>
           +5
         </LifeButton>
       </div>
@@ -158,19 +173,22 @@ export function LifePanel({
 function LifeButton({
   children,
   label,
+  disabled,
   onClick,
 }: {
   children: React.ReactNode;
   label: string;
+  disabled: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       // `transition-colors`, not `transition`: an all-property transition made
       // the active:scale-95 press lag behind fast repeated taps.
-      className="h-16 touch-manipulation select-none rounded-[8px] border border-[rgb(232_196_120/0.45)] bg-[rgb(22_15_8/0.7)] font-numeral text-[1.75rem] leading-none font-black tabular-nums text-white shadow-[inset_0_1px_0_rgb(255_240_210/0.08)] transition-colors hover:bg-[rgb(34_24_14/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 active:bg-white/15"
+      className="h-16 touch-manipulation select-none rounded-[8px] border border-[rgb(232_196_120/0.45)] bg-[rgb(22_15_8/0.7)] font-numeral text-[1.75rem] leading-none font-black tabular-nums text-white shadow-[inset_0_1px_0_rgb(255_240_210/0.08)] transition-colors hover:bg-[rgb(34_24_14/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 active:scale-95 active:bg-white/15 disabled:opacity-40 disabled:active:scale-100"
     >
       {children}
     </button>

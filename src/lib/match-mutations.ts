@@ -31,6 +31,8 @@ export async function applyLifeAdjust(args: {
   delta: number;
   gameId: string;
   expectedLife: number;
+  /** The editing player's side of the match, when a participant made it. */
+  by?: "a" | "b";
 }): Promise<LifeAdjustResult> {
   const [match] = await db
     .select()
@@ -79,6 +81,7 @@ export async function applyLifeAdjust(args: {
     gameId: game!.id,
     side: args.side,
     life: next,
+    ...(args.by ? { by: args.by } : {}),
   };
   if (round) await publish(round.eventId, lifeChanged);
   else await publishToChannel(channelForMatch(match.id), lifeChanged);

@@ -15,6 +15,8 @@ export type ScoreboardSide = {
   life: number;
   avatars: AvatarTiers;
   onAdjust: (delta: number) => void;
+  /** Name of the other player while they are mid-edit on this total. */
+  lockedBy?: string | null;
 };
 
 export type ScoreboardMenuItem = {

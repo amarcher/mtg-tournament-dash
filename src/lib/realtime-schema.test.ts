@@ -36,6 +36,7 @@ describe("realtime-schema", () => {
         gameId: "g1",
         side: "a" as const,
         life: 17,
+        by: "b" as const,
       },
       game_complete: {
         ts: 1,

@@ -1804,6 +1804,20 @@ async function runBonusGamePass() {
     lifeRes.ok && lifeRes.life === 37,
     "life taps flow through the shared CAS path"
   );
+  // A run of quick taps goes up as one summed delta against the last
+  // confirmed total, tagged with the editing side.
+  const batched = await applyLifeAdjust({
+    matchId: match.id,
+    side: "a",
+    delta: -7,
+    gameId: g1.id,
+    expectedLife: 37,
+    by: "b",
+  });
+  assert(
+    batched.ok && batched.life === 30,
+    "a batched life delta applies in one write"
+  );
 
   // Two wins for A then one for B — a best-of-3 would have completed at
   // A's second win.

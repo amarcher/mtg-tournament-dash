@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useWakeLock } from "@/lib/use-wake-lock";
 import {
-  adjustLifeAction,
   reportGameWinnerAction,
   reportMatchDrawAction,
   undoLastGameWinAction,
@@ -11,7 +10,8 @@ import {
 import { useLifeHistory } from "@/lib/use-life-history";
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
-import { shouldApplyLifeChanged } from "@/lib/life-events";
+import { remoteEditLockMs, shouldApplyLifeChanged } from "@/lib/life-events";
+import { useLifeWriter } from "@/lib/use-life-writer";
 import { avatarsFor } from "@/app/components/LifePanel";
 import { GamePips, Scoreboard } from "@/app/components/Scoreboard";
 
@@ -46,17 +46,9 @@ export function PlayClient({
   const [aLife, setALife] = useState(initialGame.playerALife);
   const [bLife, setBLife] = useState(initialGame.playerBLife);
   const [wins, setWins] = useState(initialWins);
-  // Life taps and the outcome buttons get separate transitions on purpose.
-  // Sharing one meant every life tap flipped the outcome buttons' pending
-  // flag, blinking them disabled on each tap. Life's pending is deliberately
-  // unread — those taps are optimistic and never gate the UI.
-  const [, startLifeTransition] = useTransition();
+  // Only the outcome buttons use a transition. Life taps are optimistic and
+  // go through useLifeWriter, so they never flip this pending flag.
   const [outcomePending, startOutcomeTransition] = useTransition();
-  // Count outstanding adjust requests per side. While >0, neither the SSE
-  // listener nor the polling tick are allowed to overwrite local life — those
-  // arrive with stale server snapshots and would visually rubber-band the
-  // counter back. Cleared once every in-flight write resolves.
-  const inFlight = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
   // The game these life totals belong to. Seeded from SSR and kept current by
   // the polling reconcile below. The SSE listener ignores `life_changed` events
   // for any other game, so a reconnect history-replay of a *previous* game's
@@ -66,6 +58,12 @@ export function PlayClient({
   // Publish-time ts of the last life event we applied, per side — rejects
   // out-of-order / duplicated replay deliveries within the current game.
   const lastTs = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
+  const { adjust, inFlight, locked, lockSide } = useLifeWriter({
+    matchId,
+    currentGameId,
+    lives: { a: aLife, b: bLife },
+    setLife: (side, next) => (side === "a" ? setALife : setBLife)(next),
+  });
 
   // Subscribe to live updates for the opponent's edits. SSE is fast but
   // best-effort — the polling loop below is the source of truth.
@@ -83,13 +81,14 @@ export function PlayClient({
           msg
         );
         if (fresh) {
+          lockSide(msg.side, remoteEditLockMs(msg, mySide, Date.now()));
           if (msg.side === "a") {
-            if (inFlight.current.a === 0) {
+            if (!inFlight.current.a) {
               setALife(msg.life);
               lastTs.current.a = msg.ts;
             }
           } else {
-            if (inFlight.current.b === 0) {
+            if (!inFlight.current.b) {
               setBLife(msg.life);
               lastTs.current.b = msg.ts;
             }
@@ -103,7 +102,6 @@ export function PlayClient({
           setWins((w) => ({ ...w, b: w.b + 1 }));
         setALife(startingLife);
         setBLife(startingLife);
-        inFlight.current = { a: 0, b: 0 };
         // A new game is starting. Drop the ts baselines and adopt the new game
         // id the event carries, so life events (and our own writes' CAS token)
         // target the new game immediately — no blind window waiting on the poll,
@@ -163,10 +161,10 @@ export function PlayClient({
           currentGameId.current = s.activeGameId;
           lastTs.current = { a: 0, b: 0 };
         }
-        if (s.life.a !== null && inFlight.current.a === 0) {
+        if (s.life.a !== null && !inFlight.current.a) {
           setALife((cur) => (cur !== s.life.a ? (s.life.a as number) : cur));
         }
-        if (s.life.b !== null && inFlight.current.b === 0) {
+        if (s.life.b !== null && !inFlight.current.b) {
           setBLife((cur) => (cur !== s.life.b ? (s.life.b as number) : cur));
         }
         setWins((w) =>
@@ -184,7 +182,7 @@ export function PlayClient({
       stopped = true;
       clearInterval(id);
     };
-  }, [eventId, matchId]);
+  }, [eventId, matchId, inFlight]);
 
   useWakeLock();
   const getHistory = useLifeHistory(currentGameId, aLife, bLife);
@@ -195,38 +193,6 @@ export function PlayClient({
   const myName = mySide === "a" ? players.a.displayName : players.b?.displayName;
   const oppName = mySide === "a" ? players.b?.displayName : players.a.displayName;
 
-  const adjust = (side: "a" | "b", delta: number) => {
-    // Capture what the user saw *before* the optimistic update — that's the
-    // value the server compares against. Rapid same-side taps each capture the
-    // running optimistic value, so they chain correctly; a stale or duplicated
-    // write fails the compare and the server hands back the truth to resync to.
-    const expectedLife = side === "a" ? aLife : bLife;
-    const gameId = currentGameId.current;
-    if (side === "a") setALife((v) => v + delta);
-    else setBLife((v) => v + delta);
-    inFlight.current[side] += 1;
-    startLifeTransition(async () => {
-      try {
-        const res = await adjustLifeAction({
-          matchId,
-          side,
-          delta,
-          gameId,
-          expectedLife,
-        });
-        // Only the last write still in flight may publish the server's value.
-        // An earlier response landing while later taps are pending describes a
-        // life total the user has already tapped past, and applying it rewinds
-        // the counter — the visible jitter during fast tapping.
-        if (res.life !== null && inFlight.current[side] === 1) {
-          if (side === "a") setALife(res.life);
-          else setBLife(res.life);
-        }
-      } finally {
-        inFlight.current[side] = Math.max(0, inFlight.current[side] - 1);
-      }
-    });
-  };
   const oppSide = mySide === "a" ? "b" : "a";
 
   const reportWinner = (winnerSide: "me" | "opp") => {
@@ -293,6 +259,7 @@ export function PlayClient({
               life: oppLife,
               avatars: avatarsFor(oppPlayer),
               onAdjust: (d) => adjust(oppSide, d),
+              lockedBy: locked[oppSide] ? oppName : null,
             }
           : null
       }
@@ -303,6 +270,7 @@ export function PlayClient({
         life: myLife,
         avatars: avatarsFor(mySide === "a" ? players.a : players.b),
         onAdjust: (d) => adjust(mySide, d),
+        lockedBy: locked[mySide] ? (oppName ?? null) : null,
       }}
       startingLife={startingLife}
       onIWon={() => reportWinner("me")}

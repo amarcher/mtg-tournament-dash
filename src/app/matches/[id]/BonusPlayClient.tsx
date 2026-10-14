@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useWakeLock } from "@/lib/use-wake-lock";
 import {
-  adjustLifeAction,
   endBonusGameAction,
   reportGameWinnerAction,
   undoLastGameWinAction,
@@ -12,7 +11,8 @@ import {
 import { useLifeHistory } from "@/lib/use-life-history";
 import type { Game, Player } from "@/db/schema";
 import type { EventMessage } from "@/lib/pubsub";
-import { shouldApplyLifeChanged } from "@/lib/life-events";
+import { remoteEditLockMs, shouldApplyLifeChanged } from "@/lib/life-events";
+import { useLifeWriter } from "@/lib/use-life-writer";
 import { avatarsFor } from "@/app/components/LifePanel";
 import { Scoreboard } from "@/app/components/Scoreboard";
 
@@ -51,19 +51,20 @@ export function BonusPlayClient({
   const [bLife, setBLife] = useState(initialGame.playerBLife);
   const [wins, setWins] = useState(initialWins);
   const [roundStarted, setRoundStarted] = useState(false);
-  // Life taps and the outcome buttons get separate transitions on purpose.
-  // Sharing one meant every life tap flipped the outcome buttons' pending
-  // flag, blinking them disabled on each tap. Life's pending is deliberately
-  // unread — those taps are optimistic and never gate the UI.
-  const [, startLifeTransition] = useTransition();
+  // Only the outcome buttons use a transition. Life taps are optimistic and
+  // go through useLifeWriter, so they never flip this pending flag.
   const [outcomePending, startOutcomeTransition] = useTransition();
-  // See PlayClient for the full reasoning behind these guards: in-flight
-  // write counting keeps stale server snapshots from rubber-banding the
-  // counter; the game-id ref keeps replayed events for a previous game from
-  // rewinding it; per-side ts baselines reject out-of-order deliveries.
-  const inFlight = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
+  // See PlayClient for the reasoning behind these guards: the game-id ref
+  // keeps replayed events for a previous game from rewinding the counter;
+  // per-side ts baselines reject out-of-order deliveries.
   const currentGameId = useRef<string>(initialGame.id);
   const lastTs = useRef<{ a: number; b: number }>({ a: 0, b: 0 });
+  const { adjust, inFlight, locked, lockSide } = useLifeWriter({
+    matchId,
+    currentGameId,
+    lives: { a: aLife, b: bLife },
+    setLife: (side, next) => (side === "a" ? setALife : setBLife)(next),
+  });
 
   useEffect(() => {
     const es = new EventSource(`/api/matches/${matchId}/stream`);
@@ -84,13 +85,14 @@ export function BonusPlayClient({
           msg
         );
         if (fresh) {
+          lockSide(msg.side, remoteEditLockMs(msg, mySide, Date.now()));
           if (msg.side === "a") {
-            if (inFlight.current.a === 0) {
+            if (!inFlight.current.a) {
               setALife(msg.life);
               lastTs.current.a = msg.ts;
             }
           } else {
-            if (inFlight.current.b === 0) {
+            if (!inFlight.current.b) {
               setBLife(msg.life);
               lastTs.current.b = msg.ts;
             }
@@ -104,7 +106,6 @@ export function BonusPlayClient({
           setWins((w) => ({ ...w, b: w.b + 1 }));
         setALife(startingLife);
         setBLife(startingLife);
-        inFlight.current = { a: 0, b: 0 };
         lastTs.current = { a: 0, b: 0 };
         currentGameId.current = msg.newGameId;
       }
@@ -122,7 +123,7 @@ export function BonusPlayClient({
       }
     });
     return () => es.close();
-  }, [matchId, players.a.id, players.b.id, startingLife]);
+  }, [matchId, mySide, inFlight, lockSide, players.a.id, players.b.id, startingLife]);
 
   // Watch the parent event (when there is one) for the next round starting —
   // a banner, not an auto-redirect, so a game mid-turn isn't yanked away.
@@ -164,10 +165,10 @@ export function BonusPlayClient({
           currentGameId.current = s.activeGameId;
           lastTs.current = { a: 0, b: 0 };
         }
-        if (s.life.a !== null && inFlight.current.a === 0) {
+        if (s.life.a !== null && !inFlight.current.a) {
           setALife((cur) => (cur !== s.life.a ? (s.life.a as number) : cur));
         }
-        if (s.life.b !== null && inFlight.current.b === 0) {
+        if (s.life.b !== null && !inFlight.current.b) {
           setBLife((cur) => (cur !== s.life.b ? (s.life.b as number) : cur));
         }
         setWins((w) => (w.a === s.wins.a && w.b === s.wins.b ? w : s.wins));
@@ -181,7 +182,7 @@ export function BonusPlayClient({
       stopped = true;
       clearInterval(id);
     };
-  }, [matchId]);
+  }, [matchId, inFlight]);
 
   useWakeLock();
   const getHistory = useLifeHistory(currentGameId, aLife, bLife);
@@ -193,34 +194,6 @@ export function BonusPlayClient({
   const myWins = mySide === "a" ? wins.a : wins.b;
   const oppWins = mySide === "a" ? wins.b : wins.a;
 
-  const adjust = (side: "a" | "b", delta: number) => {
-    const expectedLife = side === "a" ? aLife : bLife;
-    const gameId = currentGameId.current;
-    if (side === "a") setALife((v) => v + delta);
-    else setBLife((v) => v + delta);
-    inFlight.current[side] += 1;
-    startLifeTransition(async () => {
-      try {
-        const res = await adjustLifeAction({
-          matchId,
-          side,
-          delta,
-          gameId,
-          expectedLife,
-        });
-        // Only the last write still in flight may publish the server's value.
-        // An earlier response landing while later taps are pending describes a
-        // life total the user has already tapped past, and applying it rewinds
-        // the counter — the visible jitter during fast tapping.
-        if (res.life !== null && inFlight.current[side] === 1) {
-          if (side === "a") setALife(res.life);
-          else setBLife(res.life);
-        }
-      } finally {
-        inFlight.current[side] = Math.max(0, inFlight.current[side] - 1);
-      }
-    });
-  };
   const oppSide = mySide === "a" ? "b" : "a";
 
   const reportWinner = (winnerSide: "me" | "opp") => {
@@ -282,6 +255,7 @@ export function BonusPlayClient({
         life: oppLife,
         avatars: avatarsFor(opp),
         onAdjust: (d) => adjust(oppSide, d),
+        lockedBy: locked[oppSide] ? opp.displayName : null,
       }}
       me={{
         side: mySide,
@@ -290,6 +264,7 @@ export function BonusPlayClient({
         life: myLife,
         avatars: avatarsFor(me),
         onAdjust: (d) => adjust(mySide, d),
+        lockedBy: locked[mySide] ? opp.displayName : null,
       }}
       startingLife={startingLife}
       onIWon={() => reportWinner("me")}

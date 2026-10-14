@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { shouldApplyLifeChanged, type LifeGuardState } from "./life-events";
+import {
+  REMOTE_EDIT_LOCK_MS,
+  remoteEditLockMs,
+  shouldApplyLifeChanged,
+  type LifeGuardState,
+} from "./life-events";
 import type { EventMessage } from "@/lib/realtime-schema";
 
 function lifeEvent(
@@ -73,5 +78,33 @@ describe("shouldApplyLifeChanged", () => {
     expect(
       shouldApplyLifeChanged(unknown, lifeEvent({ gameId: "anything" }))
     ).toBe(true);
+  });
+});
+
+describe("remoteEditLockMs", () => {
+  it("locks for the full window when the opponent just edited", () => {
+    const msg = lifeEvent({ by: "b", ts: 10_000 });
+    expect(remoteEditLockMs(msg, "a", 10_000)).toBe(REMOTE_EDIT_LOCK_MS);
+  });
+
+  it("never locks on our own echo or an unattributed server write", () => {
+    expect(remoteEditLockMs(lifeEvent({ by: "a", ts: 10_000 }), "a", 10_000)).toBe(0);
+    expect(remoteEditLockMs(lifeEvent({ ts: 10_000 }), "a", 10_000)).toBe(0);
+  });
+
+  it("locks only for what is left of the window on a late delivery", () => {
+    const msg = lifeEvent({ by: "b", ts: 10_000 });
+    expect(remoteEditLockMs(msg, "a", 11_000)).toBe(REMOTE_EDIT_LOCK_MS - 1_000);
+  });
+
+  it("does not lock on events replayed from before the window", () => {
+    const msg = lifeEvent({ by: "b", ts: 10_000 });
+    expect(remoteEditLockMs(msg, "a", 10_000 + REMOTE_EDIT_LOCK_MS)).toBe(0);
+    expect(remoteEditLockMs(msg, "a", 60_000)).toBe(0);
+  });
+
+  it("caps the lock at one window when the phone clock runs behind", () => {
+    const msg = lifeEvent({ by: "b", ts: 10_000 });
+    expect(remoteEditLockMs(msg, "a", 9_000)).toBe(REMOTE_EDIT_LOCK_MS);
   });
 });

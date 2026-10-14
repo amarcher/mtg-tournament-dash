@@ -29,6 +29,10 @@ export const realtimeSchema = {
     gameId: z.string(),
     side: z.enum(["a", "b"]),
     life: z.number(),
+    // Which player made the edit, as a match side. Absent for trusted
+    // server-side writes. Lets the other phone tell "my opponent is changing
+    // this total" from its own echo — see remoteEditLockMs in life-events.ts.
+    by: z.enum(["a", "b"]).optional(),
   }),
   game_complete: z.object({
     ts: z.number(),
@@ -104,6 +108,7 @@ export type EventMessage =
       gameId: string;
       side: "a" | "b";
       life: number;
+      by?: "a" | "b";
     }
   | {
       type: "game_complete";
