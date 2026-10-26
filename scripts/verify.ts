@@ -33,6 +33,8 @@ import {
 import {
   addManualPairingAction,
   addRoundAction,
+  autoSplitTeamsAction,
+  setEventTeamsAction,
   cancelPendingRoundAction,
   castPollVotesAction,
   createGameNightsAction,
@@ -113,6 +115,7 @@ import {
   playerPortraits,
 } from "../src/db/schema";
 import { generateDateSeries } from "../src/lib/recurrence";
+import { computeTeamStandings, splitTeams } from "../src/lib/team-draft";
 import { parseDateTimeLocal } from "../src/lib/schedule-types";
 
 const PREFIX = "_verify_";
@@ -1720,6 +1723,258 @@ async function runRosterAmendmentPass() {
   );
 }
 
+/**
+ * Team draft: two teams, cross-team round robin, team with more match wins
+ * takes the event (game wins break a level score). Drives the format flip,
+ * team assignment (auto + explicit), the preview guards, three rounds of
+ * play, the team-first standings sort, and a 2v2 that lands on the
+ * game-wins tiebreaker.
+ */
+async function runTeamDraftPass() {
+  console.log("\n--- team draft pass ---");
+  await cleanup();
+
+  const { event, players: testPlayers } = await setupEvent(6);
+  ok(`set up 6-player event ${event.id.slice(0, 8)} for team draft`);
+  const byName = new Map(testPlayers.map((p) => [p.displayName, p.id]));
+  const pid = (n: number) => byName.get(`${PREFIX}P${n}`)!;
+
+  const teamsForm = (
+    assignments: Record<number, "a" | "b" | "">
+  ): FormData => {
+    const entries: Record<string, string> = { eventId: event.id };
+    for (const [n, side] of Object.entries(assignments)) {
+      entries[`team:${pid(Number(n))}`] = side;
+    }
+    return makeFormData(entries);
+  };
+  const rosterSplit = async () => splitTeams(await getEventRoster(event.id));
+  const teamOf = async () => {
+    const roster = await getEventRoster(event.id);
+    return new Map(roster.map((r) => [r.playerId, r.team]));
+  };
+
+  // === 1. flip the format ===
+  await updateEventAction(
+    makeFormData({
+      eventId: event.id,
+      name: `${PREFIX}event`,
+      format: "team_draft",
+      teamAName: "Goblins",
+      teamBName: "Elves",
+    })
+  );
+  const flipped = await getEvent(event.id);
+  assert(flipped.format === "team_draft", "event format is team_draft");
+  assert(
+    flipped.teamAName === "Goblins" && flipped.teamBName === "Elves",
+    "team names stored"
+  );
+  assert(flipped.totalRounds === 3, "totalRounds synced to team size (3)");
+  let split = await rosterSplit();
+  assert(
+    split.a.length === 3 && split.b.length === 3 && split.unassigned.length === 0,
+    "format flip seeded a balanced 3/3 split"
+  );
+
+  // === 2. auto split + explicit assignment ===
+  await autoSplitTeamsAction(makeFormData({ eventId: event.id, mode: "random" }));
+  split = await rosterSplit();
+  assert(
+    split.a.length === 3 && split.b.length === 3,
+    "random auto-split keeps 3/3"
+  );
+  await setEventTeamsAction(teamsForm({ 1: "a", 2: "a", 3: "a", 4: "b", 5: "b", 6: "b" }));
+  let teams = await teamOf();
+  assert(
+    [1, 2, 3].every((n) => teams.get(pid(n)) === "a") &&
+      [4, 5, 6].every((n) => teams.get(pid(n)) === "b"),
+    "explicit assignment: P1-P3 → a, P4-P6 → b"
+  );
+
+  // === 3. preview guards ===
+  await setEventTeamsAction(teamsForm({ 5: "a" }));
+  split = await rosterSplit();
+  assert(split.a.length === 4 && split.b.length === 2, "teams lopsided 4/2");
+  try {
+    await previewNextRoundAction(event.id);
+    fail("preview with 4/2 teams should throw");
+  } catch (e) {
+    assert(
+      e instanceof Error && e.message.includes("same size"),
+      "preview with unequal teams throws 'same size'"
+    );
+  }
+  await setEventTeamsAction(teamsForm({ 5: "b" }));
+  await setEventTeamsAction(teamsForm({ 6: "" }));
+  split = await rosterSplit();
+  assert(split.unassigned.length === 1, "one seat unassigned");
+  try {
+    await previewNextRoundAction(event.id);
+    fail("preview with an unassigned seat should throw");
+  } catch (e) {
+    assert(
+      e instanceof Error && e.message.includes("unassigned"),
+      "preview with an unassigned seat throws 'unassigned'"
+    );
+  }
+  await setEventTeamsAction(teamsForm({ 6: "b" }));
+  split = await rosterSplit();
+  assert(
+    split.a.length === 3 && split.b.length === 3 && split.unassigned.length === 0,
+    "teams restored to 3/3"
+  );
+  assert(
+    (await getPendingRound(event.id)) === null,
+    "failed previews left no pending round behind"
+  );
+  teams = await teamOf();
+
+  // === 4. three rounds ===
+  const seenPairs = new Set<string>();
+  for (let r = 1; r <= 3; r++) {
+    await startNextRoundAction(event.id);
+    const round = await getCurrentRound(event.id);
+    assert(round?.roundNumber === r, `R${r}: started`);
+    const ms = await getRoundMatches(round!.id);
+    assert(ms.length === 3, `R${r}: exactly 3 matches`);
+    assert(ms.every((m) => m.playerB !== null), `R${r}: no byes`);
+    assert(
+      ms.every(
+        ({ playerA, playerB }) =>
+          teams.get(playerA.id) === "a" && teams.get(playerB!.id) === "b"
+      ),
+      `R${r}: every table is team a (side A) vs team b (side B)`
+    );
+    for (const m of ms) {
+      const k = `${m.playerA.id}|${m.playerB!.id}`;
+      assert(!seenPairs.has(k), `R${r}: ${m.playerA.displayName} vs ${m.playerB!.displayName} is not a rematch`);
+      seenPairs.add(k);
+    }
+    // Tables 1-2: team a wins 2-0. Table 3: team b wins 2-1.
+    const sorted = [...ms].sort((x, y) => x.match.tableNumber - y.match.tableNumber);
+    for (let i = 0; i < sorted.length; i++) {
+      const { match, playerA, playerB } = sorted[i];
+      if (i < 2) {
+        await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+        await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+      } else {
+        await applyGameWinner({ matchId: match.id, winnerId: playerA.id });
+        await applyGameWinner({ matchId: match.id, winnerId: playerB!.id });
+        await applyGameWinner({ matchId: match.id, winnerId: playerB!.id });
+      }
+    }
+    await completeRoundAction(event.id);
+    ok(`R${r}: played and closed`);
+  }
+  assert(seenPairs.size === 9, "9 distinct cross-team matches over 3 rounds");
+
+  // === 5. final state ===
+  const finalEvent = await getEvent(event.id);
+  assert(finalEvent.status === "complete", "team draft auto-completed after round 3");
+  const standings = await getEventStandings(event.id);
+  const bIds = new Set([4, 5, 6].map(pid));
+  for (const s of standings.filter((s) => s.team === "a")) {
+    assert(
+      s.opponentsFaced.length === 3 &&
+        s.opponentsFaced.every((id) => bIds.has(id)) &&
+        new Set(s.opponentsFaced).size === 3,
+      `${s.displayName}: faced every team-b player exactly once`
+    );
+  }
+  const ts = computeTeamStandings(standings);
+  assert(ts.a.wins === 6 && ts.b.wins === 3, `team wins a=${ts.a.wins} b=${ts.b.wins}`);
+  assert(
+    ts.leader === "a" && ts.decidedBy === "match_wins",
+    "team a leads on match wins"
+  );
+  assert(
+    standings.slice(0, 3).every((s) => s.team === "a") &&
+      standings.slice(3).every((s) => s.team === "b"),
+    "standings list the winning team first"
+  );
+  const placed = await getEventRoster(event.id);
+  assert(
+    placed
+      .filter((p) => p.finalStanding !== null && p.finalStanding <= 3)
+      .every((p) => p.team === "a"),
+    "final_standing 1..3 are all team a"
+  );
+  console.log(
+    `    Goblins ${ts.a.wins}–${ts.b.wins} Elves  (games ${ts.a.gameWins}–${ts.b.gameWins})`
+  );
+
+  // === 6. 2v2 decided on game wins ===
+  await cleanup();
+  const mini = await setupEvent(4);
+  const mByName = new Map(mini.players.map((p) => [p.displayName, p.id]));
+  const mpid = (n: number) => mByName.get(`${PREFIX}P${n}`)!;
+  await updateEventAction(
+    makeFormData({
+      eventId: mini.event.id,
+      name: `${PREFIX}event`,
+      format: "team_draft",
+    })
+  );
+  await setEventTeamsAction(
+    makeFormData({
+      eventId: mini.event.id,
+      [`team:${mpid(1)}`]: "a",
+      [`team:${mpid(2)}`]: "a",
+      [`team:${mpid(3)}`]: "b",
+      [`team:${mpid(4)}`]: "b",
+    })
+  );
+  assert((await getEvent(mini.event.id)).totalRounds === 2, "2v2 → 2 rounds");
+  const a1 = mpid(1);
+  const a2 = mpid(2);
+  // A1 wins every match; A2 loses every match. R1: A1 2-0, A2 1-2.
+  // R2: A1 2-1, A2 1-2. Match wins level at 2-2, games 6-5 to team a.
+  for (let r = 1; r <= 2; r++) {
+    await startNextRoundAction(mini.event.id);
+    const round = await getCurrentRound(mini.event.id);
+    const ms = await getRoundMatches(round!.id);
+    assert(ms.length === 2, `2v2 R${r}: 2 matches`);
+    for (const { match, playerA, playerB } of ms) {
+      assert(playerA.id === a1 || playerA.id === a2, `2v2 R${r}: side A is team a`);
+      const opp = playerB!.id;
+      if (playerA.id === a1) {
+        if (r === 2) await applyGameWinner({ matchId: match.id, winnerId: opp });
+        await applyGameWinner({ matchId: match.id, winnerId: a1 });
+        await applyGameWinner({ matchId: match.id, winnerId: a1 });
+      } else {
+        await applyGameWinner({ matchId: match.id, winnerId: a2 });
+        await applyGameWinner({ matchId: match.id, winnerId: opp });
+        await applyGameWinner({ matchId: match.id, winnerId: opp });
+      }
+    }
+    await completeRoundAction(mini.event.id);
+  }
+  assert(
+    (await getEvent(mini.event.id)).status === "complete",
+    "2v2 auto-completed after round 2"
+  );
+  const miniStandings = await getEventStandings(mini.event.id);
+  const mts = computeTeamStandings(miniStandings);
+  assert(mts.a.wins === 2 && mts.b.wins === 2, "2v2: match wins level 2-2");
+  assert(
+    mts.a.gameWins === 6 && mts.b.gameWins === 5,
+    `2v2: game wins a=${mts.a.gameWins} b=${mts.b.gameWins}`
+  );
+  assert(
+    mts.leader === "a" && mts.decidedBy === "game_wins",
+    "2v2: team a wins on the game-wins tiebreaker"
+  );
+  assert(
+    miniStandings.slice(0, 2).every((s) => s.team === "a") &&
+      miniStandings.slice(2).every((s) => s.team === "b"),
+    "2v2: standings list team a first despite level match wins"
+  );
+  console.log(
+    `    Team A ${mts.a.wins}–${mts.b.wins} Team B  (games ${mts.a.gameWins}–${mts.b.gameWins}, decided by game wins)`
+  );
+}
+
 async function runBonusGamePass() {
   console.log("\n--- bonus game pass ---");
 
@@ -3171,6 +3426,7 @@ async function main() {
   await runEndEarlyPass();
   await runBonusGamePass();
   await runRosterAmendmentPass();
+  await runTeamDraftPass();
 
   await cleanup();
   ok("post-clean test rows");

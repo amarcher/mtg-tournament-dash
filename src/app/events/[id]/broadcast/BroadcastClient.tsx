@@ -10,7 +10,9 @@ import {
 } from "@/lib/avatar-tier";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 import { DraftSeating, type DraftSeat } from "../DraftSeating";
+import { TeamChip, TEAM_STYLES } from "../TeamChip";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
+import type { TeamNames, TeamSide, TeamStandings } from "@/lib/team-draft";
 
 export type { AvatarTiers };
 
@@ -25,6 +27,7 @@ export type BroadcastMatch = {
     life: number;
     wins: number;
     avatars: AvatarTiers;
+    team?: TeamSide | null;
   };
   playerB: {
     id: string;
@@ -32,6 +35,7 @@ export type BroadcastMatch = {
     life: number;
     wins: number;
     avatars: AvatarTiers;
+    team?: TeamSide | null;
   } | null;
   activeGameId: string | null;
 };
@@ -45,6 +49,13 @@ type Standing = {
   matchPoints: number;
   currentElo: number;
   avatarUrl: string | null;
+  team?: TeamSide | null;
+};
+
+/** Present only for team-draft events. */
+export type BroadcastTeams = {
+  names: TeamNames;
+  score: TeamStandings;
 };
 
 type Props = {
@@ -57,6 +68,7 @@ type Props = {
     setName: string | null;
   };
   draftSeats: DraftSeat[];
+  teams: BroadcastTeams | null;
   eventStatus: "draft" | "active" | "complete";
   finalRanking: FinalRankingPlayer[];
   currentRoundNumber: number | null;
@@ -72,6 +84,7 @@ export function BroadcastClient({
   eventId,
   event,
   draftSeats,
+  teams,
   eventStatus,
   finalRanking,
   currentRoundNumber,
@@ -246,6 +259,7 @@ export function BroadcastClient({
             {event.name}
           </h1>
           <div className="mt-0.5 text-[0.65rem] uppercase tracking-[0.2em] text-zinc-500 sm:text-xs">
+            {teams && <span className="text-sky-300/80">Team draft · </span>}
             {isEventComplete
               ? "Final results"
               : currentRoundNumber
@@ -287,7 +301,13 @@ export function BroadcastClient({
 
       <main className="@container flex min-h-0 flex-1 flex-col gap-4 px-4 py-4 sm:px-8 sm:py-6">
         {isEventComplete ? (
-          <FinalRanking players={finalRanking} />
+          <>
+            {teams && <TeamScoreboard teams={teams} final />}
+            <FinalRanking
+              players={finalRanking}
+              teams={teams ? { names: teams.names, winner: teams.score.leader } : null}
+            />
+          </>
         ) : draftSeats.length > 0 ? (
           <section className="flex min-h-0 flex-1 items-center justify-center">
             {/* Sized off the viewport height so the square pod fits a TV
@@ -296,11 +316,13 @@ export function BroadcastClient({
             <DraftSeating
               seats={draftSeats}
               setName={event.setName}
+              teamNames={teams?.names}
               className="max-w-[max(18rem,calc(100svh-9rem))]"
             />
           </section>
         ) : (
           <>
+            {teams && <TeamScoreboard teams={teams} />}
             <section
               className="grid min-h-0 flex-1 grid-cols-1 gap-3 @3xl:[grid-template-columns:var(--match-cols)] @3xl:[grid-template-rows:var(--match-rows)] @3xl:gap-4"
               style={
@@ -357,6 +379,12 @@ export function BroadcastClient({
                       </span>
                     )}
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {s.team && (
+                        <span
+                          className={`mr-1.5 inline-block h-2 w-2 rounded-full align-middle ${TEAM_STYLES[s.team].dot}`}
+                          aria-label={teams?.names[s.team]}
+                        />
+                      )}
                       {s.displayName}
                     </span>
                     <span className="shrink-0 font-mono text-xs text-zinc-400">
@@ -371,6 +399,75 @@ export function BroadcastClient({
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * Team-draft score strip: match wins side by side, game wins underneath as
+ * the tiebreak. `final` swaps the "leads" caption for "wins" and grows the
+ * numbers for the results screen.
+ */
+function TeamScoreboard({
+  teams,
+  final = false,
+}: {
+  teams: BroadcastTeams;
+  final?: boolean;
+}) {
+  const { names, score } = teams;
+  const caption = (() => {
+    if (score.decidedBy === "none") return "No results yet";
+    if (score.decidedBy === "tie") return final ? "Dead heat — it's a tie" : "All square";
+    const leader = names[score.leader!];
+    if (score.decidedBy === "game_wins")
+      return `${leader} ${final ? "wins" : "leads"} on game wins`;
+    return `${leader} ${final ? "wins" : "leads"}`;
+  })();
+  const side = (s: TeamSide) => {
+    const rec = score[s];
+    const leading = score.leader === s;
+    const st = TEAM_STYLES[s];
+    return (
+      <div
+        className={`flex min-w-0 flex-1 flex-col items-center rounded-xl px-3 py-2 ${
+          leading ? "bg-white/[0.06]" : ""
+        }`}
+      >
+        <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] ${st.text}`}>
+          <span className={`h-2 w-2 rounded-full ${st.dot}`} />
+          <span className="truncate">{names[s]}</span>
+        </div>
+        <div
+          className={`font-bold leading-none tabular-nums ${
+            leading ? "text-white" : "text-zinc-300"
+          } ${final ? "text-6xl sm:text-7xl" : "text-4xl sm:text-5xl"}`}
+        >
+          {rec.wins}
+        </div>
+        <div className="mt-1 font-mono text-[0.65rem] text-zinc-500">
+          {rec.draws > 0 ? `${rec.wins}-${rec.losses}-${rec.draws}` : `${rec.wins}-${rec.losses}`} ·
+          games {rec.gameWins}-{rec.gameLosses}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <section className="shrink-0 rounded-2xl border border-zinc-800 bg-zinc-900 px-3 py-2 sm:px-5">
+      <div className="flex items-stretch gap-2">
+        {side("a")}
+        <div className="flex flex-col items-center justify-center px-1 text-zinc-600">
+          <span className="text-2xl font-light">–</span>
+        </div>
+        {side("b")}
+      </div>
+      <div
+        className={`mt-1 text-center text-[0.65rem] uppercase tracking-[0.25em] ${
+          score.leader ? TEAM_STYLES[score.leader].text : "text-zinc-500"
+        }`}
+      >
+        {caption}
+      </div>
+    </section>
   );
 }
 
@@ -471,6 +568,7 @@ function MatchCard({
             life={match.playerA.life}
             wins={match.playerA.wins}
             avatars={match.playerA.avatars}
+            team={match.playerA.team ?? null}
             startingLife={startingLife}
             isWinner
             outcome="won"
@@ -504,6 +602,7 @@ function MatchCard({
           life={match.playerA.life}
           wins={match.playerA.wins}
           avatars={match.playerA.avatars}
+          team={match.playerA.team ?? null}
           startingLife={startingLife}
           pulse={pulses[`${match.matchId}:a`]}
           isWinner={match.winnerId === match.playerA.id}
@@ -521,6 +620,7 @@ function MatchCard({
           life={match.playerB.life}
           wins={match.playerB.wins}
           avatars={match.playerB.avatars}
+          team={match.playerB.team ?? null}
           startingLife={startingLife}
           pulse={pulses[`${match.matchId}:b`]}
           isWinner={match.winnerId === match.playerB.id}
@@ -556,6 +656,7 @@ function PlayerSide({
   life,
   wins,
   avatars,
+  team,
   startingLife,
   pulse,
   isWinner,
@@ -566,6 +667,7 @@ function PlayerSide({
   life: number;
   wins: number;
   avatars: AvatarTiers;
+  team?: TeamSide | null;
   startingLife: number;
   pulse?: "damage" | "heal";
   isWinner?: boolean;
@@ -685,6 +787,13 @@ function PlayerSide({
       {/* name + game pips, anchored to bottom over the gradient. Best-of-3 →
           first to 2 wins, so only two pips. */}
       <div className="relative z-10 flex w-full flex-col items-center gap-1">
+        {team && (
+          <TeamChip
+            side={team}
+            label={team === "a" ? "A" : "B"}
+            className="bg-zinc-950/70"
+          />
+        )}
         <div className="flex gap-1.5">
           {[0, 1].map((i) => (
             <span

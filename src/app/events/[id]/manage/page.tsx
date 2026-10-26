@@ -19,6 +19,7 @@ import {
   addExistingPlayerToEventAction,
   addManualPairingAction,
   addRoundAction,
+  autoSplitTeamsAction,
   cancelPendingRoundAction,
   completeRoundAction,
   confirmRoundAction,
@@ -29,6 +30,7 @@ import {
   removeEventPlayerAction,
   reopenEventAction,
   revertRoundToPairingsAction,
+  setEventTeamsAction,
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
   updateEventAction,
@@ -44,6 +46,15 @@ import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
 import { draftSeatOrder } from "@/lib/draft-seating";
+import {
+  computeTeamStandings,
+  formatLabel,
+  splitTeams,
+  teamDraftSeatOrder,
+  teamNamesFor,
+  type TeamSide,
+} from "@/lib/team-draft";
+import { TeamChip, TEAM_STYLES } from "../TeamChip";
 import { ResultButton, TimeButton, UndoResultButton } from "./ResultButtons";
 import { outcomeAtTime } from "@/lib/time-call";
 import { PairingBuilder } from "./PairingBuilder";
@@ -117,14 +128,37 @@ export default async function ManagePage({
       )
     )
   );
+  const isTeamDraft = event.format === "team_draft";
+  const teams = splitTeams(roster);
+  const teamNames = teamNamesFor(event);
+  const teamsReady =
+    teams.unassigned.length === 0 && teams.a.length > 0 && teams.b.length > 0;
+  const teamsEven = teams.a.length === teams.b.length;
+  const teamScore = isTeamDraft ? computeTeamStandings(standings) : null;
   // Round-1 pairings previewed before the event starts define the draft pod's
-  // seating (the broadcast shows the same chart).
+  // seating (the broadcast shows the same chart). A team draft seats by side
+  // instead — A, B, A, B — and needs no pairings at all.
   const draftSeats =
-    pendingRound?.roundNumber === 1 && event.status === "draft"
-      ? draftSeatOrder(pendingMatches.map(({ match }) => match)).map(
-          (pid) => pendingPlayersById.get(pid)!
-        )
-      : [];
+    isTeamDraft && event.status === "draft" && teamsReady
+      ? teamDraftSeatOrder(
+          teams.a.map((p) => p.playerId),
+          teams.b.map((p) => p.playerId)
+        ).map((pid) => {
+          const p = roster.find((r) => r.playerId === pid)!;
+          return {
+            playerId: p.playerId,
+            name: p.displayName,
+            avatarUrl: p.avatarUrl,
+            team: p.team,
+          };
+        })
+      : !isTeamDraft &&
+          pendingRound?.roundNumber === 1 &&
+          event.status === "draft"
+        ? draftSeatOrder(pendingMatches.map(({ match }) => match)).map(
+            (pid) => pendingPlayersById.get(pid)!
+          )
+        : [];
   const nameById = new Map(roster.map((p) => [p.playerId, p.displayName]));
   const lateResults = pendingRound
     ? (await getResultsSincePendingDraw(id, pendingRound.id)).map(
@@ -212,10 +246,13 @@ export default async function ManagePage({
     completedRoundsCount + (activeRound && incompleteCount === 0 ? 1 : 0);
   // Name the champion from the locked-in placements, not live standings —
   // results can still be edited after completion, and the banner must agree
-  // with the finalStanding table shown below it.
-  const champion =
-    roster.find((p) => p.finalStanding === 1)?.displayName ??
-    standings[0]?.displayName;
+  // with the finalStanding table shown below it. A team draft names the team.
+  const champion = teamScore
+    ? teamScore.leader
+      ? teamNames[teamScore.leader]
+      : null
+    : (roster.find((p) => p.finalStanding === 1)?.displayName ??
+      standings[0]?.displayName);
   const roundsRemaining =
     event.totalRounds -
     (completedRoundsCount + (activeRound ? 1 : 0) + (pendingRound ? 1 : 0));
@@ -246,9 +283,12 @@ export default async function ManagePage({
           ? completedRoundsCount === 0
             ? {
                 step: 1,
-                title: "Get everyone seated",
-                detail:
-                  "Share join links or the claim QR, then preview round 1.",
+                title: isTeamDraft ? "Pick the teams" : "Get everyone seated",
+                detail: isTeamDraft
+                  ? teamsReady && teamsEven
+                    ? "Teams are set — seat everyone A-B-A-B, draft, then preview round 1."
+                    : "Put every player on a team (equal sizes), then preview round 1."
+                  : "Share join links or the claim QR, then preview round 1.",
               }
             : {
                 step: 2,
@@ -314,7 +354,7 @@ export default async function ManagePage({
               <StatusBadge status={event.status} />
             </div>
             <p className="mt-1 text-sm text-ink-dim">
-              {event.format} · {event.totalRounds} rounds · life {event.startingLife}
+              {formatLabel(event.format)} · {event.totalRounds} rounds · life {event.startingLife}
               {event.setName && <> · {event.setName}</>}
               {event.scheduledAt && <> · {formatPollDate(event.scheduledAt)}</>}
             </p>
@@ -368,7 +408,26 @@ export default async function ManagePage({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm text-zinc-300">
-                {champion ? (
+                {teamScore ? (
+                  <>
+                    {champion ? (
+                      <>
+                        <strong className="text-amber-200">{champion}</strong> win{" "}
+                        {teamScore.a.wins}–{teamScore.b.wins}
+                        {teamScore.decidedBy === "game_wins" && (
+                          <> on game wins ({teamScore.a.gameWins}–{teamScore.b.gameWins})</>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        A tie — {teamScore.a.wins}–{teamScore.b.wins} on matches and{" "}
+                        {teamScore.a.gameWins}–{teamScore.b.gameWins} on games
+                      </>
+                    )}{" "}
+                    · locked in after {completedRoundsCount} round
+                    {completedRoundsCount === 1 ? "" : "s"}.
+                  </>
+                ) : champion ? (
                   <>
                     Champion: <strong className="text-amber-200">{champion}</strong> · final
                     standings locked in after {completedRoundsCount} round
@@ -521,6 +580,137 @@ export default async function ManagePage({
         </div>
       </section>
 
+      {isTeamDraft && !isComplete && (
+        <section className="mb-10 rounded-xl border border-line bg-surface p-5">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-400">
+              Teams
+            </h2>
+            {event.status === "draft" && (
+              <div className="flex flex-wrap gap-2">
+                <form action={autoSplitTeamsAction}>
+                  <input type="hidden" name="eventId" value={id} />
+                  <input type="hidden" name="mode" value="balanced" />
+                  <button
+                    type="submit"
+                    className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                    title="Snake-draft by ELO so the rating totals are close"
+                  >
+                    Balance by ELO
+                  </button>
+                </form>
+                <form action={autoSplitTeamsAction}>
+                  <input type="hidden" name="eventId" value={id} />
+                  <input type="hidden" name="mode" value="random" />
+                  <button
+                    type="submit"
+                    className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800"
+                  >
+                    Shuffle
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
+          {event.status === "draft" ? (
+            <p className="mb-3 text-xs text-zinc-500">
+              Every {teamNames.a} player faces every {teamNames.b} player once,
+              best of three — {Math.max(teams.a.length, teams.b.length)} round
+              {Math.max(teams.a.length, teams.b.length) === 1 ? "" : "s"}. Rename
+              the teams under Event details. Sides lock when round 1 starts.
+            </p>
+          ) : (
+            <p className="mb-3 text-xs text-zinc-500">
+              Sides are locked for the rest of the event. A player added late
+              can still be placed.
+            </p>
+          )}
+          {(!teamsReady || !teamsEven) && event.status === "draft" && (
+            <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200">
+              {teams.unassigned.length > 0
+                ? `${teams.unassigned.length} player${teams.unassigned.length === 1 ? " isn't" : "s aren't"} on a team yet.`
+                : `Teams are ${teams.a.length} vs ${teams.b.length} — they need to match before round 1.`}
+            </p>
+          )}
+          <form action={setEventTeamsAction}>
+            <input type="hidden" name="eventId" value={id} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(["a", "b"] as const).map((side) => (
+                <div
+                  key={side}
+                  className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"
+                >
+                  <div className={`mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${TEAM_STYLES[side].text}`}>
+                    <span className={`h-2 w-2 rounded-full ${TEAM_STYLES[side].dot}`} />
+                    {teamNames[side]}
+                    <span className="font-normal text-zinc-500">
+                      · {teams[side].length}
+                    </span>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {teams[side].map((p) => (
+                      <TeamSeatRow
+                        key={p.playerId}
+                        seat={p}
+                        locked={event.status !== "draft"}
+                        teamNames={teamNames}
+                      />
+                    ))}
+                    {teams[side].length === 0 && (
+                      <li className="text-xs text-zinc-600">Nobody yet</li>
+                    )}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            {teams.unassigned.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-500/30 bg-zinc-950 p-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                  Unassigned · {teams.unassigned.length}
+                </div>
+                <ul className="space-y-1.5">
+                  {teams.unassigned.map((p) => (
+                    <TeamSeatRow
+                      key={p.playerId}
+                      seat={p}
+                      locked={false}
+                      teamNames={teamNames}
+                    />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(event.status === "draft" || teams.unassigned.length > 0) && (
+              <button
+                type="submit"
+                className="mt-3 rounded-[8px] px-4 py-2.5 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+              >
+                Save teams
+              </button>
+            )}
+          </form>
+
+          {draftSeats.length > 0 && (
+            <div className="mt-5 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-400">
+                  Draft seating
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Teams alternate around the table. Also on the broadcast screen.
+                </p>
+              </div>
+              <DraftSeating
+                seats={draftSeats}
+                setName={event.setName}
+                teamNames={teamNames}
+                className="mx-auto max-w-lg"
+              />
+            </div>
+          )}
+        </section>
+      )}
+
       {pendingRound && (
         <section className="mb-10 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
@@ -600,7 +790,7 @@ export default async function ManagePage({
             pairing.
           </p>
 
-          {draftSeats.length > 0 && (
+          {!isTeamDraft && draftSeats.length > 0 && (
             <div className="mb-5 rounded-lg border border-amber-500/20 bg-zinc-950 p-3">
               <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-xs font-medium uppercase tracking-[0.2em] text-amber-300">
@@ -628,6 +818,9 @@ export default async function ManagePage({
                 <span className="font-mono text-xs text-zinc-500">
                   T{match.tableNumber}
                 </span>
+                {isTeamDraft && (
+                  <TeamSeatDot team={roster.find((r) => r.playerId === playerA.id)?.team} />
+                )}
                 <SwapPicker
                   label={playerA.displayName}
                   matchId={match.id}
@@ -636,6 +829,9 @@ export default async function ManagePage({
                   unpaired={unpaired}
                 />
                 <span className="text-zinc-500">vs</span>
+                {isTeamDraft && playerB && (
+                  <TeamSeatDot team={roster.find((r) => r.playerId === playerB.id)?.team} />
+                )}
                 <SwapPicker
                   label={playerB?.displayName ?? "BYE"}
                   matchId={match.id}
@@ -878,12 +1074,48 @@ export default async function ManagePage({
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-400">
           Standings
         </h2>
+        {teamScore && (
+          <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+            {(["a", "b"] as const).map((side, i) => {
+              const rec = teamScore[side];
+              const leading = teamScore.leader === side;
+              return (
+                <div
+                  key={side}
+                  className={`${i === 0 ? "text-left" : "text-right"} ${i === 1 ? "order-3" : ""}`}
+                >
+                  <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${TEAM_STYLES[side].text} ${i === 1 ? "justify-end" : ""}`}>
+                    <span className={`h-2 w-2 rounded-full ${TEAM_STYLES[side].dot}`} />
+                    {teamNames[side]}
+                  </div>
+                  <div className={`text-3xl font-bold tabular-nums ${leading ? "text-white" : "text-zinc-400"}`}>
+                    {rec.wins}
+                  </div>
+                  <div className="font-mono text-xs text-zinc-500">
+                    games {rec.gameWins}-{rec.gameLosses}
+                    {rec.draws > 0 && <> · {rec.draws} draw{rec.draws === 1 ? "" : "s"}</>}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="order-2 text-center text-xs uppercase tracking-[0.2em] text-zinc-500">
+              {teamScore.decidedBy === "none"
+                ? "match wins"
+                : teamScore.decidedBy === "tie"
+                  ? "tied"
+                  : teamScore.decidedBy === "game_wins"
+                    ? `${teamNames[teamScore.leader!]} on games`
+                    : `${teamNames[teamScore.leader!]} ${isComplete ? "win" : "lead"}`}
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
           <table className="w-full min-w-[680px] text-sm">
             <thead className="bg-zinc-900/70 text-left text-xs uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">Player</th>
+                {isTeamDraft && <th className="px-3 py-2">Team</th>}
                 <th className="px-3 py-2 text-right">W-L-D</th>
                 <th className="px-3 py-2 text-right">Pts</th>
                 <th
@@ -922,6 +1154,15 @@ export default async function ManagePage({
                       </span>
                     )}
                   </td>
+                  {isTeamDraft && (
+                    <td className="px-3 py-2">
+                      {s.team ? (
+                        <TeamChip side={s.team} label={teamNames[s.team]} />
+                      ) : (
+                        <span className="text-xs text-zinc-600">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-3 py-2 text-right font-mono">
                     {s.wins}-{s.losses}-{s.draws}
                   </td>
@@ -1048,6 +1289,9 @@ export default async function ManagePage({
                         Dropped
                       </span>
                     )}
+                    {isTeamDraft && p.team && (
+                      <TeamChip side={p.team} label={teamNames[p.team]} />
+                    )}
                   </span>
                   <code className="mt-1 hidden truncate rounded bg-zinc-950 px-2 py-1 font-mono text-[0.65rem] text-zinc-500 sm:block">
                     {rosterJoinUrls[i]}
@@ -1154,6 +1398,67 @@ export default async function ManagePage({
               />
             </div>
             <div>
+              <label
+                htmlFor="edit-event-format"
+                className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400"
+              >
+                Format
+              </label>
+              <select
+                id="edit-event-format"
+                name="format"
+                defaultValue={isTeamDraft ? "team_draft" : "swiss"}
+                disabled={event.status !== "draft"}
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none disabled:opacity-60"
+              >
+                <option value="swiss">Swiss — everyone for themselves</option>
+                <option value="team_draft">
+                  Team draft — two teams, every cross-team matchup once
+                </option>
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">
+                {event.status === "draft"
+                  ? "Switching to team draft deals balanced teams you can rearrange above."
+                  : "Locked once the first round starts."}
+              </p>
+            </div>
+            {isTeamDraft && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="edit-team-a"
+                    className="mb-1 block text-xs font-medium uppercase tracking-wide text-sky-300"
+                  >
+                    Team A name
+                  </label>
+                  <input
+                    id="edit-team-a"
+                    name="teamAName"
+                    defaultValue={event.teamAName ?? ""}
+                    placeholder="Team A"
+                    maxLength={40}
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="edit-team-b"
+                    className="mb-1 block text-xs font-medium uppercase tracking-wide text-fuchsia-300"
+                  >
+                    Team B name
+                  </label>
+                  <input
+                    id="edit-team-b"
+                    name="teamBName"
+                    defaultValue={event.teamBName ?? ""}
+                    placeholder="Team B"
+                    maxLength={40}
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            )}
+            <div>
               <button
                 type="submit"
                 className="rounded-full btn-gold px-5 py-2 text-sm"
@@ -1165,6 +1470,61 @@ export default async function ManagePage({
         </details>
       </main>
     </AppChrome>
+  );
+}
+
+function TeamSeatDot({ team }: { team: TeamSide | null | undefined }) {
+  if (!team) return null;
+  return (
+    <span
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${TEAM_STYLES[team].dot}`}
+      aria-hidden
+    />
+  );
+}
+
+/**
+ * One seat inside the Teams panel: name plus a side picker. The select is
+ * named `team:<playerId>` so a single Save submits every seat at once. Locked
+ * seats (event already started) render the side as text instead.
+ */
+function TeamSeatRow({
+  seat,
+  locked,
+  teamNames,
+}: {
+  seat: { playerId: string; displayName: string; team: TeamSide | null; avatarUrl: string | null };
+  locked: boolean;
+  teamNames: Record<TeamSide, string>;
+}) {
+  return (
+    <li className="flex items-center gap-2">
+      {seat.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={seat.avatarUrl}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded-full object-cover"
+        />
+      ) : (
+        <span className="h-7 w-7 shrink-0 rounded-full border border-dashed border-zinc-700" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-sm">{seat.displayName}</span>
+      {locked ? (
+        seat.team && <TeamChip side={seat.team} label={teamNames[seat.team]} />
+      ) : (
+        <select
+          name={`team:${seat.playerId}`}
+          defaultValue={seat.team ?? ""}
+          aria-label={`Team for ${seat.displayName}`}
+          className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs"
+        >
+          <option value="a">{teamNames.a}</option>
+          <option value="b">{teamNames.b}</option>
+          <option value="">Not playing a side</option>
+        </select>
+      )}
+    </li>
   );
 }
 

@@ -29,6 +29,8 @@ import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { PlayClient } from "./PlayClient";
 import { WaitForRound } from "./WaitForRound";
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
+import { computeTeamStandings, teamNamesFor } from "@/lib/team-draft";
+import { TEAM_STYLES } from "../TeamChip";
 
 export const dynamic = "force-dynamic";
 
@@ -214,10 +216,22 @@ export default async function PlayPage({
           defeat: s.avatarDefeatUrl,
         },
         history: rows,
+        team: s.team,
       };
     });
     const myRank =
       ranking.findIndex((r) => r.playerId === me.playerId) + 1;
+    const teamNames = teamNamesFor(event);
+    const teamScore =
+      event.format === "team_draft" ? computeTeamStandings(standings) : null;
+    const myTeam = standings.find((s) => s.playerId === me.playerId)?.team ?? null;
+    const teamLine = teamScore
+      ? teamScore.leader === null
+        ? teamScore.decidedBy === "tie"
+          ? `A tie — ${teamScore.a.wins}–${teamScore.b.wins} on matches, ${teamScore.a.gameWins}–${teamScore.b.gameWins} on games`
+          : "No results recorded"
+        : `${teamNames[teamScore.leader]} ${myTeam === teamScore.leader ? "win — that's you!" : "win"} ${teamScore[teamScore.leader].wins}–${teamScore[teamScore.leader === "a" ? "b" : "a"].wins}${teamScore.decidedBy === "game_wins" ? " on game wins" : ""}`
+      : null;
     const bonus = await loadBonusData(league?.id, id, me.playerId);
     return chrome(
       <main className="mx-auto w-full max-w-md px-4 py-6">
@@ -226,6 +240,15 @@ export default async function PlayPage({
             Tournament complete
           </div>
           <h1 className="mt-1 text-2xl font-semibold">{event.name}</h1>
+          {teamLine && (
+            <p
+              className={`mt-2 text-base font-semibold ${
+                teamScore?.leader ? TEAM_STYLES[teamScore.leader].text : "text-zinc-300"
+              }`}
+            >
+              {teamLine}
+            </p>
+          )}
           {myRank > 0 && (
             <p className="mt-1 text-sm text-zinc-400">
               You finished{" "}
@@ -237,6 +260,7 @@ export default async function PlayPage({
         <FinalRanking
           players={ranking}
           highlightPlayerId={me.playerId}
+          teams={teamScore ? { names: teamNames, winner: teamScore.leader } : null}
         />
         {league && (
           <BonusGameSection

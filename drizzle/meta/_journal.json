@@ -120,6 +120,13 @@
       "when": 1787697249642,
       "tag": "0016_blue_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793041477190,
+      "tag": "0017_chemical_wrecking_crew",
+      "breakpoints": true
     }
   ]
 }

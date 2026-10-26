@@ -5,6 +5,8 @@ import {
   type AvatarTiers,
 } from "@/lib/avatar-tier";
 import type { MatchHistoryRow } from "@/db/queries";
+import type { TeamNames, TeamSide } from "@/lib/team-draft";
+import { TeamChip } from "./TeamChip";
 
 export type FinalRankingPlayer = {
   playerId: string;
@@ -18,6 +20,14 @@ export type FinalRankingPlayer = {
   eventEloDelta: number;
   avatars: AvatarTiers;
   history: MatchHistoryRow[];
+  /** Team-draft side; absent on Swiss events. */
+  team?: TeamSide | null;
+};
+
+/** Team-draft context for the ranking: which side won, and what to call them. */
+export type FinalRankingTeams = {
+  names: TeamNames;
+  winner: TeamSide | null;
 };
 
 function ordinal(n: number): string {
@@ -50,8 +60,10 @@ function deltaColor(d: number | null): string {
 function avatarForRank(
   rank: number,
   total: number,
-  avatars: AvatarTiers
+  avatars: AvatarTiers,
+  teamOutcome: "won" | "lost" | null
 ): string | null {
+  if (teamOutcome) return pickMatchOutcomeAvatar(teamOutcome, avatars);
   if (rank === 1) return pickMatchOutcomeAvatar("won", avatars);
   if (rank === total) return pickMatchOutcomeAvatar("lost", avatars);
   return (
@@ -80,9 +92,11 @@ function avatarForRank(
 export function FinalRanking({
   players,
   highlightPlayerId,
+  teams,
 }: {
   players: FinalRankingPlayer[];
   highlightPlayerId?: string;
+  teams?: FinalRankingTeams | null;
 }) {
   const total = players.length;
   // N-col layout for ≤ 6 players keeps one row; beyond that, ceil(N/2) so the
@@ -110,6 +124,7 @@ export function FinalRanking({
           rank={i + 1}
           total={total}
           highlight={p.playerId === highlightPlayerId}
+          teams={teams ?? null}
         />
       ))}
     </div>
@@ -121,14 +136,27 @@ function RankedCard({
   rank,
   total,
   highlight,
+  teams,
 }: {
   player: FinalRankingPlayer;
   rank: number;
   total: number;
   highlight: boolean;
+  teams: FinalRankingTeams | null;
 }) {
-  const avatarUrl = avatarForRank(rank, total, player.avatars);
-  const isWinner = rank === 1;
+  // In a team draft the event belongs to a team, not a player: the gold
+  // "champion" treatment and the victory portrait go to every member of the
+  // winning side, the defeat portrait to the other side.
+  const isWinner = teams
+    ? teams.winner !== null && player.team === teams.winner
+    : rank === 1;
+  const teamOutcome =
+    teams && teams.winner && player.team
+      ? player.team === teams.winner
+        ? "won"
+        : "lost"
+      : null;
+  const avatarUrl = avatarForRank(rank, total, player.avatars, teamOutcome);
   const rankColor =
     rank === 1
       ? "text-amber-300"
@@ -178,15 +206,29 @@ function RankedCard({
         >
           {ordinal(rank)}
         </div>
-        {isWinner && (
-          <div
-            className="absolute right-2 top-2 z-10 rounded-full bg-amber-500 px-2 py-0.5 font-bold uppercase tracking-[0.2em] text-zinc-950"
-            style={{
-              fontSize: "clamp(0.5rem, 2.4cqi, 0.7rem)",
-            }}
-          >
-            Champion
+        {teams && player.team ? (
+          <div className="absolute right-2 top-2 z-10">
+            <TeamChip
+              side={player.team}
+              label={
+                isWinner
+                  ? `${teams.names[player.team]} · won`
+                  : teams.names[player.team]
+              }
+              className="bg-zinc-950/85 backdrop-blur"
+            />
           </div>
+        ) : (
+          isWinner && (
+            <div
+              className="absolute right-2 top-2 z-10 rounded-full bg-amber-500 px-2 py-0.5 font-bold uppercase tracking-[0.2em] text-zinc-950"
+              style={{
+                fontSize: "clamp(0.5rem, 2.4cqi, 0.7rem)",
+              }}
+            >
+              Champion
+            </div>
+          )
         )}
         {/* Bottom scrim + name + stats — all scaled with cqi so the card holds
             up at any width from a phone column to a TV cell. */}

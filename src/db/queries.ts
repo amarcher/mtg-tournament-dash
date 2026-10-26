@@ -36,6 +36,7 @@ import {
   computeTiebreakers,
   type PlayerMatchRecord,
 } from "@/lib/tiebreakers";
+import { compareByTeamResult, computeTeamStandings } from "@/lib/team-draft";
 
 export async function listLeagues() {
   return db.select().from(leagues).orderBy(asc(leagues.name));
@@ -182,6 +183,7 @@ export async function getEventRoster(eventId: string) {
       finalStanding: eventPlayers.finalStanding,
       joinToken: eventPlayers.joinToken,
       droppedAt: eventPlayers.droppedAt,
+      team: eventPlayers.team,
       displayName: players.displayName,
       currentElo: players.currentElo,
       avatarUrl: players.avatarUrl,
@@ -323,6 +325,7 @@ export async function getPairingInputs(eventId: string) {
 
   return roster.map((p) => ({
     playerId: p.playerId,
+    team: p.team,
     ...records.get(p.playerId)!,
   }));
 }
@@ -339,10 +342,17 @@ export async function getPairingInputs(eventId: string) {
  * opponent to OMW%/OGW%. Game-level wins/losses are read from the `games`
  * table; matches resolved via organizer override have their game rows
  * synthesized (see setMatchResultAction) so GW% stays meaningful.
+ *
+ * Team draft: the leading team's players rank above the other team's (the
+ * event is decided by team, so finalStanding 1..k is the winning team), and
+ * the individual tiebreakers only order players within a team.
  */
 export async function getEventStandings(eventId: string) {
-  const roster = await getEventRoster(eventId);
-  const allRounds = await getEventRounds(eventId);
+  const [event, roster, allRounds] = await Promise.all([
+    getEvent(eventId),
+    getEventRoster(eventId),
+    getEventRounds(eventId),
+  ]);
   const completedRoundIds = allRounds
     .filter((r) => r.status === "complete")
     .map((r) => r.id);
@@ -352,6 +362,7 @@ export async function getEventStandings(eventId: string) {
       playerId: p.playerId,
       displayName: p.displayName,
       droppedAt: p.droppedAt,
+      team: p.team,
       matchPoints: 0,
       wins: 0,
       losses: 0,
@@ -447,7 +458,7 @@ export async function getEventStandings(eventId: string) {
 
   const tb = computeTiebreakers(records);
 
-  return roster
+  const rows = roster
     .map((p) => {
       const r = records.get(p.playerId)!;
       const t = tb.get(p.playerId)!;
@@ -455,6 +466,7 @@ export async function getEventStandings(eventId: string) {
         playerId: p.playerId,
         displayName: p.displayName,
         droppedAt: p.droppedAt,
+        team: p.team,
         matchPoints: t.matchPoints,
         wins: r.matchWins + r.byes,
         losses: r.matchLosses,
@@ -474,8 +486,14 @@ export async function getEventStandings(eventId: string) {
         gameWinPct: t.gameWinPct,
         opponentGameWinPct: t.opponentGameWinPct,
       };
-    })
-    .sort((a, b) => {
+    });
+
+  const teamLeader =
+    event?.format === "team_draft" ? computeTeamStandings(rows).leader : null;
+
+  return rows.sort((a, b) => {
+      const byTeam = compareByTeamResult(a, b, teamLeader);
+      if (byTeam !== 0) return byTeam;
       const cmp = compareByMtgTiebreakers(
         {
           matchPoints: a.matchPoints,

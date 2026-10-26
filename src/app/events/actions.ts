@@ -44,6 +44,14 @@ import {
   listOpenEventsForPlayer,
 } from "@/db/queries";
 import { generateSwissPairings } from "@/lib/pairings/swiss";
+import { generateTeamDraftPairings } from "@/lib/pairings/team-draft";
+import {
+  balancedTeamSplit,
+  isTeamSide,
+  randomTeamSplit,
+  splitTeams,
+  type TeamSide,
+} from "@/lib/team-draft";
 import { outcomeAtTime } from "@/lib/time-call";
 import {
   validateManualPairings,
@@ -106,10 +114,27 @@ import {
 } from "@/lib/schedule-types";
 import { MAX_SERIES_COUNT } from "@/lib/recurrence";
 
+/** Formats the app can actually run. The enum has more values than this. */
+const SUPPORTED_FORMATS = ["swiss", "team_draft"] as const;
+type SupportedFormat = (typeof SUPPORTED_FORMATS)[number];
+
+function parseFormat(raw: FormDataEntryValue | null): SupportedFormat {
+  const v = String(raw ?? "swiss");
+  if ((SUPPORTED_FORMATS as readonly string[]).includes(v))
+    return v as SupportedFormat;
+  throw new Error("Unsupported tournament format");
+}
+
+function parseTeamName(raw: FormDataEntryValue | null): string | null {
+  const v = String(raw ?? "").trim();
+  return v ? v.slice(0, 40) : null;
+}
+
 export async function createEventAction(formData: FormData) {
   const leagueId = String(formData.get("leagueId") ?? "");
   const name = String(formData.get("name") ?? "").trim();
-  const totalRounds = Number(formData.get("totalRounds") ?? 3);
+  const format = parseFormat(formData.get("format"));
+  let totalRounds = Number(formData.get("totalRounds") ?? 3);
   const startingLife = Number(formData.get("startingLife") ?? 20);
   const setName = String(formData.get("setName") ?? "").trim();
   const playerIds = formData.getAll("playerId").map(String).filter(Boolean);
@@ -117,6 +142,11 @@ export async function createEventAction(formData: FormData) {
   if (!leagueId) throw new Error("League required");
   if (!name) throw new Error("Event name required");
   if (playerIds.length < 2) throw new Error("Need at least 2 players");
+  if (format === "team_draft" && playerIds.length % 2 !== 0) {
+    throw new Error(
+      "Team draft needs an even number of players so the teams match up"
+    );
+  }
   await requireOrganizer(leagueId);
 
   const leaguePlayers = await db
@@ -130,18 +160,37 @@ export async function createEventAction(formData: FormData) {
     }
   }
 
+  const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
+
+  // Team draft: one round per opposing player. Seats start on a balanced
+  // split so the event is playable immediately; the Teams panel on the
+  // manage page lets the organizer rearrange before round 1.
+  const teamByPlayer =
+    format === "team_draft"
+      ? balancedTeamSplit(
+          playerIds.map((pid) => ({
+            playerId: pid,
+            elo: eloByPlayer.get(pid) ?? 1200,
+          }))
+        )
+      : null;
+  if (format === "team_draft") totalRounds = playerIds.length / 2;
+
   const [created] = await db
     .insert(events)
     .values({
       leagueId,
       name,
+      format,
       totalRounds,
       startingLife,
       setName: setName || null,
+      teamAName:
+        format === "team_draft" ? parseTeamName(formData.get("teamAName")) : null,
+      teamBName:
+        format === "team_draft" ? parseTeamName(formData.get("teamBName")) : null,
     })
     .returning();
-
-  const eloByPlayer = new Map(leaguePlayers.map((p) => [p.id, p.currentElo]));
 
   await db.insert(eventPlayers).values(
     playerIds.map((pid, idx) => ({
@@ -150,10 +199,160 @@ export async function createEventAction(formData: FormData) {
       seed: idx + 1,
       startingElo: eloByPlayer.get(pid) ?? 1200,
       joinToken: generateJoinToken(),
+      team: teamByPlayer?.get(pid) ?? null,
     }))
   );
 
   redirect(`/events/${created.id}/manage`);
+}
+
+/**
+ * Pairings for the next round of `event`, dispatched on its format. Swiss
+ * pairs on match points; a team draft pairs each team-A player against a
+ * team-B player they haven't faced yet.
+ */
+async function pairingsForNextRound(
+  event: { id: string; format: string; status: string }
+) {
+  const inputs = await getPairingInputs(event.id);
+  if (event.format !== "team_draft") return generateSwissPairings(inputs);
+
+  const teams = splitTeams(inputs);
+  if (teams.unassigned.length > 0) {
+    throw new Error(
+      `Assign every player to a team first (${teams.unassigned.length} still unassigned)`
+    );
+  }
+  if (teams.a.length === 0 || teams.b.length === 0) {
+    throw new Error("Both teams need at least one player");
+  }
+  // Before the first round the teams must match up exactly. Once play has
+  // started, a drop can leave them lopsided — the surplus players take byes.
+  if (event.status === "draft" && teams.a.length !== teams.b.length) {
+    throw new Error(
+      `Teams must be the same size to start (${teams.a.length} vs ${teams.b.length})`
+    );
+  }
+  return generateTeamDraftPairings(teams.a, teams.b);
+}
+
+/**
+ * Keep a team draft's round count equal to the larger team — every member
+ * faces the whole opposing team once. Only while the event is in draft;
+ * after that `totalRounds` is organizer-owned (see addRoundAction).
+ */
+async function syncTeamDraftRounds(eventId: string) {
+  const [event] = await db.select().from(events).where(eq(events.id, eventId));
+  if (!event || event.format !== "team_draft" || event.status !== "draft") return;
+  const roster = await db
+    .select({ team: eventPlayers.team, droppedAt: eventPlayers.droppedAt })
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, eventId));
+  const teams = splitTeams(roster);
+  const size = Math.max(teams.a.length, teams.b.length);
+  if (size > 0 && size !== event.totalRounds) {
+    await db.update(events).set({ totalRounds: size }).where(eq(events.id, eventId));
+  }
+}
+
+/**
+ * Bulk-assign team sides for a team draft from a form with one
+ * `team:<playerId>` field per seat ("a", "b" or "" for unassigned). Only
+ * while the event is in draft — once round 1 is confirmed the sides are
+ * baked into the pairings. The one exception is a late addition, whose
+ * seat can be placed on a team mid-event because it has no history yet.
+ */
+export async function setEventTeamsAction(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "");
+  if (!eventId) throw new Error("Event required");
+  const event = await requireOrganizerForEvent(eventId);
+  if (event.format !== "team_draft")
+    throw new Error("This event isn't a team draft");
+  if (event.status === "complete") throw new Error("Event is already complete");
+
+  const roster = await db
+    .select()
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, eventId));
+  const seatByPlayer = new Map(roster.map((r) => [r.playerId, r]));
+
+  for (const [key, raw] of formData.entries()) {
+    if (!key.startsWith("team:")) continue;
+    const playerId = key.slice("team:".length);
+    const seat = seatByPlayer.get(playerId);
+    if (!seat) continue;
+    const value = String(raw);
+    const team: TeamSide | null = isTeamSide(value) ? value : null;
+    if (team === seat.team) continue;
+    if (event.status === "active" && seat.team !== null) {
+      throw new Error(
+        "Teams are locked once the first round starts — only unassigned late additions can be placed"
+      );
+    }
+    await db
+      .update(eventPlayers)
+      .set({ team })
+      .where(
+        and(
+          eq(eventPlayers.eventId, eventId),
+          eq(eventPlayers.playerId, playerId)
+        )
+      );
+  }
+
+  await syncTeamDraftRounds(eventId);
+  await publish(eventId, { type: "pairings_changed" });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
+}
+
+/**
+ * Re-deal the teams: "balanced" snakes by ELO so the rating sums are close,
+ * "random" is a coin flip per seat. Draft events only.
+ */
+export async function autoSplitTeamsAction(formData: FormData) {
+  const eventId = String(formData.get("eventId") ?? "");
+  const mode = String(formData.get("mode") ?? "balanced");
+  if (!eventId) throw new Error("Event required");
+  if (mode !== "balanced" && mode !== "random")
+    throw new Error("Unknown split mode");
+  const event = await requireOrganizerForEvent(eventId);
+  if (event.format !== "team_draft")
+    throw new Error("This event isn't a team draft");
+  if (event.status !== "draft")
+    throw new Error("Teams are locked once the first round starts");
+
+  const roster = await db
+    .select({
+      playerId: eventPlayers.playerId,
+      droppedAt: eventPlayers.droppedAt,
+      elo: players.currentElo,
+    })
+    .from(eventPlayers)
+    .innerJoin(players, eq(players.id, eventPlayers.playerId))
+    .where(eq(eventPlayers.eventId, eventId));
+  const active = roster.filter((r) => !r.droppedAt);
+  const split =
+    mode === "balanced"
+      ? balancedTeamSplit(active)
+      : randomTeamSplit(active.map((r) => r.playerId));
+
+  for (const r of active) {
+    await db
+      .update(eventPlayers)
+      .set({ team: split.get(r.playerId) ?? null })
+      .where(
+        and(
+          eq(eventPlayers.eventId, eventId),
+          eq(eventPlayers.playerId, r.playerId)
+        )
+      );
+  }
+
+  await syncTeamDraftRounds(eventId);
+  await publish(eventId, { type: "pairings_changed" });
+  revalidatePath(`/events/${eventId}/manage`);
+  revalidatePath(`/events/${eventId}/broadcast`);
 }
 
 export async function addPlayerAction(formData: FormData) {
@@ -210,6 +409,8 @@ export async function removeEventPlayerAction(formData: FormData) {
   if (!playerId) throw new Error("playerId required");
   await requireOrganizerForEvent(eventId);
   await removePlayerFromEventRoster({ eventId, playerId });
+  // A draft-status team draft sizes its round count off the larger team.
+  await syncTeamDraftRounds(eventId);
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/claim`);
   revalidatePath(`/events/${eventId}/broadcast`);
@@ -514,7 +715,7 @@ export async function previewNextRoundAction(eventId: string) {
     throw new Error("All rounds have been played");
   }
 
-  const pairings = generateSwissPairings(await getPairingInputs(eventId));
+  const pairings = await pairingsForNextRound(event);
 
   const roundNumber = completedOrActiveCount + 1;
   const [newRound] = await db
@@ -650,16 +851,19 @@ export async function startNextRoundAction(eventId: string) {
  * when the organizer doesn't like the auto result and wants another draw.
  */
 export async function regeneratePendingPairingsAction(eventId: string) {
-  await requireOrganizerForEvent(eventId);
+  const event = await requireOrganizerForEvent(eventId);
   const [pending] = await db
     .select()
     .from(rounds)
     .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
   if (!pending) throw new Error("No pending round to regenerate");
 
+  // Validate the format's preconditions before wiping the old pairings so a
+  // failed re-roll doesn't leave an empty round behind.
+  const pairings = await pairingsForNextRound(event);
+
   await db.delete(matches).where(eq(matches.roundId, pending.id));
 
-  const pairings = generateSwissPairings(await getPairingInputs(eventId));
   await db.insert(matches).values(
     pairings.map((p) => ({
       roundId: pending.id,
@@ -2182,13 +2386,68 @@ export async function updateEventAction(formData: FormData) {
   if (!name) throw new Error("Event name required");
   const event = await requireOrganizerForEvent(eventId);
 
+  // The format is only switchable while the event is still in draft — the
+  // pairings and standings of a started event are shaped by it. A missing
+  // field (the form predates the picker) keeps the current value.
+  const rawFormat = formData.get("format");
+  const format = rawFormat === null ? event.format : parseFormat(rawFormat);
+  if (format !== event.format && event.status !== "draft") {
+    throw new Error("The format can't change once the event has started");
+  }
+
   await db
     .update(events)
     .set({
       name,
+      format,
       setName: setName || null,
+      teamAName:
+        format === "team_draft"
+          ? formData.has("teamAName")
+            ? parseTeamName(formData.get("teamAName"))
+            : event.teamAName
+          : null,
+      teamBName:
+        format === "team_draft"
+          ? formData.has("teamBName")
+            ? parseTeamName(formData.get("teamBName"))
+            : event.teamBName
+          : null,
     })
     .where(eq(events.id, eventId));
+
+  if (format !== event.format) {
+    const roster = await db
+      .select({
+        playerId: eventPlayers.playerId,
+        droppedAt: eventPlayers.droppedAt,
+        team: eventPlayers.team,
+        elo: players.currentElo,
+      })
+      .from(eventPlayers)
+      .innerJoin(players, eq(players.id, eventPlayers.playerId))
+      .where(eq(eventPlayers.eventId, eventId));
+    if (format === "team_draft") {
+      // Seed a balanced split only when nobody has a side yet, so flipping
+      // the format back and forth doesn't scramble a hand-built roster.
+      const active = roster.filter((r) => !r.droppedAt);
+      if (active.every((r) => r.team === null)) {
+        const split = balancedTeamSplit(active);
+        for (const r of active) {
+          await db
+            .update(eventPlayers)
+            .set({ team: split.get(r.playerId) ?? null })
+            .where(
+              and(
+                eq(eventPlayers.eventId, eventId),
+                eq(eventPlayers.playerId, r.playerId)
+              )
+            );
+        }
+      }
+      await syncTeamDraftRounds(eventId);
+    }
+  }
 
   // Connected broadcast/play clients don't refetch on revalidation, so a
   // mid-tournament rename needs a structural poke. event_state_changed with

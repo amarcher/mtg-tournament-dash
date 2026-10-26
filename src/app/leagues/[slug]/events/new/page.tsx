@@ -90,6 +90,78 @@ export default async function NewLeagueEventPage({
           />
         </div>
 
+        <fieldset>
+          <legend className="mb-2 block text-sm font-medium text-zinc-300">
+            Format
+          </legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-800 bg-zinc-900 p-3 has-[:checked]:border-amber-500/60 has-[:checked]:bg-amber-500/10">
+              <input
+                type="radio"
+                name="format"
+                value="swiss"
+                defaultChecked
+                className="mt-1 h-4 w-4 accent-amber-500"
+              />
+              <span>
+                <span className="block font-medium">Swiss</span>
+                <span className="block text-xs text-zinc-400">
+                  Everyone for themselves. Pairings follow the standings each
+                  round.
+                </span>
+              </span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-800 bg-zinc-900 p-3 has-[:checked]:border-amber-500/60 has-[:checked]:bg-amber-500/10">
+              <input
+                type="radio"
+                name="format"
+                value="team_draft"
+                className="mt-1 h-4 w-4 accent-amber-500"
+              />
+              <span>
+                <span className="block font-medium">Team draft</span>
+                <span className="block text-xs text-zinc-400">
+                  Two teams seated A-B-A-B. Every player faces each opponent
+                  on the other team once; most match wins takes it. Needs an
+                  even headcount — rounds are set automatically.
+                </span>
+              </span>
+            </label>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="team-a-name" className="mb-1 block text-xs font-medium uppercase tracking-wide text-sky-300">
+                Team A name
+              </label>
+              <input
+                id="team-a-name"
+                name="teamAName"
+                placeholder="Team A"
+                maxLength={40}
+                autoComplete="off"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="team-b-name" className="mb-1 block text-xs font-medium uppercase tracking-wide text-fuchsia-300">
+                Team B name
+              </label>
+              <input
+                id="team-b-name"
+                name="teamBName"
+                placeholder="Team B"
+                maxLength={40}
+                autoComplete="off"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            <p className="col-span-2 -mt-2 text-xs text-zinc-500">
+              Team names only apply to a team draft. Teams start balanced by
+              ELO; rearrange them on the manage page.
+            </p>
+          </div>
+        </fieldset>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="event-set" className="mb-1 block text-sm font-medium text-zinc-300">
@@ -105,7 +177,8 @@ export default async function NewLeagueEventPage({
           </div>
           <div>
             <label htmlFor="total-rounds" className="mb-1 block text-sm font-medium text-zinc-300">
-              Total rounds
+              Total rounds{" "}
+              <span className="font-normal text-zinc-500">(Swiss)</span>
             </label>
             <input
               id="total-rounds"
