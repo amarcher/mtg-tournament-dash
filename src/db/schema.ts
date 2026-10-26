@@ -37,7 +37,11 @@ export const tournamentFormat = pgEnum("tournament_format", [
   "round_robin",
   "single_elim",
   "commander_pod",
+  "team_draft",
 ]);
+
+// Which side of a team draft a seat is on. Null on every other format.
+export const teamSide = pgEnum("team_side", ["a", "b"]);
 
 export const pollStatus = pgEnum("poll_status", [
   "open",
@@ -171,6 +175,9 @@ export const events = pgTable(
     // opt into it swap the archetype costume clause for this description —
     // e.g. LOTR characters instead of generic wizards.
     portraitTheme: text("portrait_theme"),
+    // Team-draft only. Null falls back to "Team A" / "Team B".
+    teamAName: text("team_a_name"),
+    teamBName: text("team_b_name"),
     sourcePollId: uuid("source_poll_id").references(() => datePolls.id, {
       onDelete: "set null",
     }),
@@ -209,6 +216,10 @@ export const eventPlayers = pgTable(
     // ELO) but is excluded from future pairings; their unfinished matches
     // convert to byes for the opponent. Null = active on the roster.
     droppedAt: timestamp("dropped_at", { withTimezone: true }),
+    // Team-draft side. Null on Swiss events and on seats the organizer
+    // hasn't assigned yet (round 1 can't be previewed until every active
+    // seat has one).
+    team: teamSide("team"),
   },
   (t) => ({
     pk: uniqueIndex("event_players_pk").on(t.eventId, t.playerId),

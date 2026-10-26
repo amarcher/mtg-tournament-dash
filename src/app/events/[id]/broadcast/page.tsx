@@ -12,6 +12,12 @@ import {
   getRoundMatches,
 } from "@/db/queries";
 import { draftSeatOrder } from "@/lib/draft-seating";
+import {
+  computeTeamStandings,
+  splitTeams,
+  teamDraftSeatOrder,
+  teamNamesFor,
+} from "@/lib/team-draft";
 import { qrDataUrl } from "@/lib/qr";
 import { getPublicBaseUrl } from "@/lib/public-url";
 import { BroadcastClient, type BroadcastMatch } from "./BroadcastClient";
@@ -29,15 +35,21 @@ export default async function BroadcastPage({
   const event = await getEvent(id);
   if (!event) notFound();
 
+  const isTeamDraft = event.format === "team_draft";
   const standings = await getEventStandings(id);
   const round = await getCurrentRound(id);
   const matchHistory =
     event.status === "complete" ? await getEventMatchHistory(id) : {};
+  // The roster is also the source of team sides for the pre-round seating.
   const roster =
-    event.status === "complete" ? await getEventRoster(id) : [];
+    event.status === "complete" || isTeamDraft ? await getEventRoster(id) : [];
   const startingEloById = new Map(
     roster.map((r) => [r.playerId, r.startingElo])
   );
+  const teamByPlayer = new Map(roster.map((r) => [r.playerId, r.team]));
+  const teams = isTeamDraft
+    ? { names: teamNamesFor(event), score: computeTeamStandings(standings) }
+    : null;
 
   const finalRanking: FinalRankingPlayer[] =
     event.status === "complete"
@@ -66,6 +78,7 @@ export default async function BroadcastPage({
               defeat: s.avatarDefeatUrl,
             },
             history,
+            team: s.team,
           };
         })
       : [];
@@ -100,6 +113,7 @@ export default async function BroadcastPage({
             name: playerA.displayName,
             life: activeGame?.playerALife ?? event.startingLife,
             wins: aWins,
+            team: teamByPlayer.get(playerA.id) ?? null,
             avatars: {
               fresh: playerA.avatarUrl,
               wounded: playerA.avatarWoundedUrl,
@@ -114,6 +128,7 @@ export default async function BroadcastPage({
                 name: playerB.displayName,
                 life: activeGame?.playerBLife ?? event.startingLife,
                 wins: bWins,
+                team: teamByPlayer.get(playerB.id) ?? null,
                 avatars: {
                   fresh: playerB.avatarUrl,
                   wounded: playerB.avatarWoundedUrl,
@@ -132,7 +147,26 @@ export default async function BroadcastPage({
   // Before the event starts, previewed round-1 pairings double as the draft
   // pod's seating chart — the TV shows who sits where, not who plays whom.
   let draftSeats: DraftSeat[] = [];
-  if (!round && event.status === "draft") {
+  if (!round && event.status === "draft" && isTeamDraft) {
+    // Team draft seating doesn't depend on pairings — alternate the sides
+    // as soon as the organizer has placed everyone.
+    const split = splitTeams(roster);
+    if (split.unassigned.length === 0 && split.a.length > 0 && split.b.length > 0) {
+      const byId = new Map(roster.map((r) => [r.playerId, r]));
+      draftSeats = teamDraftSeatOrder(
+        split.a.map((r) => r.playerId),
+        split.b.map((r) => r.playerId)
+      ).map((pid) => {
+        const r = byId.get(pid)!;
+        return {
+          playerId: r.playerId,
+          name: r.displayName,
+          avatarUrl: r.avatarUrl,
+          team: r.team,
+        };
+      });
+    }
+  } else if (!round && event.status === "draft") {
     const pending = await getPendingRound(id);
     if (pending?.roundNumber === 1) {
       const pendingMatches = await getRoundMatches(pending.id);
@@ -174,6 +208,7 @@ export default async function BroadcastPage({
         setName: event.setName,
       }}
       draftSeats={draftSeats}
+      teams={teams}
       eventStatus={event.status}
       finalRanking={finalRanking}
       currentRoundNumber={round?.roundNumber ?? null}
@@ -188,6 +223,7 @@ export default async function BroadcastPage({
         matchPoints: s.matchPoints,
         currentElo: s.currentElo,
         avatarUrl: s.avatarUrl,
+        team: s.team,
       }))}
       claimUrl={claimUrl}
       claimQrDataUrl={claimQr}
