@@ -60,6 +60,13 @@ export const realtimeSchema = {
   // Organizer undid a recorded result — the match is back in progress and
   // the two phones showing "You won/lost" need to rejoin the game.
   match_reopened: z.object({ ts: z.number(), matchId: z.string() }),
+  // A player moved the extra-turn counter after time was called. Non-
+  // structural: the other phone just adopts the number.
+  turn_changed: z.object({
+    ts: z.number(),
+    matchId: z.string(),
+    turn: z.number(),
+  }),
   // Bonus games (casual matches outside rounds). `opened` fires on the event
   // channel when a game is created from a waiting room, so waiting phones
   // re-render their join list. `started` fires on the match channel when seat
@@ -82,6 +89,7 @@ export const REALTIME_EVENT_NAMES = [
   "game_reopened",
   "match_complete",
   "match_reopened",
+  "turn_changed",
   "bonus_game_opened",
   "bonus_game_started",
   "bonus_game_ended",
@@ -121,6 +129,7 @@ export type EventMessage =
   | { type: "game_reopened"; ts: number; matchId: string; gameId: string }
   | { type: "match_complete"; ts: number; matchId: string; winnerId: string }
   | { type: "match_reopened"; ts: number; matchId: string }
+  | { type: "turn_changed"; ts: number; matchId: string; turn: number }
   | { type: "bonus_game_opened"; ts: number; matchId: string }
   | { type: "bonus_game_started"; ts: number; matchId: string }
   | { type: "bonus_game_ended"; ts: number; matchId: string };

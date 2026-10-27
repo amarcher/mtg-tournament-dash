@@ -276,6 +276,10 @@ export const matches = pgTable(
     status: matchStatus("status").notNull().default("pending"),
     winnerId: uuid("winner_id").references(() => players.id),
     isDraw: boolean("is_draw").notNull().default(false),
+    // Extra-turn counter once the round clock runs out: 0 = the turn in
+    // progress when time was called, 1-5 the additional turns. Null until a
+    // player starts counting. Shared so both phones show the same turn.
+    timeTurn: integer("time_turn"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (t) => ({

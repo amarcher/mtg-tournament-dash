@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getEvent, getEventStandings, getLeague } from "@/db/queries";
+import { computeTeamStandings, teamNamesFor } from "@/lib/team-draft";
 
 /**
  * Per-event `<title>` / `<meta description>` / per-share OG copy. Lives at
@@ -26,10 +27,19 @@ export async function generateMetadata({
   let description: string;
   if (event.status === "complete") {
     const standings = await getEventStandings(id);
-    const winner = standings[0]?.displayName;
-    description = winner
-      ? `${winner} took ${event.name} in ${leagueLabel}. See the full ranking, per-round results, and ELO changes.`
-      : `${event.name} — ${leagueLabel}. Final results.`;
+    if (event.format === "team_draft") {
+      const score = computeTeamStandings(standings);
+      const names = teamNamesFor(event);
+      description =
+        score.leader === null
+          ? `${names.a} and ${names.b} tied ${event.name} in ${leagueLabel}, ${score.a.wins}–${score.b.wins} on matches.`
+          : `${names[score.leader]} took ${event.name} in ${leagueLabel}, ${score[score.leader].wins}–${score[score.leader === "a" ? "b" : "a"].wins} on matches. See every player's record and ELO changes.`;
+    } else {
+      const winner = standings[0]?.displayName;
+      description = winner
+        ? `${winner} took ${event.name} in ${leagueLabel}. See the full ranking, per-round results, and ELO changes.`
+        : `${event.name} — ${leagueLabel}. Final results.`;
+    }
   } else if (event.status === "active") {
     description = `${event.name} is live in ${leagueLabel}. Pairings, life totals, and round timer.`;
   } else {

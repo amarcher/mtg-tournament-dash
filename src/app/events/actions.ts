@@ -86,6 +86,7 @@ import { isMatchParticipant } from "@/lib/match-authz";
 import {
   applyGameWinner,
   applyLifeAdjust,
+  applyTimeTurn,
   undoLastGameWin,
 } from "@/lib/match-mutations";
 import {
@@ -1622,6 +1623,20 @@ export async function clearMatchResultAction(formData: FormData) {
  * Kept as a separate export so PlayClient can call it without building a
  * FormData payload.
  */
+/**
+ * Player self-service: move the extra-turn counter once the round clock has
+ * run out. Either participant can tap it; the other phone follows over SSE.
+ * Clamped to 0..MAX_TIME_TURN — turn 5 is the last one, after which the
+ * players record a game winner or call the draw themselves.
+ */
+export async function setTimeTurnAction(args: { matchId: string; turn: number }) {
+  const { round } = await authorizeMatchParticipant(args.matchId);
+  if (!round) throw new Error("Bonus games aren't on the clock");
+  await applyTimeTurn(args);
+  revalidatePath(`/events/${round.eventId}/play`);
+  revalidatePath(`/events/${round.eventId}/broadcast`);
+}
+
 export async function reportMatchDrawAction(args: { matchId: string }) {
   const { round } = await authorizeMatchParticipant(args.matchId);
   if (!round)

@@ -5,6 +5,7 @@ import { computeMatchElo } from "@/lib/elo";
 import { publish, publishToChannel } from "@/lib/pubsub";
 import { channelForMatch } from "@/lib/realtime-schema";
 import { checkLifeWrite, type LifeWriteRejection } from "@/lib/life-write";
+import { clampTimeTurn } from "@/lib/round-clock";
 
 /**
  * Domain mutations for an in-progress match. These do NOT authorize the
@@ -309,4 +310,27 @@ export async function undoLastGameWin(args: {
     await publishToChannel(channelForMatch(match.id), reopened);
   }
   return { reopenedGameId: previous.id };
+}
+
+/**
+ * Move the extra-turn counter on a running tournament match. Clamped to the
+ * legal range; fans out `turn_changed` so the other phone and the TV follow.
+ * Returns the stored turn.
+ */
+export async function applyTimeTurn(args: {
+  matchId: string;
+  turn: number;
+}): Promise<number> {
+  const [match] = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.id, args.matchId));
+  if (!match) throw new Error("Match not found");
+  if (!match.roundId) throw new Error("Bonus games aren't on the clock");
+  if (match.status === "complete") throw new Error("Match is already over");
+  const turn = clampTimeTurn(args.turn);
+  await db.update(matches).set({ timeTurn: turn }).where(eq(matches.id, match.id));
+  const [round] = await db.select().from(rounds).where(eq(rounds.id, match.roundId));
+  await publish(round.eventId, { type: "turn_changed", matchId: match.id, turn });
+  return turn;
 }

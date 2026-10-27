@@ -11,6 +11,8 @@ import {
 import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 import { DraftSeating, type DraftSeat } from "../DraftSeating";
 import { TeamChip, TEAM_STYLES } from "../TeamChip";
+import { formatClock, MAX_TIME_TURN } from "@/lib/round-clock";
+import { useRoundClock } from "@/lib/use-round-clock";
 import { shouldApplyLifeChanged } from "@/lib/life-events";
 import type { TeamNames, TeamSide, TeamStandings } from "@/lib/team-draft";
 
@@ -38,6 +40,8 @@ export type BroadcastMatch = {
     team?: TeamSide | null;
   } | null;
   activeGameId: string | null;
+  /** Extra-turn counter after time; null until a phone starts counting. */
+  timeTurn: number | null;
 };
 
 type Standing = {
@@ -145,6 +149,12 @@ export function BroadcastClient({
               [sideKey]: { ...side, life: next },
             };
           })
+        );
+      } else if (msg.type === "turn_changed") {
+        setMatches((prev) =>
+          prev.map((m) =>
+            m.matchId === msg.matchId ? { ...m, timeTurn: msg.turn } : m
+          )
         );
       } else if (
         msg.type === "match_complete" ||
@@ -478,17 +488,13 @@ function RoundTimer({
   startedAtIso: string | null;
   durationSec: number;
 }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
+  const clock = useRoundClock(startedAtIso, durationSec);
 
-  if (!startedAtIso) {
+  if (!clock) {
     return (
       <div className="text-right">
         <div className="font-mono text-3xl font-bold tabular-nums sm:text-5xl text-zinc-700">
-          {fmt(durationSec)}
+          {formatClock(durationSec)}
         </div>
         <div className="text-[0.65rem] uppercase tracking-[0.25em] text-zinc-600">
           round timer
@@ -497,11 +503,7 @@ function RoundTimer({
     );
   }
 
-  const startedMs = new Date(startedAtIso).getTime();
-  const elapsedSec = Math.floor((now - startedMs) / 1000);
-  const remaining = durationSec - elapsedSec;
-  const overtime = remaining < 0;
-  const lowTime = !overtime && remaining < 5 * 60;
+  const { remaining, overtime, lowTime } = clock;
 
   return (
     <div className="text-right">
@@ -514,7 +516,7 @@ function RoundTimer({
               : "text-zinc-100"
         }`}
       >
-        {overtime ? `+${fmt(-remaining)}` : fmt(remaining)}
+        {overtime ? `+${formatClock(-remaining)}` : formatClock(remaining)}
       </div>
       <div
         className={`text-[0.65rem] uppercase tracking-[0.25em] ${
@@ -525,13 +527,6 @@ function RoundTimer({
       </div>
     </div>
   );
-}
-
-function fmt(totalSec: number) {
-  const s = Math.max(0, totalSec);
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
 function MatchCard({
@@ -590,9 +585,15 @@ function MatchCard({
     >
       <div className="z-10 flex shrink-0 items-baseline justify-between text-[0.65rem] uppercase tracking-[0.25em] text-zinc-400">
         <span>Table {match.tableNumber}</span>
-        <span>
-          Game {Math.min(3, match.playerA.wins + match.playerB.wins + 1)}
-        </span>
+        {match.timeTurn !== null && !isComplete ? (
+          <span className="text-rose-400">
+            Time · turn {match.timeTurn}/{MAX_TIME_TURN}
+          </span>
+        ) : (
+          <span>
+            Game {Math.min(3, match.playerA.wins + match.playerB.wins + 1)}
+          </span>
+        )}
       </div>
 
       <div className="relative mt-1 grid min-h-0 flex-1 grid-cols-2 gap-2">

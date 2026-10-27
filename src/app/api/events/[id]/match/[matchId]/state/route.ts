@@ -81,5 +81,6 @@ export async function GET(
     wins: { a: aWins, b: bWins },
     activeGameId: activeGame?.id ?? null,
     gameNumber: fallbackGame?.gameNumber ?? null,
+    timeTurn: match.timeTurn,
   });
 }
