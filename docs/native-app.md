@@ -146,47 +146,70 @@ The current app icon (May 12 champion's victory portrait) is at
 
 ## iOS build / TestFlight submission
 
+What actually works on this Mac, start to finish, without Xcode's GUI
+(first done 2026-10-27; build 1.0 (1) is on TestFlight):
+
 ```sh
-# Sync any web-side changes to native (cheap; just refreshes the WebView
-# bundle id, server URL, plugins). Re-run any time you change
-# capacitor.config.ts.
 npm run cap:sync
-
-# Open the Xcode project — from here you'll set the signing team,
-# bundle id, target iOS version, etc.
-npm run cap:open:ios
-
-# In Xcode:
-#   Product → Archive
-#   Distribute App → App Store Connect → Upload
-#   Wait for processing (~10 min)
-#   In App Store Connect, add to TestFlight internal testing
+cd ios/App
+# 1. Archive, signed with the personal team's development identity via the ASC API key
+xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphoneos \
+  -destination 'generic/platform=iOS' -archivePath "$OUT/MTGDash.xcarchive" archive \
+  DEVELOPMENT_TEAM=J39B2498YF -allowProvisioningUpdates \
+  -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_API_KEY_ID.p8" \
+  -authenticationKeyID "$ASC_API_KEY_ID" -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+# 2. Export as an App Store build — MANUAL signing with the API-created profile
+#    "MTG Dash App Store" (profile id M4NHR37XU2, cert "Apple Distribution: Andrew
+#    Archer (J39B2498YF)"). Automatic signing + -allowProvisioningUpdates does NOT
+#    create the App Store profile and fails with "No profiles for 'com.capxun.mtgdash'".
+xcodebuild -exportArchive -archivePath "$OUT/MTGDash.xcarchive" -exportPath "$OUT/export" \
+  -exportOptionsPlist ExportOptions.plist   # method app-store-connect, signingStyle manual,
+                                            # provisioningProfiles {com.capxun.mtgdash: "MTG Dash App Store"}
+# 3. Upload
+xcrun altool --upload-app -f "$OUT/export/App.ipa" -t ios \
+  --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
 ```
 
-Expected first-submission timeline:
-- **Apple Developer enrollment** — 1-2 days (DUNS lookup, identity check).
-- **App Store Connect setup** — half a day (app record, screenshots,
-  privacy strings).
-- **TestFlight internal testing** — same day after upload completes.
-- **App Store review** for public release — 1-7 days (variable). Budget
-  two weeks for a first submission to land cleanly; expect at least one
-  rejection round on privacy strings / screenshot ratios / "minimum
-  functionality."
+If the profile is missing locally, re-fetch it:
+`GET /v1/profiles?filter[name]=MTG%20Dash%20App%20Store` and write the
+base64 `profileContent` to `~/Library/MobileDevice/Provisioning Profiles/<uuid>.mobileprovision`.
+
+Bump `CURRENT_PROJECT_VERSION` in `ios/App/App.xcodeproj/project.pbxproj`
+before each upload — App Store Connect rejects a reused build number.
+
+TestFlight groups (App Store Connect app `6827733846`):
+
+- **MTG Dash Team** (internal, `aa627550-…`) — App Store Connect users;
+  every processed build is available to them immediately, no review.
+- **MTG Dash Testers** (external, `03d256ed-…`) — invite-by-email; the
+  first build in this group needs Beta App Review, which requires a contact
+  phone in TestFlight → Test Information before it can be submitted.
+
+Both were seeded 2026-10-27 with the union of the Space Race and Fable Reader
+TestFlight testers.
 
 ## Android build / Play Console submission
 
 ```sh
 npm run cap:sync
-npm run cap:open:android
-
-# In Android Studio:
-#   Build → Generate Signed App Bundle / APK → Android App Bundle (.aab)
-#   First time: generate a keystore. STORE THE KEYSTORE FILE + PASSWORD
-#   SOMEWHERE SAFE — losing it means you can never update the app.
+cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew bundleRelease
+# -> android/app/build/outputs/bundle/release/app-release.aab, signed with ~/.mtg-dash/upload.keystore
 ```
 
-Then upload the `.aab` to Play Console under the app's
-"Internal testing" track. Faster than Apple — typically same-day live.
+Bump `versionCode` in `android/app/build.gradle` before each upload.
+
+Upload the `.aab` in Play Console → MTG Dash (app `4975058745949277854`,
+Fable Designer org) → Testing → Internal testing → Create new release. The
+internal track uses the account-level **Internal** email list (the same
+list Space Race uses); release 1 (1.0) went live 2026-10-27. Until the
+store listing is finished and reviewed, testers see the temporary name
+`com.capxun.mtgdash (unreviewed)` in Play.
+
+`resources/` deliberately has no `splash-dark.png`: the dark splash was a
+byte-identical copy of the light one and `capacitor-assets` turned it into
+4.9 MB of duplicate `drawable-*-night-*` PNGs. Android falls back to the
+non-night drawable, so nothing is lost. If you ever want a real dark
+splash, add a genuinely different image.
 
 ## Push notifications (optional, deferred)
 
