@@ -212,6 +212,32 @@ byte-identical copy of the light one and `capacitor-assets` turned it into
 non-night drawable, so nothing is lost. If you ever want a real dark
 splash, add a genuinely different image.
 
+## Deep links: Universal Links (iOS) and App Links (Android)
+
+Links to `mtg.capxun.com` open the installed shell instead of Safari/Chrome,
+which is what makes sign-in codes, claim links and table QR codes land in
+the app's own cookie jar.
+
+- Association files are route handlers:
+  `src/app/.well-known/apple-app-site-association/route.ts` (app id
+  `J39B2498YF.com.capxun.mtgdash`, everything except `/api/*` and `/files/*`)
+  and `src/app/.well-known/assetlinks.json/route.ts` (package
+  `com.capxun.mtgdash` with the Play app-signing, upload and debug cert
+  SHA-256s — all three, or links only verify for one kind of build).
+- iOS: `ios/App/App/App.entitlements` carries
+  `applinks:mtg.capxun.com`; the App ID has the Associated Domains
+  capability (added via the ASC API 2026-10-27) and the App Store profile
+  was regenerated afterwards — profiles bake entitlements in, so any future
+  capability change means delete + recreate the profile.
+- Android: the `VIEW` intent filter with `android:autoVerify="true"` on
+  `MainActivity` in `AndroidManifest.xml`.
+- The web side: `src/app/components/NativeLinks.tsx` listens for
+  `appUrlOpen` from `@capacitor/app` and pushes the path into the router.
+- Apple caches the association file per install (its CDN fetches it on
+  install/update), so after changing the AASA, reinstall the app to test.
+  Check verification on Android with
+  `adb shell pm get-app-links com.capxun.mtgdash`.
+
 ## Push notifications (optional, deferred)
 
 Phase 6 in the migration roadmap names push as a "do this when matches go
