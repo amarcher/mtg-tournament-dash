@@ -182,8 +182,9 @@ TestFlight groups (App Store Connect app `6827733846`):
 - **MTG Dash Team** (internal, `aa627550-…`) — App Store Connect users;
   every processed build is available to them immediately, no review.
 - **MTG Dash Testers** (external, `03d256ed-…`) — invite-by-email; the
-  first build in this group needs Beta App Review, which requires a contact
-  phone in TestFlight → Test Information before it can be submitted.
+  first build in a version needs Beta App Review. Build 1.0 (1) was
+  submitted 2026-10-27 (Test Information uses the Fable Designer business
+  phone as the review contact); later builds of the same version skip it.
 
 Both were seeded 2026-10-27 with the union of the Space Race and Fable Reader
 TestFlight testers.
