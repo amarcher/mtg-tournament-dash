@@ -8,10 +8,11 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** groundwork only. The Capacitor config + npm scripts are in
-place. Native projects (`ios/`, `android/`) are *not* scaffolded yet — you
-generate those when you're ready to start the App Store path. See "First
-scaffold" below.
+**Status:** scaffolded and building locally (Oct 27 2026). `ios/` (Swift
+Package Manager — no CocoaPods) and `android/` are checked in, icons and
+splash are generated from `resources/`, and the keep-awake plugin is wired
+into `useWakeLock`. Nothing has been uploaded to App Store Connect or Play
+Console yet — see "Signing" below before the first upload.
 
 ## What's already in the repo
 
@@ -21,6 +22,37 @@ scaffold" below.
 - `@capacitor/cli` in devDependencies.
 - npm scripts: `cap:add:ios`, `cap:add:android`, `cap:open:ios`,
   `cap:open:android`, `cap:sync`.
+- `ios/App` (SPM template: `App.xcodeproj` + `CapApp-SPM/Package.swift`)
+  and `android/`. Re-run `npm run cap:sync` after changing
+  `capacitor.config.ts` or adding a plugin.
+- `resources/icon.png`, `splash.png`, `icon-foreground.png`,
+  `icon-background.png` — 1024/2732 sources cut from the champion portrait.
+  Regenerate every native size with
+  `npx capacitor-assets generate --iconBackgroundColor '#0d0a07' --splashBackgroundColor '#0d0a07'`,
+  then delete the `icons/` and `public/manifest.webmanifest` it also writes:
+  a static `public/manifest.webmanifest` would shadow the personalized
+  manifest route handler.
+- `@capacitor-community/keep-awake`: `src/lib/use-wake-lock.ts` holds the
+  native idle-timer override whenever `Capacitor.isNativePlatform()`, on top
+  of the web Screen Wake Lock. The bridge is injected into pages loaded from
+  `server.url`, so the web bundle can import `@capacitor/core` safely — on a
+  plain browser `isNativePlatform()` is false and the plugin is never called.
+- `@capacitor/status-bar` plus the `StatusBar` / `SystemBars` blocks in
+  `capacitor.config.ts`: canvas-colored, light-text status bar with the
+  WebView inset below it on iOS. On Android 15+/16 edge-to-edge is enforced
+  by the OS, so the status bar overlays the page and the site's own
+  `env(safe-area-inset-*)` padding (AppChrome header, tab bar, Scoreboard)
+  has to carry it — check this on a real Android device before shipping.
+- `ios/App/App/Info.plist` carries camera + photo-library usage strings (the
+  selfie `<input type="file">` opens the camera sheet) and
+  `ITSAppUsesNonExemptEncryption=false`; `AndroidManifest.xml` adds
+  `CAMERA`.
+- **Android upload key** is outside the repo at `~/.mtg-dash/upload.keystore`
+  with `~/.mtg-dash/keystore.properties` next to it (both mode 600).
+  `android/app/build.gradle` reads that properties file when present and
+  signs `release` with it; without it release builds are unsigned. Back both
+  files up to the password manager — losing the key means never updating the
+  Play listing again.
 
 ## Prerequisites
 
@@ -28,7 +60,7 @@ scaffold" below.
 |---|---|---|
 | Xcode 16+ | iOS build | App Store |
 | Xcode Command Line Tools | `xcodebuild` | `xcode-select --install` |
-| **CocoaPods** | iOS native deps | `sudo gem install cocoapods` (not currently installed — install before `cap:add:ios`) |
+| CocoaPods | not needed — the iOS project uses Swift Package Manager | — |
 | Android Studio | Android build + emulator | <https://developer.android.com/studio> |
 | JDK 17+ | Android Gradle | bundled with Android Studio |
 | **Apple Developer Program** | App Store + push certs | <https://developer.apple.com/programs/> ($99/yr) |
@@ -59,6 +91,31 @@ git commit -m "Scaffold Capacitor iOS + Android projects"
 Both `ios/` and `android/` are meant to be checked into git — you'll
 customize app icons, splash screens, `Info.plist`, `AndroidManifest.xml`,
 and (eventually) push-notification entitlements there.
+
+## Signing
+
+Two Apple teams exist on this Mac (see the `app-store-upload` skill). MTG
+Dash builds with the **personal** team `J39B2498YF` (Andrew Archer,
+Individual) — pass `DEVELOPMENT_TEAM=J39B2498YF` on the `xcodebuild` line or
+set it once in Xcode's Signing & Capabilities. The first build uploaded to
+App Store Connect permanently binds `com.capxun.mtgdash` to whichever team
+signed it, so don't upload from the Fable Designer team by accident.
+
+Local build commands that work without Xcode's GUI:
+
+```sh
+# iOS simulator build (no signing)
+cd ios/App && xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+
+# Android: debug APK (sideload), release APK + AAB (signed when the upload key is present)
+cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+  ./gradlew assembleDebug assembleRelease bundleRelease
+# outputs under android/app/build/outputs/{apk,bundle}/
+```
+
+Use Android Studio's bundled JDK as above; the system `java` (26) is newer
+than Gradle 8.14 supports.
 
 ## Configuring icons + splash
 

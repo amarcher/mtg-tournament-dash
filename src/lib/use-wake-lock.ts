@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
+import { KeepAwake } from "@capacitor-community/keep-awake";
 
 /**
  * Keep the phone's screen on while a game screen is mounted.
@@ -12,8 +14,20 @@ import { useEffect } from "react";
  * held — life-total taps happen constantly mid-game, so the lock comes back
  * almost immediately. Silently no-ops where the API is missing (older
  * browsers, or plain-http LAN mode, which isn't a secure context).
+ *
+ * Inside the native shell the web API is still only a request the OS may
+ * refuse (Low Power Mode, for one), so there we also hold the platform's own
+ * idle-timer override for as long as the screen is mounted.
  */
 export function useWakeLock() {
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    void KeepAwake.keepAwake().catch(() => {});
+    return () => {
+      void KeepAwake.allowSleep().catch(() => {});
+    };
+  }, []);
+
   useEffect(() => {
     if (!("wakeLock" in navigator)) return;
     let sentinel: WakeLockSentinel | null = null;

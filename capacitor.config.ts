@@ -1,3 +1,4 @@
+/// <reference types="@capacitor/status-bar" />
 import type { CapacitorConfig } from "@capacitor/cli";
 
 // MTG Dash native shell — a Capacitor wrap around the production web app.
@@ -9,10 +10,14 @@ import type { CapacitorConfig } from "@capacitor/cli";
 //
 // webDir is required by Capacitor but ignored when `server.url` is set; we
 // point it at /public so the path resolves to something valid.
+const CANVAS = "#0d0a07";
+
 const config: CapacitorConfig = {
   appId: "com.capxun.mtgdash",
   appName: "MTG Dash",
   webDir: "public",
+  // Shows through wherever the WebView is inset (status bar, home indicator).
+  backgroundColor: CANVAS,
   server: {
     url: "https://mtg.capxun.com",
     cleartext: false,
@@ -23,6 +28,21 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: "always",
+  },
+  plugins: {
+    // iOS (and Android < 15): keep the WebView below a canvas-colored status
+    // bar with light text. On Android 15+/16 overlays/background are inert —
+    // edge-to-edge is enforced and the site's own env(safe-area-inset-*)
+    // padding (AppChrome header, tab bar, Scoreboard) does the work.
+    StatusBar: {
+      style: "DARK",
+      overlaysWebView: false,
+      backgroundColor: CANVAS,
+    },
+    SystemBars: {
+      style: "DARK",
+      insetsHandling: "css",
+    },
   },
 };
 

@@ -73,7 +73,7 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 ## Native iOS / Android
 
-`capacitor.config.ts` wraps the production web app as a native shell pointing at `https://mtg.capxun.com`. Not built into a binary today — see [`docs/native-app.md`](docs/native-app.md) for the build/submit path. Whenever you change web code, redeploying to Vercel updates the in-app experience instantly; only native shell changes (icons, plugins, push entitlements) need a resubmission.
+`capacitor.config.ts` wraps the production web app as a native shell pointing at `https://mtg.capxun.com`; `ios/` (SPM) and `android/` are scaffolded and checked in, with the keep-awake plugin wired through `useWakeLock`. See [`docs/native-app.md`](docs/native-app.md) for build, signing (personal Apple team; Android upload key under `~/.mtg-dash/`), and submit steps. Whenever you change web code, redeploying to Vercel updates the in-app experience instantly; only native shell changes (icons, plugins, push entitlements) need a resubmission.
 
 ## Deployment
 
