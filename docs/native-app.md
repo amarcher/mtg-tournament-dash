@@ -11,8 +11,17 @@ live in the app, no resubmission required.
 **Status:** scaffolded and building locally (Oct 27 2026). `ios/` (Swift
 Package Manager — no CocoaPods) and `android/` are checked in, icons and
 splash are generated from `resources/`, and the keep-awake plugin is wired
-into `useWakeLock`. Nothing has been uploaded to App Store Connect or Play
-Console yet — see "Signing" below before the first upload.
+into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
+been uploaded yet — see "Signing" below before the first upload.
+
+- **App Store Connect**: app id `6827733846`, personal team `J39B2498YF`,
+  bundle id resource `UNXYHW36H9`, SKU `mtgdash`.
+  <https://appstoreconnect.apple.com/apps/6827733846>
+- **Play Console**: app id `4975058745949277854` under the **Fable Designer**
+  organization account (`6294983081887284734`; the old personal "archer"
+  account was closed in 2021). Package `com.capxun.mtgdash`, free app,
+  automatic installer protection left on.
+  <https://play.google.com/console/u/7/developers/6294983081887284734/app/4975058745949277854/app-dashboard>
 
 ## What's already in the repo
 
