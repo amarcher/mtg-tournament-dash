@@ -67,6 +67,7 @@ export function Scoreboard({
   title,
   status,
   banner,
+  between,
   organizeHref,
   opponent,
   me,
@@ -84,6 +85,8 @@ export function Scoreboard({
   /** Sits under the title — game pips or a running tally. */
   status?: React.ReactNode;
   banner?: React.ReactNode;
+  /** Sits between the two life panels — the extra-turn counter at time. */
+  between?: React.ReactNode;
   /** Organizer shortcut back to the event console. */
   organizeHref?: string;
   /** Null on a bye. */
@@ -167,6 +170,7 @@ export function Scoreboard({
             </div>
           </div>
         )}
+        {between && <div className="shrink-0 landscape:hidden">{between}</div>}
         <LifePanel
           {...me}
           startingLife={startingLife}
@@ -175,6 +179,9 @@ export function Scoreboard({
           className="flex-[5] landscape:flex-1"
         />
       </div>
+      {between && (
+        <div className="hidden shrink-0 px-2 pt-2 landscape:block">{between}</div>
+      )}
 
       {/* Outcome buttons stay disabled while their own action commits —
           reporting a winner twice would finalize twice — but carry no

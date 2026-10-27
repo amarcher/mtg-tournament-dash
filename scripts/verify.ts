@@ -65,6 +65,7 @@ import {
 import {
   applyGameWinner,
   applyLifeAdjust,
+  applyTimeTurn,
   undoLastGameWin,
 } from "../src/lib/match-mutations";
 import {
@@ -1853,6 +1854,16 @@ async function runTeamDraftPass() {
     }
     // Tables 1-2: team a wins 2-0. Table 3: team b wins 2-1.
     const sorted = [...ms].sort((x, y) => x.match.tableNumber - y.match.tableNumber);
+    if (r === 1) {
+      // Extra-turn counter: a phone ticks it after time; clamped to 0..5 and
+      // persisted on the match so the other phone and the TV agree.
+      const onClock = sorted[2].match.id;
+      assert((await applyTimeTurn({ matchId: onClock, turn: 3 })) === 3, "time turn set to 3");
+      const [t3] = await db.select().from(matches).where(eq(matches.id, onClock));
+      assert(t3.timeTurn === 3, "time turn persisted on the match");
+      assert((await applyTimeTurn({ matchId: onClock, turn: 9 })) === 5, "time turn clamps at 5");
+      assert((await applyTimeTurn({ matchId: onClock, turn: -2 })) === 0, "time turn floors at 0");
+    }
     for (let i = 0; i < sorted.length; i++) {
       const { match, playerA, playerB } = sorted[i];
       if (i < 2) {
@@ -1872,6 +1883,12 @@ async function runTeamDraftPass() {
   // === 5. final state ===
   const finalEvent = await getEvent(event.id);
   assert(finalEvent.status === "complete", "team draft auto-completed after round 3");
+  const rounds1 = await getEventRounds(event.id);
+  const r1Matches = await getRoundMatches(rounds1[0].id);
+  await applyTimeTurn({ matchId: r1Matches[0].match.id, turn: 2 }).then(
+    () => assert(false, "time turn rejected on a finished match"),
+    () => ok("time turn rejected on a finished match")
+  );
   const standings = await getEventStandings(event.id);
   const bIds = new Set([4, 5, 6].map(pid));
   for (const s of standings.filter((s) => s.team === "a")) {

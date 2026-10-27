@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { games, players } from "@/db/schema";
+import { games, players, rounds } from "@/db/schema";
 import { getCurrentPlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import { AppChrome } from "@/app/components/AppChrome";
@@ -353,6 +353,10 @@ export default async function PlayPage({
   // Figure out which side I am.
   const mySide: "a" | "b" = me.playerId === match.playerAId ? "a" : "b";
 
+  const [round] = match.roundId
+    ? await db.select().from(rounds).where(eq(rounds.id, match.roundId))
+    : [undefined];
+
   return (
     <PlayClient
       eventId={id}
@@ -365,6 +369,9 @@ export default async function PlayPage({
       startingLife={event.startingLife}
       initialGame={activeGame}
       initialWins={{ a: aWins, b: bWins }}
+      initialTimeTurn={match.timeTurn}
+      roundStartedAtIso={round?.startedAt?.toISOString() ?? null}
+      roundDurationSec={event.roundDurationSec}
       organizeHref={view.organizerMode ? `/events/${id}/manage` : undefined}
     />
   );

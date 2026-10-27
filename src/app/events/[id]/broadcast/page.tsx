@@ -139,6 +139,7 @@ export default async function BroadcastPage({
               }
             : null,
           activeGameId: activeGame?.id ?? null,
+          timeTurn: match.timeTurn,
         };
       })
     );

@@ -5,6 +5,7 @@ import { useWakeLock } from "@/lib/use-wake-lock";
 import {
   reportGameWinnerAction,
   reportMatchDrawAction,
+  setTimeTurnAction,
   undoLastGameWinAction,
 } from "@/app/events/actions";
 import { useLifeHistory } from "@/lib/use-life-history";
@@ -14,6 +15,10 @@ import { remoteEditLockMs, shouldApplyLifeChanged } from "@/lib/life-events";
 import { useLifeWriter } from "@/lib/use-life-writer";
 import { avatarsFor } from "@/app/components/LifePanel";
 import { GamePips, Scoreboard } from "@/app/components/Scoreboard";
+import { clampTimeTurn } from "@/lib/round-clock";
+import { useRoundClock } from "@/lib/use-round-clock";
+import { RoundClockChip } from "./RoundClockChip";
+import { TimeTurnCounter } from "./TimeTurnCounter";
 
 type Props = {
   eventId: string;
@@ -26,6 +31,10 @@ type Props = {
   startingLife: number;
   initialGame: Game;
   initialWins: { a: number; b: number };
+  /** Extra-turn counter already started by either phone; null = not yet. */
+  initialTimeTurn: number | null;
+  roundStartedAtIso: string | null;
+  roundDurationSec: number;
   /** Set for organizers: the chip that jumps back to the event console. */
   organizeHref?: string;
 };
@@ -41,11 +50,16 @@ export function PlayClient({
   startingLife,
   initialGame,
   initialWins,
+  initialTimeTurn,
+  roundStartedAtIso,
+  roundDurationSec,
   organizeHref,
 }: Props) {
   const [aLife, setALife] = useState(initialGame.playerALife);
   const [bLife, setBLife] = useState(initialGame.playerBLife);
   const [wins, setWins] = useState(initialWins);
+  const [timeTurn, setTimeTurn] = useState<number | null>(initialTimeTurn);
+  const clock = useRoundClock(roundStartedAtIso, roundDurationSec);
   // Only the outcome buttons use a transition. Life taps are optimistic and
   // go through useLifeWriter, so they never flip this pending flag.
   const [outcomePending, startOutcomeTransition] = useTransition();
@@ -109,6 +123,9 @@ export function PlayClient({
         lastTs.current = { a: 0, b: 0 };
         currentGameId.current = msg.newGameId;
       }
+      if (msg.type === "turn_changed" && msg.matchId === matchId) {
+        setTimeTurn(msg.turn);
+      }
       if (msg.type === "match_complete" && msg.matchId === matchId) {
         window.location.reload();
       }
@@ -146,6 +163,7 @@ export function PlayClient({
           life: { a: number | null; b: number | null };
           wins: { a: number; b: number };
           activeGameId: string | null;
+          timeTurn: number | null;
         };
         if (stopped) return;
         if (s.status === "complete") {
@@ -170,6 +188,7 @@ export function PlayClient({
         setWins((w) =>
           w.a === s.wins.a && w.b === s.wins.b ? w : s.wins
         );
+        if (s.timeTurn !== null) setTimeTurn(s.timeTurn);
       } catch {
         /* network blip — next tick retries */
       }
@@ -233,6 +252,16 @@ export function PlayClient({
     });
   };
 
+  // Optimistic: the tap shows at once, the server clamps and fans out to the
+  // other phone. Shown as soon as the clock runs out (turn 0 needs no write)
+  // or as soon as either phone has started counting.
+  const changeTimeTurn = (next: number) => {
+    const turn = clampTimeTurn(next);
+    setTimeTurn(turn);
+    void setTimeTurnAction({ matchId, turn }).catch(() => undefined);
+  };
+  const showTurnCounter = clock?.overtime || timeTurn !== null;
+
   const oppPlayer = mySide === "a" ? players.b : players.a;
   const myWins = mySide === "a" ? wins.a : wins.b;
   const oppWins = mySide === "a" ? wins.b : wins.a;
@@ -247,7 +276,26 @@ export function PlayClient({
           <GamePips wins={myWins} />
           <span className="h-3 w-px bg-line" aria-hidden />
           <GamePips wins={oppWins} />
+          {roundStartedAtIso && (
+            <>
+              <span className="h-3 w-px bg-line" aria-hidden />
+              <RoundClockChip
+                startedAtIso={roundStartedAtIso}
+                durationSec={roundDurationSec}
+              />
+            </>
+          )}
         </span>
+      }
+      between={
+        showTurnCounter ? (
+          <TimeTurnCounter
+            turn={timeTurn ?? 0}
+            onChange={changeTimeTurn}
+            onDraw={players.b ? reportDraw : null}
+            disabled={outcomePending}
+          />
+        ) : null
       }
       organizeHref={organizeHref}
       opponent={
