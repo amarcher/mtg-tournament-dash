@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Cinzel, Crimson_Pro, Geist_Mono, Marcellus } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
+import { ResumeRefresh } from "./components/ResumeRefresh";
 import "./globals.css";
 
 // Free stand-ins for the card faces: Marcellus has Beleren's flared,
@@ -82,6 +83,9 @@ export default function RootLayout({
   // gtag round-trip. Production needs NEXT_PUBLIC_GA4_MEASUREMENT_ID set in
   // .env.local before `npm run build` so the value is baked into the bundle.
   const gaId = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
+  // Vercel sets this per deployment; it is what a resumed page compares
+  // against /api/version to learn it has been superseded. Null in local dev.
+  const deploymentId = process.env.VERCEL_DEPLOYMENT_ID ?? null;
 
   return (
     // suppressHydrationWarning on <html>/<body> swallows attribute diffs
@@ -93,11 +97,22 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${marcellus.variable} ${crimson.variable} ${cinzel.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* use-credentials makes the manifest fetch carry cookies, which is
+            what lets its start_url be personalized — see
+            app/manifest.webmanifest/route.ts. */}
+        <link
+          rel="manifest"
+          href="/manifest.webmanifest"
+          crossOrigin="use-credentials"
+        />
+      </head>
       <body
         suppressHydrationWarning
         className="min-h-full flex flex-col bg-canvas text-ink"
       >
         {children}
+        <ResumeRefresh deploymentId={deploymentId} />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>

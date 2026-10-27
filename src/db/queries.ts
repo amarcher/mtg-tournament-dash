@@ -789,6 +789,29 @@ export async function listOpenEventsForPlayer(
   );
 }
 
+/**
+ * Seats this player holds in the league's events that haven't finished,
+ * newest first — what the home-screen resume route re-issues cookies for.
+ */
+export async function listOpenSeatsForPlayer(leagueId: string, playerId: string) {
+  return db
+    .select({
+      eventId: eventPlayers.eventId,
+      joinToken: eventPlayers.joinToken,
+      status: events.status,
+    })
+    .from(eventPlayers)
+    .innerJoin(events, eq(events.id, eventPlayers.eventId))
+    .where(
+      and(
+        eq(eventPlayers.playerId, playerId),
+        eq(events.leagueId, leagueId),
+        sql`${events.status} <> 'complete'`
+      )
+    )
+    .orderBy(desc(events.createdAt));
+}
+
 export async function listEloHistory(playerId: string, limit = 50) {
   return db
     .select()
