@@ -193,7 +193,20 @@ export default async function GameNightPage({
             <p className="mt-1 text-xs text-zinc-500">
               What&apos;s being drafted, who&apos;s hosting, and where.
             </p>
+            {/* Keyed on the saved plan: React resets uncontrolled fields to
+                their defaultValue the moment the action resolves, before the
+                refreshed server tree lands, and a later defaultValue change
+                never reaches a mounted input. A new key remounts the form
+                with the fresh values instead of the ones it loaded with. */}
             <form
+              key={[
+                night.startsAt.getTime(),
+                night.status,
+                night.setName,
+                night.hostPlayerId,
+                night.venue,
+                night.notes,
+              ].join("|")}
               action={updateGameNightAction}
               className="mt-4 grid gap-4 sm:grid-cols-2"
             >
@@ -303,6 +316,7 @@ export default async function GameNightPage({
                 Ready to play
               </h2>
               <form
+                key={`${night.setName}|${night.startsAt.getTime()}`}
                 action={promoteGameNightAction}
                 className="mt-3 flex flex-wrap items-center gap-2"
               >

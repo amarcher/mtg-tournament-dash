@@ -1365,7 +1365,20 @@ export default async function ManagePage({
           <summary className="flex min-h-14 cursor-pointer select-none items-center px-4 py-3 font-semibold">
             Event details
           </summary>
-          <form action={updateEventAction} className="grid gap-4 p-4 pt-1">
+          {/* Keyed on the saved details so the form remounts with fresh
+              defaultValues after a save — see the PairingBuilder key above
+              for the same React form-reset timing issue. */}
+          <form
+            key={[
+              event.name,
+              event.setName,
+              event.format,
+              event.teamAName,
+              event.teamBName,
+            ].join("|")}
+            action={updateEventAction}
+            className="grid gap-4 p-4 pt-1"
+          >
             <input type="hidden" name="eventId" value={id} />
             <div>
               <label
