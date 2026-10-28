@@ -24,9 +24,12 @@
     "cap:sync": "cap sync"
   },
   "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
     "@capacitor/android": "^8.3.4",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.3.4",
     "@capacitor/ios": "^8.3.4",
+    "@capacitor/status-bar": "^8.0.4",
     "@fal-ai/client": "^1.10.1",
     "@neondatabase/serverless": "^1.1.0",
     "@next/third-parties": "^16.2.6",
@@ -46,6 +49,7 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.3.4",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

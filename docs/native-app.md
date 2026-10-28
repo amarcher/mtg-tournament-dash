@@ -8,10 +8,20 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** groundwork only. The Capacitor config + npm scripts are in
-place. Native projects (`ios/`, `android/`) are *not* scaffolded yet — you
-generate those when you're ready to start the App Store path. See "First
-scaffold" below.
+**Status:** scaffolded and building locally (Oct 27 2026). `ios/` (Swift
+Package Manager — no CocoaPods) and `android/` are checked in, icons and
+splash are generated from `resources/`, and the keep-awake plugin is wired
+into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
+been uploaded yet — see "Signing" below before the first upload.
+
+- **App Store Connect**: app id `6827733846`, personal team `J39B2498YF`,
+  bundle id resource `UNXYHW36H9`, SKU `mtgdash`.
+  <https://appstoreconnect.apple.com/apps/6827733846>
+- **Play Console**: app id `4975058745949277854` under the **Fable Designer**
+  organization account (`6294983081887284734`; the old personal "archer"
+  account was closed in 2021). Package `com.capxun.mtgdash`, free app,
+  automatic installer protection left on.
+  <https://play.google.com/console/u/7/developers/6294983081887284734/app/4975058745949277854/app-dashboard>
 
 ## What's already in the repo
 
@@ -21,6 +31,37 @@ scaffold" below.
 - `@capacitor/cli` in devDependencies.
 - npm scripts: `cap:add:ios`, `cap:add:android`, `cap:open:ios`,
   `cap:open:android`, `cap:sync`.
+- `ios/App` (SPM template: `App.xcodeproj` + `CapApp-SPM/Package.swift`)
+  and `android/`. Re-run `npm run cap:sync` after changing
+  `capacitor.config.ts` or adding a plugin.
+- `resources/icon.png`, `splash.png`, `icon-foreground.png`,
+  `icon-background.png` — 1024/2732 sources cut from the champion portrait.
+  Regenerate every native size with
+  `npx capacitor-assets generate --iconBackgroundColor '#0d0a07' --splashBackgroundColor '#0d0a07'`,
+  then delete the `icons/` and `public/manifest.webmanifest` it also writes:
+  a static `public/manifest.webmanifest` would shadow the personalized
+  manifest route handler.
+- `@capacitor-community/keep-awake`: `src/lib/use-wake-lock.ts` holds the
+  native idle-timer override whenever `Capacitor.isNativePlatform()`, on top
+  of the web Screen Wake Lock. The bridge is injected into pages loaded from
+  `server.url`, so the web bundle can import `@capacitor/core` safely — on a
+  plain browser `isNativePlatform()` is false and the plugin is never called.
+- `@capacitor/status-bar` plus the `StatusBar` / `SystemBars` blocks in
+  `capacitor.config.ts`: canvas-colored, light-text status bar with the
+  WebView inset below it on iOS. On Android 15+/16 edge-to-edge is enforced
+  by the OS, so the status bar overlays the page and the site's own
+  `env(safe-area-inset-*)` padding (AppChrome header, tab bar, Scoreboard)
+  has to carry it — check this on a real Android device before shipping.
+- `ios/App/App/Info.plist` carries camera + photo-library usage strings (the
+  selfie `<input type="file">` opens the camera sheet) and
+  `ITSAppUsesNonExemptEncryption=false`; `AndroidManifest.xml` adds
+  `CAMERA`.
+- **Android upload key** is outside the repo at `~/.mtg-dash/upload.keystore`
+  with `~/.mtg-dash/keystore.properties` next to it (both mode 600).
+  `android/app/build.gradle` reads that properties file when present and
+  signs `release` with it; without it release builds are unsigned. Back both
+  files up to the password manager — losing the key means never updating the
+  Play listing again.
 
 ## Prerequisites
 
@@ -28,7 +69,7 @@ scaffold" below.
 |---|---|---|
 | Xcode 16+ | iOS build | App Store |
 | Xcode Command Line Tools | `xcodebuild` | `xcode-select --install` |
-| **CocoaPods** | iOS native deps | `sudo gem install cocoapods` (not currently installed — install before `cap:add:ios`) |
+| CocoaPods | not needed — the iOS project uses Swift Package Manager | — |
 | Android Studio | Android build + emulator | <https://developer.android.com/studio> |
 | JDK 17+ | Android Gradle | bundled with Android Studio |
 | **Apple Developer Program** | App Store + push certs | <https://developer.apple.com/programs/> ($99/yr) |
@@ -60,6 +101,31 @@ Both `ios/` and `android/` are meant to be checked into git — you'll
 customize app icons, splash screens, `Info.plist`, `AndroidManifest.xml`,
 and (eventually) push-notification entitlements there.
 
+## Signing
+
+Two Apple teams exist on this Mac (see the `app-store-upload` skill). MTG
+Dash builds with the **personal** team `J39B2498YF` (Andrew Archer,
+Individual) — pass `DEVELOPMENT_TEAM=J39B2498YF` on the `xcodebuild` line or
+set it once in Xcode's Signing & Capabilities. The first build uploaded to
+App Store Connect permanently binds `com.capxun.mtgdash` to whichever team
+signed it, so don't upload from the Fable Designer team by accident.
+
+Local build commands that work without Xcode's GUI:
+
+```sh
+# iOS simulator build (no signing)
+cd ios/App && xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+
+# Android: debug APK (sideload), release APK + AAB (signed when the upload key is present)
+cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+  ./gradlew assembleDebug assembleRelease bundleRelease
+# outputs under android/app/build/outputs/{apk,bundle}/
+```
+
+Use Android Studio's bundled JDK as above; the system `java` (26) is newer
+than Gradle 8.14 supports.
+
 ## Configuring icons + splash
 
 The web app's existing icons under `public/icons/winner-victory.jpg` and
@@ -80,47 +146,97 @@ The current app icon (May 12 champion's victory portrait) is at
 
 ## iOS build / TestFlight submission
 
+What actually works on this Mac, start to finish, without Xcode's GUI
+(first done 2026-10-27; build 1.0 (1) is on TestFlight):
+
 ```sh
-# Sync any web-side changes to native (cheap; just refreshes the WebView
-# bundle id, server URL, plugins). Re-run any time you change
-# capacitor.config.ts.
 npm run cap:sync
-
-# Open the Xcode project — from here you'll set the signing team,
-# bundle id, target iOS version, etc.
-npm run cap:open:ios
-
-# In Xcode:
-#   Product → Archive
-#   Distribute App → App Store Connect → Upload
-#   Wait for processing (~10 min)
-#   In App Store Connect, add to TestFlight internal testing
+cd ios/App
+# 1. Archive, signed with the personal team's development identity via the ASC API key
+xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphoneos \
+  -destination 'generic/platform=iOS' -archivePath "$OUT/MTGDash.xcarchive" archive \
+  DEVELOPMENT_TEAM=J39B2498YF -allowProvisioningUpdates \
+  -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_API_KEY_ID.p8" \
+  -authenticationKeyID "$ASC_API_KEY_ID" -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+# 2. Export as an App Store build — MANUAL signing with the API-created profile
+#    "MTG Dash App Store" (profile id M4NHR37XU2, cert "Apple Distribution: Andrew
+#    Archer (J39B2498YF)"). Automatic signing + -allowProvisioningUpdates does NOT
+#    create the App Store profile and fails with "No profiles for 'com.capxun.mtgdash'".
+xcodebuild -exportArchive -archivePath "$OUT/MTGDash.xcarchive" -exportPath "$OUT/export" \
+  -exportOptionsPlist ExportOptions.plist   # method app-store-connect, signingStyle manual,
+                                            # provisioningProfiles {com.capxun.mtgdash: "MTG Dash App Store"}
+# 3. Upload
+xcrun altool --upload-app -f "$OUT/export/App.ipa" -t ios \
+  --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
 ```
 
-Expected first-submission timeline:
-- **Apple Developer enrollment** — 1-2 days (DUNS lookup, identity check).
-- **App Store Connect setup** — half a day (app record, screenshots,
-  privacy strings).
-- **TestFlight internal testing** — same day after upload completes.
-- **App Store review** for public release — 1-7 days (variable). Budget
-  two weeks for a first submission to land cleanly; expect at least one
-  rejection round on privacy strings / screenshot ratios / "minimum
-  functionality."
+If the profile is missing locally, re-fetch it:
+`GET /v1/profiles?filter[name]=MTG%20Dash%20App%20Store` and write the
+base64 `profileContent` to `~/Library/MobileDevice/Provisioning Profiles/<uuid>.mobileprovision`.
+
+Bump `CURRENT_PROJECT_VERSION` in `ios/App/App.xcodeproj/project.pbxproj`
+before each upload — App Store Connect rejects a reused build number.
+
+TestFlight groups (App Store Connect app `6827733846`):
+
+- **MTG Dash Team** (internal, `aa627550-…`) — App Store Connect users;
+  every processed build is available to them immediately, no review.
+- **MTG Dash Testers** (external, `03d256ed-…`) — invite-by-email; the
+  first build in a version needs Beta App Review. Build 1.0 (1) was
+  submitted 2026-10-27 (Test Information uses the Fable Designer business
+  phone as the review contact); later builds of the same version skip it.
+
+Both were seeded 2026-10-27 with the union of the Space Race and Fable Reader
+TestFlight testers.
 
 ## Android build / Play Console submission
 
 ```sh
 npm run cap:sync
-npm run cap:open:android
-
-# In Android Studio:
-#   Build → Generate Signed App Bundle / APK → Android App Bundle (.aab)
-#   First time: generate a keystore. STORE THE KEYSTORE FILE + PASSWORD
-#   SOMEWHERE SAFE — losing it means you can never update the app.
+cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew bundleRelease
+# -> android/app/build/outputs/bundle/release/app-release.aab, signed with ~/.mtg-dash/upload.keystore
 ```
 
-Then upload the `.aab` to Play Console under the app's
-"Internal testing" track. Faster than Apple — typically same-day live.
+Bump `versionCode` in `android/app/build.gradle` before each upload.
+
+Upload the `.aab` in Play Console → MTG Dash (app `4975058745949277854`,
+Fable Designer org) → Testing → Internal testing → Create new release. The
+internal track uses the account-level **Internal** email list (the same
+list Space Race uses); release 1 (1.0) went live 2026-10-27. Until the
+store listing is finished and reviewed, testers see the temporary name
+`com.capxun.mtgdash (unreviewed)` in Play.
+
+`resources/` deliberately has no `splash-dark.png`: the dark splash was a
+byte-identical copy of the light one and `capacitor-assets` turned it into
+4.9 MB of duplicate `drawable-*-night-*` PNGs. Android falls back to the
+non-night drawable, so nothing is lost. If you ever want a real dark
+splash, add a genuinely different image.
+
+## Deep links: Universal Links (iOS) and App Links (Android)
+
+Links to `mtg.capxun.com` open the installed shell instead of Safari/Chrome,
+which is what makes sign-in codes, claim links and table QR codes land in
+the app's own cookie jar.
+
+- Association files are route handlers:
+  `src/app/.well-known/apple-app-site-association/route.ts` (app id
+  `J39B2498YF.com.capxun.mtgdash`, everything except `/api/*` and `/files/*`)
+  and `src/app/.well-known/assetlinks.json/route.ts` (package
+  `com.capxun.mtgdash` with the Play app-signing, upload and debug cert
+  SHA-256s — all three, or links only verify for one kind of build).
+- iOS: `ios/App/App/App.entitlements` carries
+  `applinks:mtg.capxun.com`; the App ID has the Associated Domains
+  capability (added via the ASC API 2026-10-27) and the App Store profile
+  was regenerated afterwards — profiles bake entitlements in, so any future
+  capability change means delete + recreate the profile.
+- Android: the `VIEW` intent filter with `android:autoVerify="true"` on
+  `MainActivity` in `AndroidManifest.xml`.
+- The web side: `src/app/components/NativeLinks.tsx` listens for
+  `appUrlOpen` from `@capacitor/app` and pushes the path into the router.
+- Apple caches the association file per install (its CDN fetches it on
+  install/update), so after changing the AASA, reinstall the app to test.
+  Check verification on Android with
+  `adb shell pm get-app-links com.capxun.mtgdash`.
 
 ## Push notifications (optional, deferred)
 

@@ -24,7 +24,7 @@
 > when last tried and needs a retest — and the organizer token is **kept
 > permanently** alongside roles rather than deleted in Phase 2 (it's the
 > no-login escape hatch, and the only admin path that works inside the
-> Capacitor shell). Auth is better-auth + Resend magic links (not Clerk);
+> Capacitor shell). Auth is better-auth + Resend emailed sign-in codes (not Clerk);
 > manager invites are shareable links, not emails. Player→user binding
 > (Phase 1's `players.user_id`) was consciously skipped: players never need
 > accounts, claiming stays trust-based.
@@ -49,11 +49,11 @@ Diego league invites more people:
 
 ## Phase 1 — Accounts (~2–3 days) ✅ shipped (better-auth variant)
 
-- ✅ **Email magic-link sign-in** via **better-auth + Resend** (chose the
+- ✅ **Email sign-in** via **better-auth + Resend** (magic links at first; switched to a 6-digit code 2026-10-27 so installed/native apps keep the session) (chose the
   own-it path over Clerk): `src/lib/user-auth.ts`, `/sign-in`,
   `/api/auth/[...all]`. Auth tables generated into `src/db/auth-schema.ts`
   (`transaction: false` on the drizzle adapter — neon-http has no
-  transactions). Without `RESEND_API_KEY` the magic link logs to the server
+  transactions). Without `RESEND_API_KEY` the code logs to the server
   console, so local dev needs no email at all.
 - ⏭️ `players.user_id` binding skipped on purpose — accounts are for
   organizers only; wizard claiming stays trust-based. Revisit only if

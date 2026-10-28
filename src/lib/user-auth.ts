@@ -2,7 +2,7 @@
 // under the tsx-driven verify harness (same reasoning as wizard-job.ts).
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { magicLink } from "better-auth/plugins";
+import { emailOTP } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { Resend } from "resend";
 import { db } from "@/db/client";
@@ -12,7 +12,7 @@ import { db } from "@/db/client";
 
 function resolveBaseUrl() {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  // Preview deployments: magic links point at the branch alias people actually
+  // Preview deployments: auth requests use the branch alias people actually
   // open (…-git-<branch>-….vercel.app), falling back to the per-deployment
   // URL. Sessions are then scoped per-preview — expected, not a bug.
   if (process.env.VERCEL_BRANCH_URL)
@@ -31,25 +31,29 @@ const trustedOrigins = [
   .filter((host): host is string => Boolean(host))
   .map((host) => `https://${host}`);
 
-async function sendMagicLink({ email, url }: { email: string; url: string }) {
+// A code instead of a link: an installed home-screen app and the native
+// WebView shell each get their own cookie jar, so a link tapped in Mail signs
+// in Safari, not the app. A code typed into whichever surface asked for it
+// lands the session where the organizer actually is.
+async function sendSignInCode({ email, otp }: { email: string; otp: string }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    // Local dev without email: the link in the server log IS the sign-in.
-    console.log(`[user-auth] magic link for ${email}: ${url}`);
+    // Local dev without email: the code in the server log IS the sign-in.
+    console.log(`[user-auth] sign-in code for ${email}: ${otp}`);
     return;
   }
   const resend = new Resend(apiKey);
   const { error } = await resend.emails.send({
     from: process.env.EMAIL_FROM ?? "MTG Dash <onboarding@resend.dev>",
     to: email,
-    subject: "Your MTG Dash sign-in link",
+    subject: `${otp} is your MTG Dash sign-in code`,
     html: [
-      `<p>Click to sign in to MTG Dash:</p>`,
-      `<p><a href="${url}">Sign in</a></p>`,
-      `<p>This link expires in 5 minutes. If you didn't request it, ignore this email.</p>`,
+      `<p>Enter this code to sign in to MTG Dash:</p>`,
+      `<p style="font-size:28px;font-weight:600;letter-spacing:0.2em;font-family:ui-monospace,Menlo,monospace">${otp}</p>`,
+      `<p>It expires in 10 minutes. If you didn't request it, ignore this email.</p>`,
     ].join("\n"),
   });
-  if (error) throw new Error(`Failed to send magic link: ${error.message}`);
+  if (error) throw new Error(`Failed to send sign-in code: ${error.message}`);
 }
 
 export const auth = betterAuth({
@@ -62,14 +66,21 @@ export const auth = betterAuth({
     transaction: false,
   }),
   // 30-day sliding window (same policy as storybook-studio): anyone active at
-  // least monthly never sees another magic-link email. updateAge bounds the
+  // least monthly never sees another sign-in code email. updateAge bounds the
   // renewal write to ~once per 15 days per active user.
   session: {
     expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24 * 15,
   },
   plugins: [
-    magicLink({ sendMagicLink }),
+    emailOTP({
+      otpLength: 6,
+      expiresIn: 60 * 10,
+      allowedAttempts: 5,
+      async sendVerificationOTP({ email, otp, type }) {
+        if (type === "sign-in") await sendSignInCode({ email, otp });
+      },
+    }),
     // Must stay last: rewrites Set-Cookie handling for server actions.
     nextCookies(),
   ],

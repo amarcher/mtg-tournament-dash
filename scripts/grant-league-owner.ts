@@ -3,7 +3,7 @@
  *
  *   npx tsx --env-file=.env.local scripts/grant-league-owner.ts <league-slug> <email>
  *
- * The account must exist already (sign in once first — in dev the magic link
+ * The account must exist already (sign in once first — in dev the sign-in code
  * is printed to the dev-server console when RESEND_API_KEY is unset). Sets
  * leagues.owner_user_id and upserts an owner row in league_members. Used for
  * the ownership backfill of pre-auth leagues (demo, lexington-dads-magic-draft)
@@ -31,7 +31,7 @@ async function main() {
   const [account] = await db.select().from(user).where(eq(user.email, email));
   if (!account) {
     console.error(
-      `no account for ${email} — sign in once first (dev: magic link is in the dev-server console), then re-run`
+      `no account for ${email} — sign in once first (dev: the sign-in code is in the dev-server console), then re-run`
     );
     process.exit(1);
   }

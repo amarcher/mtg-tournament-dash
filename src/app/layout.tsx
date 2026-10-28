@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Cinzel, Crimson_Pro, Geist_Mono, Marcellus } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { ResumeRefresh } from "./components/ResumeRefresh";
+import { NativeLinks } from "./components/NativeLinks";
 import "./globals.css";
 
 // Free stand-ins for the card faces: Marcellus has Beleren's flared,
@@ -113,6 +114,7 @@ export default function RootLayout({
       >
         {children}
         <ResumeRefresh deploymentId={deploymentId} />
+        <NativeLinks />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
