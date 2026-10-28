@@ -235,6 +235,8 @@ the app's own cookie jar.
   `appUrlOpen` from `@capacitor/app` and pushes the path into the router.
 - Apple caches the association file per install (its CDN fetches it on
   install/update), so after changing the AASA, reinstall the app to test.
+  Verified 2026-10-28 on an iPhone running build 1.0 (2): a mtg.capxun.com
+  link tapped from another app opened the shell. Android is still unchecked.
   Check verification on Android with
   `adb shell pm get-app-links com.capxun.mtgdash`.
 
