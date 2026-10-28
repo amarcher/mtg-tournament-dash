@@ -16,7 +16,9 @@ const config: CapacitorConfig = {
   appId: "com.capxun.mtgdash",
   appName: "MTG Dash",
   webDir: "public",
-  // Shows through wherever the WebView is inset (status bar, home indicator).
+  // Only visible for the instant before the first page paints — the WebView
+  // runs edge-to-edge (Capacitor's default contentInset: never), so nothing
+  // is inset.
   backgroundColor: CANVAS,
   server: {
     url: "https://mtg.capxun.com",
@@ -26,18 +28,15 @@ const config: CapacitorConfig = {
     // already first-party by default for the same host.)
     androidScheme: "https",
   },
-  ios: {
-    contentInset: "always",
-  },
   plugins: {
-    // iOS (and Android < 15): keep the WebView below a canvas-colored status
-    // bar with light text. On Android 15+/16 overlays/background are inert —
-    // edge-to-edge is enforced and the site's own env(safe-area-inset-*)
-    // padding (AppChrome header, tab bar, Scoreboard) does the work.
+    // Light status-bar text drawn over the page. The site declares
+    // viewport-fit=cover and pads its own header, tab bar and scorekeeper with
+    // env(safe-area-inset-*), so the page owns the status-bar and
+    // home-indicator strips; insetting the WebView instead left flat
+    // backgroundColor bands above and below the page (TestFlight build 2).
     StatusBar: {
       style: "DARK",
-      overlaysWebView: false,
-      backgroundColor: CANVAS,
+      overlaysWebView: true,
     },
     SystemBars: {
       style: "DARK",
