@@ -12,7 +12,7 @@ import { db } from "@/db/client";
 
 function resolveBaseUrl() {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
-  // Preview deployments: magic links point at the branch alias people actually
+  // Preview deployments: auth requests use the branch alias people actually
   // open (…-git-<branch>-….vercel.app), falling back to the per-deployment
   // URL. Sessions are then scoped per-preview — expected, not a bug.
   if (process.env.VERCEL_BRANCH_URL)
@@ -66,7 +66,7 @@ export const auth = betterAuth({
     transaction: false,
   }),
   // 30-day sliding window (same policy as storybook-studio): anyone active at
-  // least monthly never sees another magic-link email. updateAge bounds the
+  // least monthly never sees another sign-in code email. updateAge bounds the
   // renewal write to ~once per 15 days per active user.
   session: {
     expiresIn: 60 * 60 * 24 * 30,
