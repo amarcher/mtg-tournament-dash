@@ -68,9 +68,13 @@ export const metadata: Metadata = {
   },
 };
 
+// viewport-fit=cover is what makes env(safe-area-inset-*) non-zero; without it
+// the WebView/home-screen app lays the page out inside the safe areas and the
+// chrome's safe-area padding silently resolves to 0.
 export const viewport: Viewport = {
   themeColor: "#0d0a07",
   colorScheme: "dark",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

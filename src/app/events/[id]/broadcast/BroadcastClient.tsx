@@ -262,7 +262,7 @@ export function BroadcastClient({
     standings.length <= 8 ? Math.max(standings.length, 1) : 0;
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-y-auto bg-zinc-950 text-zinc-100">
+    <div className="fixed inset-0 flex flex-col overflow-y-auto bg-zinc-950 pt-[env(safe-area-inset-top)] text-zinc-100">
       <header className="flex shrink-0 flex-col gap-3 border-b border-zinc-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-12 sm:py-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
