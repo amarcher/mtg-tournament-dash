@@ -178,6 +178,9 @@ Bump `CURRENT_PROJECT_VERSION` in `ios/App/App.xcodeproj/project.pbxproj`
 before each upload — App Store Connect rejects a reused build number.
 
 TestFlight groups (App Store Connect app `6827733846`):
+Public TestFlight link for the external group (enabled 2026-10-28, capped at
+100 testers): https://testflight.apple.com/join/GTwRXEyY — share this with
+players; it installs whichever build is approved for the group.
 
 - **MTG Dash Team** (internal, `aa627550-…`) — App Store Connect users;
   every processed build is available to them immediately, no review.
