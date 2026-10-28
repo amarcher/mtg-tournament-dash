@@ -181,6 +181,9 @@ unit test fails if they disagree). Deploying that bump is what makes
 installed shells show the in-app "Update" banner.
 
 TestFlight groups (App Store Connect app `6827733846`):
+Public TestFlight link for the external group (enabled 2026-10-28, capped at
+100 testers): https://testflight.apple.com/join/GTwRXEyY — share this with
+players; it installs whichever build is approved for the group.
 
 - **MTG Dash Team** (internal, `aa627550-…`) — App Store Connect users;
   every processed build is available to them immediately, no review.
@@ -239,6 +242,8 @@ the app's own cookie jar.
   `appUrlOpen` from `@capacitor/app` and pushes the path into the router.
 - Apple caches the association file per install (its CDN fetches it on
   install/update), so after changing the AASA, reinstall the app to test.
+  Verified 2026-10-28 on an iPhone running build 1.0 (2): a mtg.capxun.com
+  link tapped from another app opened the shell. Android is still unchecked.
   Check verification on Android with
   `adb shell pm get-app-links com.capxun.mtgdash`.
 
