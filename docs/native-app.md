@@ -175,7 +175,10 @@ If the profile is missing locally, re-fetch it:
 base64 `profileContent` to `~/Library/MobileDevice/Provisioning Profiles/<uuid>.mobileprovision`.
 
 Bump `CURRENT_PROJECT_VERSION` in `ios/App/App.xcodeproj/project.pbxproj`
-before each upload — App Store Connect rejects a reused build number.
+before each upload — App Store Connect rejects a reused build number — and
+`NATIVE_BUILDS.ios` in `src/lib/native-version.ts` in the same change (the
+unit test fails if they disagree). Deploying that bump is what makes
+installed shells show the in-app "Update" banner.
 
 TestFlight groups (App Store Connect app `6827733846`):
 
@@ -197,7 +200,8 @@ cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/
 # -> android/app/build/outputs/bundle/release/app-release.aab, signed with ~/.mtg-dash/upload.keystore
 ```
 
-Bump `versionCode` in `android/app/build.gradle` before each upload.
+Bump `versionCode` in `android/app/build.gradle` and `NATIVE_BUILDS.android`
+in `src/lib/native-version.ts` before each upload.
 
 Upload the `.aab` in Play Console → MTG Dash (app `4975058745949277854`,
 Fable Designer org) → Testing → Internal testing → Create new release. The
