@@ -8,7 +8,7 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** build 4 uploaded to TestFlight on 2026-10-29 from Xcode 27.1 (`npm run ios:release -- --upload`, delivery `a520db2c-0ac7-4e01-bd2f-25a51edf95d4`); not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
+**Status:** build 5 is the first launchable Xcode 27.1 build (2026-10-29; `npm run ios:release -- --upload`). Build 4, uploaded the same day, crashes on launch and must never be released: an app built with the iOS 27 SDK needs the UIScene life cycle, which the shell lacked (see "iPhone Duo"). Not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
 Package Manager — no CocoaPods) and `android/` are checked in, icons and
 splash are generated from `resources/`, and the keep-awake plugin is wired
 into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
@@ -150,6 +150,16 @@ and applied here on 2026-10-29.
   iOS 27.1 SDK fills both. `npm run ios:verify` refuses an older Xcode. Apple
   requires Duo screenshots in App Store Connect from April 2027 for builds made
   with 27.1.
+- **The iOS 27 SDK requires the UIScene life cycle.** Build 4, the first from
+  Xcode 27.1, was killed on launch on a real iPhone: an app built with that SDK
+  without a scene manifest is refused ("UIScene life cycle is required").
+  Build 5 adds it the way Capacitor 8.5 lays it out: `ios/App/App/SceneDelegate.swift`
+  (the `CAPBridgeViewController` window plus `SceneDelegateProxy` forwarding),
+  `configurationForConnecting` in `AppDelegate.swift`,
+  `UIApplicationSceneManifest` in `Info.plist`, and Capacitor pinned to 8.5.2
+  (`@capacitor/*` in package.json; `cap sync` writes the matching
+  `CapApp-SPM/Package.swift`). The Xcode guard alone was not enough; this is
+  the other half of building with 27.1.
 - **Fixed overlays carry the side insets themselves.** `body` pads
   `env(safe-area-inset-left/right)`, which in-flow content inherits, but a
   `position: fixed` element ignores it. The sheet, the tab bar, the update
