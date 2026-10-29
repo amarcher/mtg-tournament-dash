@@ -8,7 +8,7 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** scaffolded and building locally (Oct 27 2026). `ios/` (Swift
+**Status:** build 4 uploaded to TestFlight on 2026-10-29 from Xcode 27.1 (`npm run ios:release -- --upload`, delivery `a520db2c-0ac7-4e01-bd2f-25a51edf95d4`); not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
 Package Manager — no CocoaPods) and `android/` are checked in, icons and
 splash are generated from `resources/`, and the keep-awake plugin is wired
 into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
@@ -117,9 +117,12 @@ Local build commands that work without Xcode's GUI:
 # archiving (scripts/ios-verify.sh).
 npm run ios:verify
 
-# iOS release: cap sync, signed archive on the personal team, export, team
-# read back off the .ipa, then (with --upload) altool to App Store Connect /
-# TestFlight. Needs APPLE_TEAM_ID=J39B2498YF plus ASC_API_KEY_ID /
+# iOS release: cap sync, archive on the personal team, a MANUALLY signed export
+# (the "MTG Dash App Store" profile + the Apple Distribution certificate in the
+# spacerace-signing keychain — the App Manager API key cannot use cloud-managed
+# certificates, so an automatic export fails with "Cloud signing permission
+# error"), the team read back off the .ipa, then (with --upload) altool to App
+# Store Connect / TestFlight. Needs APPLE_TEAM_ID=J39B2498YF plus ASC_API_KEY_ID /
 # ASC_API_ISSUER_ID (the personal-team set in ~/.zshrc; never the FABLE_* set).
 # Bump CURRENT_PROJECT_VERSION and NATIVE_BUILDS.ios together first.
 npm run ios:release -- --upload

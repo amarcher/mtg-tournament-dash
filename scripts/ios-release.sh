@@ -9,9 +9,19 @@
 # uploaded bound com.capxun.mtgdash to it for good, so the LLC team is refused
 # below. APPLE_TEAM_ID and the ASC_API_* variables are the ones exported in
 # ~/.zshrc (the personal-team set; Fable Reader's FABLE_* set is the other
-# team and must not be used here). The App Store Connect API key authenticates
-# both the provisioning update and the upload, so no Apple ID session has to
-# be alive in Xcode:
+# team and must not be used here).
+#
+# The archive signs automatically (development signing, which the API key can
+# do), and the EXPORT signs manually: the App Manager API key cannot mint
+# cloud-managed distribution certificates, so an automatic-signing export ends
+# in "Cloud signing permission error" (build 4, 2026-10-29, after the Program
+# License Agreement had been accepted). The export therefore uses the local
+# "Apple Distribution: Andrew Archer" certificate in the dedicated signing
+# keychain and the manual App Store profile named below — the same path
+# space-race's ~/SpaceRace-releases/signing/archive-export-upload.sh takes. The
+# login keychain holds several identically named distribution identities, which
+# makes codesign ambiguous, so the keychain search list is narrowed to the
+# signing keychain for the export and restored afterwards whatever happens.
 #
 #   APPLE_TEAM_ID=J39B2498YF ASC_API_KEY_ID=... ASC_API_ISSUER_ID=... npm run ios:release -- --upload
 #
@@ -26,6 +36,13 @@ ARCHIVE="$BUILD_DIR/MTGDash.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 EXPECTED_TEAM="J39B2498YF"   # Andrew Archer (personal). What the bundle id is bound to.
 LLC_TEAM="QV6BJ85QXY"        # FABLE DESIGNER LLC — Fable Reader's team. Never this app.
+BUNDLE_ID="com.capxun.mtgdash"
+# The manual App Store profile for the bundle id (team J39B2498YF; installed
+# under ~/Library/MobileDevice/Provisioning Profiles; expires 2027-09-25 — make
+# a new one in the developer portal and install it before then).
+STORE_PROFILE="${IOS_STORE_PROFILE:-MTG Dash App Store}"
+# The one-identity keychain holding the Apple Distribution certificate.
+SIGNING_KEYCHAIN="${IOS_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/spacerace-signing.keychain-db}"
 
 UPLOAD=0
 [[ "${1:-}" == "--upload" ]] && UPLOAD=1
@@ -59,7 +76,12 @@ served=$(sed -n 's/.*NATIVE_BUILDS = { ios: \([0-9]*\),.*/\1/p' "$ROOT/src/lib/n
 if [[ "$(echo "$build" | wc -l | tr -d ' ')" != "1" || "$build" != "$served" ]]; then
   echo "ios-release: CURRENT_PROJECT_VERSION ($build) and NATIVE_BUILDS.ios ($served) disagree; bump them together." >&2; exit 1
 fi
-echo "==> Xcode $xcode, team $TEAM_ID, build $build"
+[[ -f "$SIGNING_KEYCHAIN" ]] || { echo "ios-release: signing keychain $SIGNING_KEYCHAIN not found (IOS_SIGNING_KEYCHAIN overrides)." >&2; exit 1; }
+profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+if ! grep -lq "<string>$STORE_PROFILE</string>" "$profiles_dir"/*.mobileprovision 2>/dev/null; then
+  echo "ios-release: no installed provisioning profile named \"$STORE_PROFILE\" in $profiles_dir (IOS_STORE_PROFILE overrides). Download it from the developer portal and double-click it." >&2; exit 1
+fi
+echo "==> Xcode $xcode, team $TEAM_ID, build $build, profile \"$STORE_PROFILE\""
 
 echo "==> Syncing the Capacitor iOS project"
 (cd "$ROOT" && npx cap sync ios)
@@ -100,18 +122,40 @@ cat > "$EXPORT_OPTIONS" <<PLIST
 	<key>teamID</key>
 	<string>$TEAM_ID</string>
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Apple Distribution</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>$BUNDLE_ID</key>
+		<string>$STORE_PROFILE</string>
+	</dict>
 	<key>uploadSymbols</key>
 	<true/>
+	<key>compileBitcode</key>
+	<false/>
 	<key>destination</key>
 	<string>export</string>
 </dict>
 </plist>
 PLIST
 
-echo "==> Exporting the .ipa"
+# Narrow the keychain search list to the signing keychain for the export only.
+# The original list is restored by the trap however the export ends.
+original_keychains=()
+while IFS= read -r line; do
+  line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
+  [[ -n "$line" ]] && original_keychains+=("$line")
+done < <(security list-keychains -d user)
+restore_keychains() { security list-keychains -d user -s "${original_keychains[@]}"; }
+trap restore_keychains EXIT
+security list-keychains -d user -s "$SIGNING_KEYCHAIN"
+
+echo "==> Exporting the .ipa (manual signing: Apple Distribution + \"$STORE_PROFILE\")"
 xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist "$EXPORT_OPTIONS" \
-  -exportPath "$EXPORT_DIR" -allowProvisioningUpdates "${AUTH_ARGS[@]}"
+  -exportPath "$EXPORT_DIR"
+
+restore_keychains; trap - EXIT
 ipa=$(ls "$EXPORT_DIR"/*.ipa)
 echo "==> $ipa"
 
