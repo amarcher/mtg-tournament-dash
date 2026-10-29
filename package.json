@@ -21,14 +21,16 @@
     "cap:add:android": "cap add android",
     "cap:open:ios": "cap open ios",
     "cap:open:android": "cap open android",
-    "cap:sync": "cap sync"
+    "cap:sync": "cap sync",
+    "ios:verify": "bash scripts/ios-verify.sh",
+    "ios:release": "bash scripts/ios-release.sh"
   },
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.1",
-    "@capacitor/android": "^8.3.4",
+    "@capacitor/android": "8.5.2",
     "@capacitor/app": "^8.1.2",
-    "@capacitor/core": "^8.3.4",
-    "@capacitor/ios": "^8.3.4",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2",
     "@capacitor/status-bar": "^8.0.4",
     "@fal-ai/client": "^1.10.1",
     "@neondatabase/serverless": "^1.1.0",
@@ -50,7 +52,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.3.4",
+    "@capacitor/cli": "8.5.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",

@@ -91,13 +91,13 @@ export function WizardGallery({
           aria-modal="true"
           aria-label={`${tiles[openIdx].label} portrait`}
           onClick={close}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] backdrop-blur-sm"
         >
           <button
             type="button"
             onClick={close}
             aria-label="Close"
-            className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-zinc-900/80 text-2xl text-zinc-300 ring-1 ring-zinc-700 hover:bg-zinc-800 hover:text-white"
+            className="absolute right-[max(1rem,env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))] z-10 grid h-10 w-10 place-items-center rounded-full bg-zinc-900/80 text-2xl text-zinc-300 ring-1 ring-zinc-700 hover:bg-zinc-800 hover:text-white"
           >
             ×
           </button>
