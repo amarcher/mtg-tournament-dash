@@ -114,8 +114,15 @@ Local build commands that work without Xcode's GUI:
 
 ```sh
 # iOS: the Xcode 27.1 check, then an unsigned simulator build. Run it before
-# archiving in Xcode (scripts/ios-verify.sh).
+# archiving (scripts/ios-verify.sh).
 npm run ios:verify
+
+# iOS release: cap sync, signed archive on the personal team, export, team
+# read back off the .ipa, then (with --upload) altool to App Store Connect /
+# TestFlight. Needs APPLE_TEAM_ID=J39B2498YF plus ASC_API_KEY_ID /
+# ASC_API_ISSUER_ID (the personal-team set in ~/.zshrc; never the FABLE_* set).
+# Bump CURRENT_PROJECT_VERSION and NATIVE_BUILDS.ios together first.
+npm run ios:release -- --upload
 
 # Android: debug APK (sideload), release APK + AAB (signed when the upload key is present)
 cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
