@@ -67,7 +67,7 @@ been uploaded yet — see "Signing" below before the first upload.
 
 | Tool | Why | Install |
 |---|---|---|
-| Xcode 16+ | iOS build | App Store |
+| **Xcode 27.1+** (iOS 27.1 SDK) | iOS build — the SDK decides how the shell looks on the iPhone Duo; `npm run ios:verify` refuses an older one. See "iPhone Duo" below. | App Store |
 | Xcode Command Line Tools | `xcodebuild` | `xcode-select --install` |
 | CocoaPods | not needed — the iOS project uses Swift Package Manager | — |
 | Android Studio | Android build + emulator | <https://developer.android.com/studio> |
@@ -113,9 +113,9 @@ signed it, so don't upload from the Fable Designer team by accident.
 Local build commands that work without Xcode's GUI:
 
 ```sh
-# iOS simulator build (no signing)
-cd ios/App && xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+# iOS: the Xcode 27.1 check, then an unsigned simulator build. Run it before
+# archiving in Xcode (scripts/ios-verify.sh).
+npm run ios:verify
 
 # Android: debug APK (sideload), release APK + AAB (signed when the upload key is present)
 cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
@@ -125,6 +125,34 @@ cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/
 
 Use Android Studio's bundled JDK as above; the system `java` (26) is newer
 than Gradle 8.14 supports.
+
+## iPhone Duo
+
+Apple's foldable (on sale 2026-10-23): closed, a short wide phone whose camera
+and status bar sit in a strip down the **right** edge, an asymmetric safe-area
+inset; open, an iPad-shaped inner screen with regular/regular size classes.
+Learned on Crossword Clash (its `docs/big-screens-research.md` has the sources)
+and applied here on 2026-10-29.
+
+- **Build with Xcode 27.1 or later.** The build SDK, not the code, decides how
+  the shell looks: an archive from Xcode 26 runs letterboxed at phone size on
+  the inner screen and left of the camera strip on the outer one; one from the
+  iOS 27.1 SDK fills both. `npm run ios:verify` refuses an older Xcode. Apple
+  requires Duo screenshots in App Store Connect from April 2027 for builds made
+  with 27.1.
+- **Fixed overlays carry the side insets themselves.** `body` pads
+  `env(safe-area-inset-left/right)`, which in-flow content inherits, but a
+  `position: fixed` element ignores it. The sheet, the tab bar, the update
+  banner, the portrait lightbox and the broadcast view pad the side insets
+  (the fills stay full-bleed), so nothing sits under the Duo's camera strip.
+  Any new fixed or portalled overlay needs the same two classes.
+- **Orientation needs nothing.** The outer screen honours the iPhone list
+  (portrait + landscape); the inner screen ignores orientation lists and hands
+  the page regular/regular size classes, where the site's wider layouts apply.
+  The web side needs no Duo detection and Apple says there will be none.
+- **Unverified on a Duo simulator** (needs the Xcode 27.1 runtime, macOS
+  only): check the scorekeeper and the tab bar on the outer screen, and a
+  half-open pose on the inner one, before the next store build.
 
 ## Configuring icons + splash
 

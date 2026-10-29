@@ -75,7 +75,7 @@ The current entry points are: `/leagues/[slug]/claim` (primary onboarding — cr
 
 ## Native iOS / Android
 
-`capacitor.config.ts` wraps the production web app as a native shell pointing at `https://mtg.capxun.com`; `ios/` (SPM) and `android/` are scaffolded and checked in, with the keep-awake plugin wired through `useWakeLock`. See [`docs/native-app.md`](docs/native-app.md) for build, signing (personal Apple team; Android upload key under `~/.mtg-dash/`), and submit steps. Whenever you change web code, redeploying to Vercel updates the in-app experience instantly; only native shell changes (icons, plugins, push entitlements) need a resubmission.
+`capacitor.config.ts` wraps the production web app as a native shell pointing at `https://mtg.capxun.com`; `ios/` (SPM) and `android/` are scaffolded and checked in, with the keep-awake plugin wired through `useWakeLock`. See [`docs/native-app.md`](docs/native-app.md) for build, signing (personal Apple team; Android upload key under `~/.mtg-dash/`), and submit steps. Whenever you change web code, redeploying to Vercel updates the in-app experience instantly; only native shell changes (icons, plugins, push entitlements) need a resubmission. **Build with Xcode 27.1 or later** (`npm run ios:verify` refuses an older one): the SDK decides whether the shell fills the iPhone Duo's screens or runs letterboxed. **A `position: fixed` overlay pads `env(safe-area-inset-left/right)` itself** — the body's side padding does not reach it, and the Duo's outer screen puts the camera and status bar in a strip down the right edge (`docs/native-app.md`, "iPhone Duo").
 
 ## Deployment
 

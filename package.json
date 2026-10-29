@@ -21,7 +21,8 @@
     "cap:add:android": "cap add android",
     "cap:open:ios": "cap open ios",
     "cap:open:android": "cap open android",
-    "cap:sync": "cap sync"
+    "cap:sync": "cap sync",
+    "ios:verify": "bash scripts/ios-verify.sh"
   },
   "dependencies": {
     "@capacitor-community/keep-awake": "^8.0.1",
