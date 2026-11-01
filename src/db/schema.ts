@@ -5,6 +5,7 @@ import {
   integer,
   timestamp,
   boolean,
+  bigserial,
   pgEnum,
   uniqueIndex,
   index,
@@ -65,6 +66,8 @@ export const leagueMemberRole = pgEnum("league_member_role", [
   "owner",
   "organizer",
 ]);
+
+export const pushPlatform = pgEnum("push_platform", ["ios", "android"]);
 
 export const leagues = pgTable(
   "leagues",
@@ -470,6 +473,83 @@ export const eloChanges = pgTable("elo_changes", {
     .default(sql`now()`),
 });
 
+// One row per phone that allowed notifications in the native shell: the APNs
+// token (iOS) or the FCM token (Android). The token is the row's identity —
+// the shell re-registers on every launch, and tokens rotate, so `last_seen_at`
+// is what tells a live device from an uninstalled one. The two switches are
+// per device, not per player, because this app has no login: the phone is the
+// unit a person turns notifications on or off for.
+export const pushDevices = pgTable(
+  "push_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    token: text("token").notNull(),
+    platform: pushPlatform("platform").notNull(),
+    appBuild: text("app_build"),
+    notifyRounds: boolean("notify_rounds").notNull().default(true),
+    notifySchedule: boolean("notify_schedule").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    // Set when a store answered "this token is gone"; the row is kept briefly
+    // so the same token re-registering on the next launch simply revives it.
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex("push_devices_token_idx").on(t.token),
+  })
+);
+
+// Which league identities a device speaks for. Identity is league-scoped, so
+// one phone that plays in two leagues links to two `players` rows; the sender
+// resolves recipients player → device and dedupes by device.
+export const pushDevicePlayers = pgTable(
+  "push_device_players",
+  {
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => pushDevices.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    pk: uniqueIndex("push_device_players_pk").on(t.deviceId, t.playerId),
+    playerIdx: index("push_device_players_player_idx").on(t.playerId),
+  })
+);
+
+// One row per recipient device per send (or per skip) with the outcome and
+// never the text, so "why didn't I get it" is answerable from the database.
+export const pushLog = pgTable(
+  "push_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    deviceId: uuid("device_id").references(() => pushDevices.id, {
+      onDelete: "set null",
+    }),
+    playerId: uuid("player_id").references(() => players.id, {
+      onDelete: "set null",
+    }),
+    kind: text("kind").notNull(),
+    collapseId: text("collapse_id"),
+    outcome: text("outcome").notNull(),
+    reason: text("reason"),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    sentIdx: index("push_log_sent_idx").on(t.sentAt),
+  })
+);
+
 export type League = typeof leagues.$inferSelect;
 export type LeagueMember = typeof leagueMembers.$inferSelect;
 export type NewLeague = typeof leagues.$inferInsert;
@@ -487,3 +567,5 @@ export type PollOption = typeof pollOptions.$inferSelect;
 export type PollVote = typeof pollVotes.$inferSelect;
 export type GameNight = typeof gameNights.$inferSelect;
 export type NightRsvp = typeof nightRsvps.$inferSelect;
+export type PushDevice = typeof pushDevices.$inferSelect;
+export type PushLogRow = typeof pushLog.$inferSelect;

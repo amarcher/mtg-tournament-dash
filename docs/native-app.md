@@ -242,24 +242,18 @@ the app's own cookie jar.
   Check verification on Android with
   `adb shell pm get-app-links com.capxun.mtgdash`.
 
-## Push notifications (optional, deferred)
+## Push notifications
 
-Phase 6 in the migration roadmap names push as a "do this when matches go
-async" follow-up. The wiring is roughly:
-
-1. `npm install @capacitor/push-notifications`
-2. On app start, call `PushNotifications.requestPermissions()` →
-   `PushNotifications.register()` → grab the device token in the
-   `registration` listener.
-3. POST the token to a new server action `registerPushTokenAction` (add a
-   `push_tokens` table keyed on `(player_id, platform, token)`).
-4. In server actions that should notify (e.g. `confirmRoundAction`), fan
-   out APNs / FCM sends to every push token associated with affected
-   players. Use [Firebase Admin SDK](https://firebase.google.com/docs/cloud-messaging/server)
-   for both platforms (FCM proxies to APNs for iOS via a one-time APNs key
-   upload in the FCM console).
-
-About half a day of work each side once you decide to build it.
+Shipped in the repo (Oct 31 2026): `@capacitor/push-notifications` in the
+shell, `aps-environment` in the entitlements plus the two `AppDelegate`
+hooks, `POST_NOTIFICATIONS`, the status-bar icon and default channel in
+`AndroidManifest.xml`, and `presentationOptions` in `capacitor.config.ts`.
+The web side registers the device through `registerPushDeviceAction`, and
+the server sends on round confirm, new date poll and new game nights
+(`src/lib/push.ts`). The keys, the App ID capability, the Firebase app and
+the store privacy rows are the by-hand part: see
+[`docs/push-setup.md`](push-setup.md). Until those are done the feature is
+dark, and a shell built before the plugin existed hides the card entirely.
 
 ## What survives the wrap (from `docs/migration-review/mobile-future.md`)
 
@@ -287,8 +281,8 @@ across launches for first-party domains, which is what we have.
 - **App icons need pre-rendering.** The dynamic `/icon` route doesn't help
   the native build — you have to ship a 1024×1024 PNG in resources/ and
   regenerate per-size variants.
-- **Push needs APNs cert + FCM project setup.** Roughly half a day each
-  side, plus storing the certs somewhere durable.
+- **Push needs the APNs key + a Firebase app.** The code is in; the
+  account-side steps are in `docs/push-setup.md`.
 
 ## When to actually do this
 

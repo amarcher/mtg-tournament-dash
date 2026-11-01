@@ -63,6 +63,7 @@ import {
   generateJoinToken,
   getCurrentLeaguePlayer,
   getCurrentPlayer,
+  listCookieLeagueIds,
   setLeagueCookie,
   setPlayerCookie,
 } from "@/lib/auth";
@@ -81,6 +82,18 @@ import {
   removePlayerFromEventRoster,
 } from "@/lib/event-roster";
 import { publish } from "@/lib/pubsub";
+import {
+  notifyDatePoll,
+  notifyGameNights,
+  notifyRoundStarted,
+  runAfterResponse,
+} from "@/lib/push";
+import {
+  registerPushDevice,
+  removePushDevice,
+  updatePushDevicePrefs,
+} from "@/lib/push-devices";
+import { isPlausibleToken } from "@/lib/push-rules";
 import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
 import {
@@ -832,6 +845,11 @@ export async function confirmRoundAction(eventId: string) {
     type: "round_started",
     roundNumber: pending.roundNumber,
   });
+  // Phones that are locked in a pocket don't get the SSE message; the push
+  // is what brings them to the table. Sent after the response goes out.
+  await runAfterResponse(() =>
+    notifyRoundStarted(event, pending.roundNumber, pendingMatches)
+  );
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
   revalidatePath(`/events/${eventId}/play`);
@@ -1961,7 +1979,7 @@ export async function createDatePollAction(formData: FormData) {
 
   if (!leagueId) throw new Error("League required");
   const league = await requirePollLeague(leagueId);
-  await requireLeaguePlayer(leagueId, createdByPlayerId);
+  const creator = await requireLeaguePlayer(leagueId, createdByPlayerId);
 
   const dates: Date[] = [];
   for (const raw of rawDates) {
@@ -1982,6 +2000,18 @@ export async function createDatePollAction(formData: FormData) {
   await db
     .insert(pollOptions)
     .values(dates.map((startsAt) => ({ pollId: poll.id, startsAt })));
+
+  await runAfterResponse(() =>
+    notifyDatePoll({
+      leagueId,
+      leagueSlug: league.slug,
+      pollId: poll.id,
+      title,
+      optionCount: dates.length,
+      creatorId: creator.id,
+      creatorName: creator.displayName,
+    })
+  );
 
   revalidatePath(`/leagues/${league.slug}`);
   revalidatePath(`/leagues/${league.slug}/schedule`);
@@ -2204,12 +2234,26 @@ export async function createGameNightsAction(formData: FormData) {
     throw new Error(`That's more than ${MAX_SERIES_COUNT} dates at once`);
   }
 
-  await db
+  const inserted = await db
     .insert(gameNights)
     .values(dates.map((startsAt) => ({ leagueId, startsAt })))
     .onConflictDoNothing({
       target: [gameNights.leagueId, gameNights.startsAt],
-    });
+    })
+    .returning({ startsAt: gameNights.startsAt });
+
+  // Only dates that are actually new are news; a re-run recurrence that
+  // skipped every duplicate sends nothing.
+  if (inserted.length > 0) {
+    await runAfterResponse(() =>
+      notifyGameNights({
+        leagueId,
+        leagueSlug: league.slug,
+        leagueName: league.name,
+        dates: inserted.map((n) => n.startsAt),
+      })
+    );
+  }
 
   revalidateCalendar(league.slug);
   redirect(`/leagues/${league.slug}/schedule`);
@@ -2491,6 +2535,73 @@ export async function updateEventAction(formData: FormData) {
  */
 export async function deauthorizeDeviceAction() {
   await clearOrganizerCookies();
+}
+
+/* ---- push notifications (native shell) ---- */
+
+function parsePushPlatform(raw: unknown): "ios" | "android" {
+  if (raw === "ios" || raw === "android") return raw;
+  throw new Error("Unknown platform");
+}
+
+/**
+ * The native shell calls this with its APNs/FCM token on every launch and
+ * whenever a switch is turned on. The phone is linked to every league
+ * identity its cookies hold, so a wizard claimed in a second league starts
+ * hearing about that league on the next launch. Player self-service: the
+ * token is the credential, never a login.
+ */
+export async function registerPushDeviceAction(args: {
+  token: string;
+  platform: string;
+  appBuild?: string | null;
+}) {
+  const token = String(args.token ?? "");
+  if (!isPlausibleToken(token)) throw new Error("Bad device token");
+  const platform = parsePushPlatform(args.platform);
+  const leagueIds = await listCookieLeagueIds();
+  const mine = await Promise.all(
+    leagueIds.map((id) => getCurrentLeaguePlayer(id))
+  );
+  const playerIds = mine.flatMap((p) => (p ? [p.id] : []));
+  const device = await registerPushDevice({
+    token,
+    platform,
+    appBuild: args.appBuild ?? null,
+    playerIds,
+  });
+  return {
+    notifyRounds: device.notifyRounds,
+    notifySchedule: device.notifySchedule,
+    playerCount: playerIds.length,
+  };
+}
+
+export async function setPushPrefsAction(args: {
+  token: string;
+  notifyRounds?: boolean;
+  notifySchedule?: boolean;
+}) {
+  const token = String(args.token ?? "");
+  if (!isPlausibleToken(token)) throw new Error("Bad device token");
+  const patch: { notifyRounds?: boolean; notifySchedule?: boolean } = {};
+  if (typeof args.notifyRounds === "boolean")
+    patch.notifyRounds = args.notifyRounds;
+  if (typeof args.notifySchedule === "boolean")
+    patch.notifySchedule = args.notifySchedule;
+  const device = await updatePushDevicePrefs(token, patch);
+  if (!device) throw new Error("This phone isn't registered yet");
+  return {
+    notifyRounds: device.notifyRounds,
+    notifySchedule: device.notifySchedule,
+  };
+}
+
+/** "Turn off notifications on this phone": forget the device entirely. */
+export async function unregisterPushDeviceAction(args: { token: string }) {
+  const token = String(args.token ?? "");
+  if (!isPlausibleToken(token)) return;
+  await removePushDevice(token);
 }
 
 /* ---- league management (organizer accounts) ---- */

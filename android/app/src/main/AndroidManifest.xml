@@ -26,6 +26,11 @@
             </intent-filter>
         </activity>
 
+        <!-- Push: the status-bar glyph and the channel FCM messages name
+             (src/lib/push-rules.ts PUSH_CHANNEL_ID; the shell creates it). -->
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_notification" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="mtg-dash" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -39,4 +44,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Android 13+: notifications are a runtime permission; the app asks only
+         when the player turns them on (NotificationSettings), never on launch. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

@@ -1,4 +1,5 @@
 /// <reference types="@capacitor/status-bar" />
+/// <reference types="@capacitor/push-notifications" />
 import type { CapacitorConfig } from "@capacitor/cli";
 
 // MTG Dash native shell — a Capacitor wrap around the production web app.
@@ -41,6 +42,11 @@ const config: CapacitorConfig = {
     SystemBars: {
       style: "DARK",
       insetsHandling: "css",
+    },
+    // A round-start push that arrives while the app is open (phone face-up
+    // on the table) still shows as a banner; without this iOS swallows it.
+    PushNotifications: {
+      presentationOptions: ["badge", "sound", "alert"],
     },
   },
 };

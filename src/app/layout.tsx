@@ -4,6 +4,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import { ResumeRefresh } from "./components/ResumeRefresh";
 import { NativeLinks } from "./components/NativeLinks";
 import { NativeUpdate } from "./components/NativeUpdate";
+import { PushEffects } from "./components/PushEffects";
 import "./globals.css";
 
 // Free stand-ins for the card faces: Marcellus has Beleren's flared,
@@ -121,6 +122,7 @@ export default function RootLayout({
         <ResumeRefresh deploymentId={deploymentId} />
         <NativeLinks />
         <NativeUpdate />
+        <PushEffects />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
