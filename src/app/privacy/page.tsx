@@ -57,6 +57,12 @@ export default function PrivacyPage() {
               used for advertising.
             </li>
             <li>
+              <strong>Notifications:</strong> if you turn them on in the iOS or
+              Android app, the push token Apple or Google issues for your
+              phone, so it can be told when your round is paired or dates
+              are posted. Turning them off in the app deletes it.
+            </li>
+            <li>
               <strong>Usage:</strong> anonymous page views through Google
               Analytics, to see which parts of the app are used.
             </li>
@@ -89,8 +95,8 @@ export default function PrivacyPage() {
           <h2 className="mb-2 text-xl font-semibold">Removal</h2>
           <p>
             Email {CONTACT} from the address you organize with, or with the
-            league and player name, and the player, portrait, selfie or
-            organizer account will be deleted within 30 days.
+            league and player name, and the player, portrait, selfie, push
+            token or organizer account will be deleted within 30 days.
           </p>
         </section>
 
