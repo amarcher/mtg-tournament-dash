@@ -149,6 +149,18 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 async function cleanup() {
+  // push_log only SETs NULL when its player or device goes, and a device the
+  // real gateway rejected mid-run is already gone, so delete the rows by
+  // player while the verify players still exist.
+  const verifyLeagues = db
+    .select({ id: leagues.id })
+    .from(leagues)
+    .where(like(leagues.slug, `${PREFIX}%`));
+  const verifyPlayers = db
+    .select({ id: players.id })
+    .from(players)
+    .where(inArray(players.leagueId, verifyLeagues));
+  await db.delete(pushLog).where(inArray(pushLog.playerId, verifyPlayers));
   // Delete events first so the matches/elo_changes cascade clears out the
   // elo_changes rows that reference players (elo_changes.player_id has no
   // ON DELETE CASCADE). Then deleting the league cascades to its players.
@@ -3148,6 +3160,11 @@ async function runGameNightPass(): Promise<{
     if (isNextRedirect(e)) ok("calendar opened (redirects to the schedule)");
     else throw e;
   }
+
+  // With real gateways in .env.local the first batch's send comes back as a
+  // bad token and deletes the phone (push_log keeps the player id), so the
+  // second batch needs a second phone to have anyone to notify.
+  await registerVerifyDevice("nights-2", [n1p.id]);
 
   // Re-running an overlapping series must not duplicate existing dates.
   try {

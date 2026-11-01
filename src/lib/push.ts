@@ -17,10 +17,12 @@ import {
   apnsTokenStale,
   fcmMessage,
   gameNightsNotification,
+  parseServiceAccount,
   pollNotification,
   prefForKind,
   roundNotification,
   testNotification,
+  type ServiceAccount,
   tokenUnregistered,
   type PushNotification,
   type PushPlatform,
@@ -61,7 +63,7 @@ export function pushConfigured() {
     apns: Boolean(
       process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID && process.env.APNS_P8
     ),
-    fcm: Boolean(process.env.FCM_SERVICE_ACCOUNT),
+    fcm: serviceAccount() !== null,
   };
 }
 
@@ -205,21 +207,8 @@ async function sendApns(
 
 // --- FCM -------------------------------------------------------------------
 
-type ServiceAccount = {
-  client_email: string;
-  private_key: string;
-  project_id: string;
-};
-
-function serviceAccount(): ServiceAccount | null {
-  const raw = process.env.FCM_SERVICE_ACCOUNT;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as ServiceAccount;
-  } catch {
-    return null;
-  }
-}
+const serviceAccount = () =>
+  parseServiceAccount(process.env.FCM_SERVICE_ACCOUNT);
 
 let fcmAccess: { token: string; expiresAt: number } | null = null;
 

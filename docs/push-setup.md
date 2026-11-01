@@ -18,6 +18,13 @@ nights). "Turn off on this phone" deletes the device row.
 Order: the Apple side, the Google side, the Vercel switches, the store forms,
 then a build.
 
+**Status, 2026-11-01:** sections 1 to 3 are done (Push capability on the App
+ID, profile `5FT855H9B5` installed, Firebase app
+`1:947795730277:android:2c1873c41dc6264b2a8b8c` in the `crossword-clash`
+project, the four variables in Vercel for all three environments, and
+`npm run verify` driving the real gateways). Left: the store forms in
+section 4 and each new store build.
+
 ---
 
 ## 1. Apple: capability, key, profile
@@ -37,8 +44,9 @@ Still to do for this app:
    production`; a build made before the capability exists fails to register
    (the plugin's `registrationError`), nothing worse.
 2. **Recreate the App Store profile.** A capability change invalidates the
-   manual profile the upload path signs with ("MTG Dash App Store", id
-   `M4NHR37XU2`, cert "Apple Distribution: Andrew Archer (J39B2498YF)").
+   manual profile the upload path signs with ("MTG Dash App Store"; the id
+   changes with every recreate, `5FT855H9B5` since 2026-11-01, cert
+   "Apple Distribution: Andrew Archer (J39B2498YF)").
    DELETE it, POST a new `IOS_APP_STORE` profile with the same name, bundle
    id `UNXYHW36H9` and the same certificate, write its `profileContent` under
    `~/Library/MobileDevice/Provisioning Profiles/<uuid>.mobileprovision` and
@@ -58,7 +66,11 @@ a service account allowed to send. Crossword Clash attached Firebase to its
 existing Cloud project from the CLI; do the same here, either on a new
 project (`mtg-dash`) or by adding a second Android app to the
 `crossword-clash` project (one project can hold both; the service account
-and quota are then shared).
+and quota are then shared). Done 2026-11-01 the second way: MTG Dash is a
+second Android app in `crossword-clash`, the sender is
+`fcm-sender@crossword-clash.iam.gserviceaccount.com` and its key stays at
+`~/.config/crossword-clash/fcm-service-account.json` (one copy of the
+secret, used by both apps).
 
 1. `gcloud services enable firebase.googleapis.com fcm.googleapis.com`, then
    `POST https://firebase.googleapis.com/v1beta1/projects/<project>:addFirebase`
@@ -88,10 +100,11 @@ Production (and Preview, so a preview deploy can be smoke-tested):
 | `APNS_P8` | the `.p8` file's whole PEM text (`vercel env add APNS_P8 production < AuthKey_XCYXKS23C7.p8`) |
 | `APNS_BUNDLE_ID` | optional, defaults to `com.capxun.mtgdash` |
 | `APNS_SANDBOX` | leave unset; `1` only for an Xcode-run development build, which registers against the sandbox gateway |
-| `FCM_SERVICE_ACCOUNT` | the service-account JSON, whole |
+| `FCM_SERVICE_ACCOUNT` | the service-account JSON, **base64-encoded**: `base64 < fcm-service-account.json \| tr -d '\n' \| vercel env add FCM_SERVICE_ACCOUNT production`. The raw JSON also parses at runtime, but `vercel env pull` writes it in a form dotenv mangles (the private key's `\n` escapes), so the local harness would see no account |
 
-`PUBLIC_URL` is already set and is what the links inside a notification use.
-Then `vercel env pull .env.local` so `npm run verify` exercises the real
+`PUBLIC_URL` is not set in Vercel; the links inside a notification fall back
+to `https://mtg.capxun.com` (`DEFAULT_SITE`), right for production and
+harmless on previews. Then `vercel env pull .env.local` so `npm run verify` exercises the real
 gateways (its fake tokens are refused as `BadDeviceToken` / `UNREGISTERED`,
 which the harness accepts; `failed` with `*_not_configured` is what it sees
 before this step).

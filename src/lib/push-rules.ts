@@ -214,3 +214,43 @@ export function apnsTokenStale(issuedAtMs: number, now: Date = new Date()) {
 export function isPlausibleToken(token: string): boolean {
   return token.length >= 16 && token.length <= 4096 && !/\s/.test(token);
 }
+
+export interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id: string;
+}
+
+/**
+ * FCM_SERVICE_ACCOUNT is the service-account JSON, as-is or base64-encoded.
+ * The runbook stores base64: the JSON's private key is full of `\n` escapes
+ * and inner quotes, which `vercel env pull` plus dotenv unpick into text
+ * JSON.parse rejects, while base64 survives every tool in the chain.
+ */
+export function parseServiceAccount(
+  raw: string | undefined
+): ServiceAccount | null {
+  if (!raw) return null;
+  for (const text of [raw, decodeBase64(raw)]) {
+    if (!text) continue;
+    try {
+      const parsed = JSON.parse(text) as Partial<ServiceAccount>;
+      if (parsed.client_email && parsed.private_key && parsed.project_id) {
+        return parsed as ServiceAccount;
+      }
+    } catch {
+      /* not this form */
+    }
+  }
+  return null;
+}
+
+function decodeBase64(raw: string): string | null {
+  const compact = raw.replace(/\s/g, "");
+  if (!/^[A-Za-z0-9+/]+=*$/.test(compact)) return null;
+  try {
+    return atob(compact);
+  } catch {
+    return null;
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "project_info": {
+    "project_number": "947795730277",
+    "project_id": "crossword-clash",
+    "storage_bucket": "crossword-clash.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:947795730277:android:2c1873c41dc6264b2a8b8c",
+        "android_client_info": {
+          "package_name": "com.capxun.mtgdash"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "947795730277-0skrplb0r6c6apr9lteai0a2uqo70uth.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCg5ez79GUiS4y8xLun3uCSlK1wamqokH0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "947795730277-0skrplb0r6c6apr9lteai0a2uqo70uth.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "947795730277-bhbf4mkmo94i09jjsqj34hblt0prqtk3.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.crosswordclash.app",
+                "app_store_id": "6811111993"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:947795730277:android:090adb16ab557bac2a8b8c",
+        "android_client_info": {
+          "package_name": "com.crosswordclash.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "947795730277-0skrplb0r6c6apr9lteai0a2uqo70uth.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCg5ez79GUiS4y8xLun3uCSlK1wamqokH0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "947795730277-0skrplb0r6c6apr9lteai0a2uqo70uth.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "947795730277-bhbf4mkmo94i09jjsqj34hblt0prqtk3.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.crosswordclash.app",
+                "app_store_id": "6811111993"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

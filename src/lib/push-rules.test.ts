@@ -5,6 +5,7 @@ import {
   fcmMessage,
   gameNightsNotification,
   isPlausibleToken,
+  parseServiceAccount,
   pollNotification,
   prefForKind,
   roundNotification,
@@ -135,5 +136,28 @@ describe("isPlausibleToken", () => {
     expect(isPlausibleToken("abc")).toBe(false);
     expect(isPlausibleToken("a".repeat(20) + " ")).toBe(false);
     expect(isPlausibleToken("f".repeat(64))).toBe(true);
+  });
+});
+
+describe("parseServiceAccount", () => {
+  const account = {
+    client_email: "sender@example.iam.gserviceaccount.com",
+    private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+    project_id: "example",
+  };
+  const json = JSON.stringify(account, null, 2);
+
+  it("reads the JSON as-is", () => {
+    expect(parseServiceAccount(json)).toEqual(account);
+  });
+
+  it("reads the JSON base64-encoded", () => {
+    expect(parseServiceAccount(btoa(json))).toEqual(account);
+  });
+
+  it("rejects junk and incomplete accounts", () => {
+    expect(parseServiceAccount(undefined)).toBeNull();
+    expect(parseServiceAccount("{not json")).toBeNull();
+    expect(parseServiceAccount(JSON.stringify({ project_id: "p" }))).toBeNull();
   });
 });

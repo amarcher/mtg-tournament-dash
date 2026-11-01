@@ -8,7 +8,7 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** build 5 is the first launchable Xcode 27.1 build (2026-10-29; `npm run ios:release -- --upload`). Build 4, uploaded the same day, crashes on launch and must never be released: an app built with the iOS 27 SDK needs the UIScene life cycle, which the shell lacked (see "iPhone Duo"). Not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
+**Status:** build 6 (2026-11-01, Android versionCode 3) adds push notifications (`docs/push-setup.md`). Build 5 was the first launchable Xcode 27.1 build (2026-10-29; `npm run ios:release -- --upload`). Build 4, uploaded the same day, crashes on launch and must never be released: an app built with the iOS 27 SDK needs the UIScene life cycle, which the shell lacked (see "iPhone Duo"). Not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
 Package Manager — no CocoaPods) and `android/` are checked in, icons and
 splash are generated from `resources/`, and the keep-awake plugin is wired
 into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
@@ -207,7 +207,8 @@ xcodebuild -project App.xcodeproj -scheme App -configuration Release -sdk iphone
   -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_API_KEY_ID.p8" \
   -authenticationKeyID "$ASC_API_KEY_ID" -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
 # 2. Export as an App Store build — MANUAL signing with the API-created profile
-#    "MTG Dash App Store" (profile id M4NHR37XU2, cert "Apple Distribution: Andrew
+#    "MTG Dash App Store" (id 5FT855H9B5 since 2026-11-01; it changes with every
+#    recreate, cert "Apple Distribution: Andrew
 #    Archer (J39B2498YF)"). Automatic signing + -allowProvisioningUpdates does NOT
 #    create the App Store profile and fails with "No profiles for 'com.capxun.mtgdash'".
 xcodebuild -exportArchive -archivePath "$OUT/MTGDash.xcarchive" -exportPath "$OUT/export" \
@@ -291,6 +292,10 @@ the app's own cookie jar.
   `adb shell pm get-app-links com.capxun.mtgdash`.
 
 ## Push notifications
+
+Live from build 6 (2026-11-01): the App ID capability, the App Store
+profile, the Firebase app and the Vercel variables are all in place
+(`docs/push-setup.md`, Status).
 
 Shipped in the repo (Oct 31 2026): `@capacitor/push-notifications` in the
 shell, `aps-environment` in the entitlements plus the two `AppDelegate`
