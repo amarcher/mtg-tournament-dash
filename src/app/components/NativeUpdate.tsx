@@ -83,7 +83,7 @@ export function NativeUpdate() {
   return (
     <div
       role="status"
-      className="fixed inset-x-4 top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 mx-auto flex max-w-md items-center gap-3 rounded-[14px] border border-line bg-surface p-3 pl-4 shadow-e3 motion-safe:animate-[sheet-up_260ms_var(--ease-out-expo)]"
+      className="fixed left-[calc(1rem+env(safe-area-inset-left))] right-[calc(1rem+env(safe-area-inset-right))] top-[calc(env(safe-area-inset-top)+4.25rem)] z-50 mx-auto flex max-w-md items-center gap-3 rounded-[14px] border border-line bg-surface p-3 pl-4 shadow-e3 motion-safe:animate-[sheet-up_260ms_var(--ease-out-expo)]"
     >
       <p className="min-w-0 flex-1 text-sm text-ink">
         A newer MTG Dash is ready to install.

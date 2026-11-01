@@ -27,7 +27,11 @@ export function Sheet({
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+    // Fixed, so the body's side safe-area padding does not reach it: the sheet
+    // carries the insets itself (the iPhone Duo's outer screen reserves a strip
+    // down the right edge for the camera and status bar). The backdrop stays
+    // full-bleed.
+    <div className="fixed inset-0 z-50 flex flex-col justify-end pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       <button
         aria-label="Close"
         onClick={onClose}

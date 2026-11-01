@@ -8,7 +8,7 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** scaffolded and building locally (Oct 27 2026). `ios/` (Swift
+**Status:** build 5 is the first launchable Xcode 27.1 build (2026-10-29; `npm run ios:release -- --upload`). Build 4, uploaded the same day, crashes on launch and must never be released: an app built with the iOS 27 SDK needs the UIScene life cycle, which the shell lacked (see "iPhone Duo"). Not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
 Package Manager — no CocoaPods) and `android/` are checked in, icons and
 splash are generated from `resources/`, and the keep-awake plugin is wired
 into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
@@ -67,7 +67,7 @@ been uploaded yet — see "Signing" below before the first upload.
 
 | Tool | Why | Install |
 |---|---|---|
-| Xcode 16+ | iOS build | App Store |
+| **Xcode 27.1+** (iOS 27.1 SDK) | iOS build — the SDK decides how the shell looks on the iPhone Duo; `npm run ios:verify` refuses an older one. See "iPhone Duo" below. | App Store |
 | Xcode Command Line Tools | `xcodebuild` | `xcode-select --install` |
 | CocoaPods | not needed — the iOS project uses Swift Package Manager | — |
 | Android Studio | Android build + emulator | <https://developer.android.com/studio> |
@@ -113,9 +113,19 @@ signed it, so don't upload from the Fable Designer team by accident.
 Local build commands that work without Xcode's GUI:
 
 ```sh
-# iOS simulator build (no signing)
-cd ios/App && xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+# iOS: the Xcode 27.1 check, then an unsigned simulator build. Run it before
+# archiving (scripts/ios-verify.sh).
+npm run ios:verify
+
+# iOS release: cap sync, archive on the personal team, a MANUALLY signed export
+# (the "MTG Dash App Store" profile + the Apple Distribution certificate in the
+# spacerace-signing keychain — the App Manager API key cannot use cloud-managed
+# certificates, so an automatic export fails with "Cloud signing permission
+# error"), the team read back off the .ipa, then (with --upload) altool to App
+# Store Connect / TestFlight. Needs APPLE_TEAM_ID=J39B2498YF plus ASC_API_KEY_ID /
+# ASC_API_ISSUER_ID (the personal-team set in ~/.zshrc; never the FABLE_* set).
+# Bump CURRENT_PROJECT_VERSION and NATIVE_BUILDS.ios together first.
+npm run ios:release -- --upload
 
 # Android: debug APK (sideload), release APK + AAB (signed when the upload key is present)
 cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
@@ -125,6 +135,44 @@ cd android && JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/
 
 Use Android Studio's bundled JDK as above; the system `java` (26) is newer
 than Gradle 8.14 supports.
+
+## iPhone Duo
+
+Apple's foldable (on sale 2026-10-23): closed, a short wide phone whose camera
+and status bar sit in a strip down the **right** edge, an asymmetric safe-area
+inset; open, an iPad-shaped inner screen with regular/regular size classes.
+Learned on Crossword Clash (its `docs/big-screens-research.md` has the sources)
+and applied here on 2026-10-29.
+
+- **Build with Xcode 27.1 or later.** The build SDK, not the code, decides how
+  the shell looks: an archive from Xcode 26 runs letterboxed at phone size on
+  the inner screen and left of the camera strip on the outer one; one from the
+  iOS 27.1 SDK fills both. `npm run ios:verify` refuses an older Xcode. Apple
+  requires Duo screenshots in App Store Connect from April 2027 for builds made
+  with 27.1.
+- **The iOS 27 SDK requires the UIScene life cycle.** Build 4, the first from
+  Xcode 27.1, was killed on launch on a real iPhone: an app built with that SDK
+  without a scene manifest is refused ("UIScene life cycle is required").
+  Build 5 adds it the way Capacitor 8.5 lays it out: `ios/App/App/SceneDelegate.swift`
+  (the `CAPBridgeViewController` window plus `SceneDelegateProxy` forwarding),
+  `configurationForConnecting` in `AppDelegate.swift`,
+  `UIApplicationSceneManifest` in `Info.plist`, and Capacitor pinned to 8.5.2
+  (`@capacitor/*` in package.json; `cap sync` writes the matching
+  `CapApp-SPM/Package.swift`). The Xcode guard alone was not enough; this is
+  the other half of building with 27.1.
+- **Fixed overlays carry the side insets themselves.** `body` pads
+  `env(safe-area-inset-left/right)`, which in-flow content inherits, but a
+  `position: fixed` element ignores it. The sheet, the tab bar, the update
+  banner, the portrait lightbox and the broadcast view pad the side insets
+  (the fills stay full-bleed), so nothing sits under the Duo's camera strip.
+  Any new fixed or portalled overlay needs the same two classes.
+- **Orientation needs nothing.** The outer screen honours the iPhone list
+  (portrait + landscape); the inner screen ignores orientation lists and hands
+  the page regular/regular size classes, where the site's wider layouts apply.
+  The web side needs no Duo detection and Apple says there will be none.
+- **Unverified on a Duo simulator** (needs the Xcode 27.1 runtime, macOS
+  only): check the scorekeeper and the tab bar on the outer screen, and a
+  half-open pose on the inner one, before the next store build.
 
 ## Configuring icons + splash
 
