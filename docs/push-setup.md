@@ -22,8 +22,13 @@ then a build.
 ID, profile `5FT855H9B5` installed, Firebase app
 `1:947795730277:android:2c1873c41dc6264b2a8b8c` in the `crossword-clash`
 project, the four variables in Vercel for all three environments, and
-`npm run verify` driving the real gateways). Left: the store forms in
-section 4 and each new store build.
+`npm run verify` driving the real gateways). iOS build 6 went to App Store
+Connect the same day (`npm run ios:release -- --upload`) and the Android
+versionCode 3 bundle was built. Left: the store forms in section 4 and the
+Play Console upload of `android/app/build/outputs/bundle/release/app-release.aab`
+(the Crossword Clash `play-publisher` service account has no permission on
+this Play app, so the upload is by hand until one is granted in Play Console
+→ Users and permissions).
 
 ---
 
