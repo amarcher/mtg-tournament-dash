@@ -18,17 +18,22 @@ nights). "Turn off on this phone" deletes the device row.
 Order: the Apple side, the Google side, the Vercel switches, the store forms,
 then a build.
 
-**Status, 2026-11-01:** sections 1 to 3 are done (Push capability on the App
-ID, profile `5FT855H9B5` installed, Firebase app
+**Status, 2026-11-01:** everything in this file is done. Sections 1 to 3
+(App ID capability, profile `5FT855H9B5`, Firebase app
 `1:947795730277:android:2c1873c41dc6264b2a8b8c` in the `crossword-clash`
-project, the four variables in Vercel for all three environments, and
-`npm run verify` driving the real gateways). iOS build 6 went to App Store
-Connect the same day (`npm run ios:release -- --upload`) and the Android
-versionCode 3 bundle was built. Left: the store forms in section 4 and the
-Play Console upload of `android/app/build/outputs/bundle/release/app-release.aab`
-(the Crossword Clash `play-publisher` service account has no permission on
-this Play app, so the upload is by hand until one is granted in Play Console
-→ Users and permissions).
+project, the four Vercel variables, `npm run verify` against the real
+gateways); section 4 (App Store Connect App Privacy published with Device ID,
+Name, Email, Photos linked and Product Interaction unlinked; Play Data safety
+saved with the same five types, plus the Sign in details, Target audience
+18+ and IARC content rating declarations Play required first, all "ready to
+send for review"); and section 5 (iOS build 6 in TestFlight, attached to the
+public-link group "MTG Dash Testers" and submitted to Beta App Review;
+Android versionCode 3 published to the Internal testing track). Play
+reviewers get in through the permanent `app-review` league: its claim link
+and its no-login organizer link are in the Sign in details declaration. The
+Crossword Clash `play-publisher` service account has no permission on this
+Play app, so `.aab` uploads stay by hand (or grant it under Play Console →
+Users and permissions).
 
 ---
 
