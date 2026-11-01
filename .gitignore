@@ -49,3 +49,6 @@ next-env.d.ts
 
 # Claude Code local state
 .claude/
+
+# iOS release script output (archive, export, ExportOptions.plist)
+ios/build/

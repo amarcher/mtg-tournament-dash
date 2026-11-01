@@ -18,6 +18,7 @@ import {
 } from "@/lib/bonus-game";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { AppChrome } from "@/app/components/AppChrome";
+import { NotificationSettings } from "@/app/components/NotificationSettings";
 import { NightPlanLine, RsvpButtons } from "@/app/components/GameNightCard";
 import { formatPollDate } from "@/lib/schedule-types";
 
@@ -296,6 +297,9 @@ export default async function PlayHomePage({
             ))}
           </section>
         )}
+
+        {/* Renders nothing on the website: only the native shell can hold a push token. */}
+        {me && <NotificationSettings />}
       </main>
     </AppChrome>
   );

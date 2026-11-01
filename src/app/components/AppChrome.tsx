@@ -67,7 +67,10 @@ export function AppChrome({
           <div aria-hidden className="h-[calc(4.5rem+env(safe-area-inset-bottom))] shrink-0" />
           <nav
             aria-label="Main"
-            className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-[rgb(14_11_7/0.94)] pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
+            // Fixed, so the body's side padding does not reach it: the side insets
+            // are carried here (the iPhone Duo's outer screen puts the camera and
+            // status bar in a strip down the right edge), the bar's fill stays full-bleed.
+            className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-[rgb(14_11_7/0.94)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] backdrop-blur-md"
           >
             <div
               className={`mx-auto grid max-w-md ${organizerMode ? "grid-cols-4" : "grid-cols-3"}`}
