@@ -249,9 +249,10 @@ for a reason that materializes.
 - **What survives the wrap:** RSC, server actions, cookie auth (with
   `SameSite=None; Secure`), `revalidatePath`, SSE, Realtime — all of it.
   Capacitor is a WebView pointing at the production URL.
-- **What's new:** `@capacitor/push-notifications` plugin + a small
-  `registerPushTokenAction` + an APNs/FCM sender plugged into the
-  round-start / your-turn paths. Half a day each side.
+- **What's new:** `@capacitor/push-notifications` plugin +
+  `registerPushDeviceAction` + the APNs/FCM sender in `src/lib/push.ts`,
+  plugged into round confirm, new date polls and new game nights. Code
+  shipped Oct 31 2026; keys and store forms per `docs/push-setup.md`.
 - **Annual cost:** $99 Apple Developer + $25 one-time Google Play.
 - **Effort:** ~3 days plus an Apple review slog (budget two weeks for
   the first submission).

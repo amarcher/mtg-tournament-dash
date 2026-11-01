@@ -4,6 +4,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import { ResumeRefresh } from "./components/ResumeRefresh";
 import { NativeLinks } from "./components/NativeLinks";
 import { NativeUpdate } from "./components/NativeUpdate";
+import { PushEffects } from "./components/PushEffects";
 import { BetaInvite } from "./components/BetaInvite";
 import "./globals.css";
 
@@ -122,6 +123,7 @@ export default function RootLayout({
         <ResumeRefresh deploymentId={deploymentId} />
         <NativeLinks />
         <NativeUpdate />
+        <PushEffects />
         <BetaInvite />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>

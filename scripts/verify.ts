@@ -114,7 +114,16 @@ import {
   gameNights,
   nightRsvps,
   playerPortraits,
+  pushDevicePlayers,
+  pushDevices,
+  pushLog,
 } from "../src/db/schema";
+import {
+  getPushDeviceByToken,
+  registerPushDevice,
+  removePushDevice,
+  updatePushDevicePrefs,
+} from "../src/lib/push-devices";
 import { generateDateSeries } from "../src/lib/recurrence";
 import { computeTeamStandings, splitTeams } from "../src/lib/team-draft";
 import { parseDateTimeLocal } from "../src/lib/schedule-types";
@@ -140,11 +149,87 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 async function cleanup() {
+  // push_log only SETs NULL when its player or device goes, and a device the
+  // real gateway rejected mid-run is already gone, so delete the rows by
+  // player while the verify players still exist.
+  const verifyLeagues = db
+    .select({ id: leagues.id })
+    .from(leagues)
+    .where(like(leagues.slug, `${PREFIX}%`));
+  const verifyPlayers = db
+    .select({ id: players.id })
+    .from(players)
+    .where(inArray(players.leagueId, verifyLeagues));
+  await db.delete(pushLog).where(inArray(pushLog.playerId, verifyPlayers));
   // Delete events first so the matches/elo_changes cascade clears out the
   // elo_changes rows that reference players (elo_changes.player_id has no
   // ON DELETE CASCADE). Then deleting the league cascades to its players.
   await db.delete(events).where(like(events.name, `${PREFIX}%`));
   await db.delete(leagues).where(like(leagues.slug, `${PREFIX}%`));
+  // Push devices hang off tokens, not leagues; their log rows only SET NULL
+  // on delete, so clear those by device id before the devices go.
+  const devices = await db
+    .select({ id: pushDevices.id })
+    .from(pushDevices)
+    .where(like(pushDevices.token, `${PREFIX}%`));
+  if (devices.length > 0) {
+    await db.delete(pushLog).where(
+      inArray(
+        pushLog.deviceId,
+        devices.map((d) => d.id)
+      )
+    );
+    await db.delete(pushDevices).where(like(pushDevices.token, `${PREFIX}%`));
+  }
+}
+
+/**
+ * A fake phone: the token never reaches a store unless APNs/FCM are
+ * configured in .env.local, and even then it is refused as a bad token and
+ * the row deleted — either way a push_log row records the attempt, which is
+ * what the assertions below read.
+ */
+async function registerVerifyDevice(
+  name: string,
+  playerIds: string[],
+  platform: "ios" | "android" = "ios"
+) {
+  const token = `${PREFIX}${name}_${crypto.randomUUID().replace(/-/g, "")}`;
+  await registerPushDevice({ token, platform, appBuild: "verify", playerIds });
+  return token;
+}
+
+async function pushLogFor(playerId: string, kind: string) {
+  return db
+    .select()
+    .from(pushLog)
+    .where(and(eq(pushLog.playerId, playerId), eq(pushLog.kind, kind)));
+}
+
+async function runPushDevicePass(playerA: string, playerB: string) {
+  const token = await registerVerifyDevice("lifecycle", [playerA]);
+  await registerVerifyDevice("lifecycle-ignored", [playerB]);
+  // Same phone, re-registered after claiming a second wizard: one row, two links.
+  await registerPushDevice({ token, platform: "ios", playerIds: [playerA, playerB] });
+  const device = await getPushDeviceByToken(token);
+  assert(device !== null, "device row exists after re-registration");
+  const links = await db
+    .select()
+    .from(pushDevicePlayers)
+    .where(eq(pushDevicePlayers.deviceId, device!.id));
+  assert(links.length === 2, "re-registering the same token links the new player (2 links, 1 device)");
+  assert(device!.notifyRounds && device!.notifySchedule, "switches default on");
+
+  const flipped = await updatePushDevicePrefs(token, { notifySchedule: false });
+  assert(flipped?.notifySchedule === false && flipped.notifyRounds, "a switch flips independently");
+
+  await removePushDevice(token);
+  assert((await getPushDeviceByToken(token)) === null, "unregister deletes the device");
+  const orphanLinks = await db
+    .select()
+    .from(pushDevicePlayers)
+    .where(eq(pushDevicePlayers.deviceId, device!.id));
+  assert(orphanLinks.length === 0, "deleting the device cascades to its player links");
 }
 
 async function setupEvent(playerCount: number) {
@@ -2584,6 +2669,9 @@ async function runSchedulingPollPass(): Promise<{
     else ok("rejects a poll creator outside the league");
   }
 
+  await registerVerifyDevice("poll-author", [s1.id]);
+  await registerVerifyDevice("poll-voter", [s2.id], "android");
+
   try {
     await createDatePollAction(
       makeFormData({
@@ -2609,6 +2697,16 @@ async function runSchedulingPollPass(): Promise<{
     .from(datePolls)
     .where(eq(datePolls.leagueId, league.id));
   assert(poll && poll.status === "open", "poll row exists and is open");
+
+  const voterPushes = await pushLogFor(s2.id, "date_poll");
+  assert(
+    voterPushes.length === 1 && voterPushes[0].collapseId === `poll-${poll.id}`,
+    "a new poll pushes to a league-mate's phone"
+  );
+  assert(
+    (await pushLogFor(s1.id, "date_poll")).length === 0,
+    "the poll's author is not pushed about their own poll"
+  );
   let options = await getPollDetail(poll.id);
   assert(options.length === 3, "duplicate candidate date collapsed (3 options)");
   const [o1, o2, o3] = options;
@@ -3051,6 +3149,8 @@ async function runGameNightPass(): Promise<{
     else ok("rejects an unparseable date");
   }
 
+  await registerVerifyDevice("nights", [n1p.id]);
+
   try {
     await createGameNightsAction(
       makeFormData({ leagueId: league.id, nightDate: series })
@@ -3060,6 +3160,11 @@ async function runGameNightPass(): Promise<{
     if (isNextRedirect(e)) ok("calendar opened (redirects to the schedule)");
     else throw e;
   }
+
+  // With real gateways in .env.local the first batch's send comes back as a
+  // bad token and deletes the phone (push_log keeps the player id), so the
+  // second batch needs a second phone to have anyone to notify.
+  await registerVerifyDevice("nights-2", [n1p.id]);
 
   // Re-running an overlapping series must not duplicate existing dates.
   try {
@@ -3080,6 +3185,11 @@ async function runGameNightPass(): Promise<{
   assert(
     allNights.length === 4,
     "re-opening an overlapping run adds only the new date (4 nights)"
+  );
+  const nightPushes = await pushLogFor(n1p.id, "game_nights");
+  assert(
+    nightPushes.length === 2,
+    "each batch with a genuinely new date pushes once (2 batches → 2 log rows)"
   );
 
   const night = allNights[0];
@@ -3326,10 +3436,35 @@ async function main() {
   const { event, league, players: testPlayers } = await setupEvent(8);
   ok(`set up 8-player event ${event.id.slice(0, 8)} in league ${league.slug}`);
 
+  // Two fake phones: P1 wants round pushes, P2 turned them off.
+  await registerVerifyDevice("p1", [testPlayers[0].id]);
+  const quietToken = await registerVerifyDevice("p2", [testPlayers[1].id], "android");
+  await updatePushDevicePrefs(quietToken, { notifyRounds: false });
+
   await driveRound1ViaPhones(event.id);
   // The organizer actions above run gated by requireOrganizer* — reaching
   // here proves the no-request-scope allowance keeps the harness working.
   ok("round 1 — game-by-game flow + life adjust (organizer gate: script scope allowed)");
+
+  const p1Pushes = await pushLogFor(testPlayers[0].id, "round_started");
+  assert(
+    p1Pushes.length > 0 && p1Pushes.every((r) => r.outcome !== "opted_out"),
+    "round start attempted a push to P1's phone (logged)"
+  );
+  assert(
+    p1Pushes[0].collapseId === `round-${event.id}-1`,
+    "round push collapses per event and round"
+  );
+  const p2Pushes = await pushLogFor(testPlayers[1].id, "round_started");
+  assert(
+    p2Pushes.length > 0 && p2Pushes.every((r) => r.outcome === "opted_out"),
+    "P2's phone with rounds switched off is logged as opted_out, never sent"
+  );
+  const p3Pushes = await pushLogFor(testPlayers[2].id, "round_started");
+  assert(p3Pushes.length === 0, "a player with no phone registered gets no log row");
+
+  await runPushDevicePass(testPlayers[2].id, testPlayers[3].id);
+  ok("push devices — re-register links, switches, unregister cascade");
 
   await driveRound2WithOverridesAndDraw(event.id);
   ok("round 2 — organizer overrides incl. a draw");
