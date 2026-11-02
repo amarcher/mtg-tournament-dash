@@ -5,6 +5,7 @@ import {
   fcmMessage,
   gameNightsNotification,
   isPlausibleToken,
+  leagueMessageNotification,
   parseServiceAccount,
   pollNotification,
   prefForKind,
@@ -32,6 +33,20 @@ describe("roundNotification", () => {
   it("says so for a bye", () => {
     const n = roundNotification({ ...seat, opponentName: null });
     expect(n.body).toMatch(/^You have the bye/);
+  });
+});
+
+describe("leagueMessageNotification", () => {
+  it("carries the organizer's text verbatim, collapses per message, and is gated by the messages switch", () => {
+    const n = leagueMessageNotification(
+      { messageId: "m1", title: "Results are in", body: "See how you did", path: "/leagues/t/standings" },
+      "https://x.test"
+    );
+    expect(n.title).toBe("Results are in");
+    expect(n.body).toBe("See how you did");
+    expect(n.url).toBe("https://x.test/leagues/t/standings");
+    expect(n.collapseId).toBe("msg-m1");
+    expect(prefForKind(n.kind)).toBe("notifyMessages");
   });
 });
 

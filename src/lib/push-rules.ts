@@ -9,10 +9,15 @@ import { formatPollDate } from "./schedule-types";
 
 export type PushPlatform = "ios" | "android";
 
-export type PushKind = "round_started" | "date_poll" | "game_nights" | "test";
+export type PushKind =
+  | "round_started"
+  | "date_poll"
+  | "game_nights"
+  | "league_message"
+  | "test";
 
 /** The per-device switch a kind is gated by. */
-export type PushPref = "notifyRounds" | "notifySchedule";
+export type PushPref = "notifyRounds" | "notifySchedule" | "notifyMessages";
 
 export function prefForKind(kind: PushKind): PushPref | null {
   switch (kind) {
@@ -21,6 +26,8 @@ export function prefForKind(kind: PushKind): PushPref | null {
     case "date_poll":
     case "game_nights":
       return "notifySchedule";
+    case "league_message":
+      return "notifyMessages";
     case "test":
       return null;
   }
@@ -119,6 +126,25 @@ export function gameNightsNotification(
     // Collapse per batch, not per league: two batches on one day are two
     // separate pieces of news.
     collapseId: `nights-${input.leagueSlug}-${sorted[0].getTime()}`,
+    ttlSeconds: SCHEDULE_TTL_SECONDS,
+  };
+}
+
+/**
+ * An organizer's one-off note. The title and body are theirs verbatim; the
+ * path is one of the league's own pages, chosen from a fixed list, never a
+ * free URL. Collapsing per message keeps an edited resend from stacking.
+ */
+export function leagueMessageNotification(
+  input: { messageId: string; title: string; body: string; path: string },
+  site: string = DEFAULT_SITE
+): PushNotification {
+  return {
+    kind: "league_message",
+    title: input.title,
+    body: input.body,
+    url: `${site}${input.path}`,
+    collapseId: `msg-${input.messageId}`,
     ttlSeconds: SCHEDULE_TTL_SECONDS,
   };
 }

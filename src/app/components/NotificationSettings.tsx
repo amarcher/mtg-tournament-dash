@@ -18,7 +18,11 @@ import {
   type PushPermission,
 } from "@/lib/push-client";
 
-type Prefs = { notifyRounds: boolean; notifySchedule: boolean };
+type Prefs = {
+  notifyRounds: boolean;
+  notifySchedule: boolean;
+  notifyMessages: boolean;
+};
 
 type State =
   | { phase: "hidden" }
@@ -26,10 +30,12 @@ type State =
   | { phase: "on"; token: string; prefs: Prefs };
 
 /**
- * The player's notification switches, shown only inside the native shell.
- * Nothing is asked of the OS until the player taps "Turn on" here, so the
- * permission prompt arrives with this card as its context, never on launch.
- * After a denial the card says where to allow notifications instead.
+ * The player's notification switches, shown only inside the native shell,
+ * on their own page. Phones are enrolled by PushEnroll when they first open
+ * a league, so this card is mostly where kinds get turned off; its "Turn
+ * on" button is the way back for a phone that was never asked (a private
+ * window, a store that never answered) or turned everything off here.
+ * After an OS-level denial the card says where to allow notifications.
  */
 export function NotificationSettings() {
   const [state, setState] = useState<State>({ phase: "hidden" });
@@ -122,8 +128,9 @@ export function NotificationSettings() {
         Notifications
       </h2>
       <p className="mt-2 text-sm text-ink-dim">
-        A buzz when your round is paired and when someone posts dates to vote
-        on. Nothing else, ever.
+        A buzz when your round is paired, when someone posts dates to answer,
+        and when your organizer sends the league a note. Each one is a switch
+        here, for this phone.
       </p>
 
       {state.phase === "off" && state.permission === "denied" && (
@@ -161,6 +168,14 @@ export function NotificationSettings() {
             checked={state.prefs.notifySchedule}
             disabled={busy}
             onChange={(on) => void setPref({ notifySchedule: on })}
+          />
+          <SwitchRow
+            id="notify-messages"
+            title="Notes from your organizer"
+            hint="One-off reminders: RSVP, results are in, bring snacks."
+            checked={state.prefs.notifyMessages}
+            disabled={busy}
+            onChange={(on) => void setPref({ notifyMessages: on })}
           />
           <div className="pt-3">
             <button

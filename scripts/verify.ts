@@ -61,6 +61,7 @@ import {
   startNextRoundAction,
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
+  sendLeagueMessageAction,
 } from "../src/app/events/actions";
 import {
   applyGameWinner,
@@ -106,6 +107,7 @@ import {
   getRoundMatches,
   listOpenBonusGamesForEvent,
   sweepStaleWizardJobs,
+  listLeagueMessages,
 } from "../src/db/queries";
 import { pickLeadingOptionId } from "../src/lib/poll-tally";
 import {
@@ -123,6 +125,7 @@ import {
   registerPushDevice,
   removePushDevice,
   updatePushDevicePrefs,
+  countMessageReach,
 } from "../src/lib/push-devices";
 import { generateDateSeries } from "../src/lib/recurrence";
 import { computeTeamStandings, splitTeams } from "../src/lib/team-draft";
@@ -230,6 +233,61 @@ async function runPushDevicePass(playerA: string, playerB: string) {
     .from(pushDevicePlayers)
     .where(eq(pushDevicePlayers.deviceId, device!.id));
   assert(orphanLinks.length === 0, "deleting the device cascades to its player links");
+}
+
+/**
+ * The organizer's one-off push. Fresh phones are registered here because a
+ * real APNs refuses the fake tokens above and deletes their rows mid-run.
+ */
+async function runLeagueMessagePass(
+  leagueId: string,
+  eventId: string,
+  hears: string,
+  quiet: string
+) {
+  await registerVerifyDevice("note-on", [hears]);
+  const quietToken = await registerVerifyDevice("note-off", [quiet], "android");
+  await updatePushDevicePrefs(quietToken, { notifyMessages: false });
+  const reach = await countMessageReach(leagueId);
+  assert(reach.phones >= 1 && reach.players >= 1, "reach counts the phone with notes on");
+
+  const send = (fields: Record<string, string>) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({ leagueId, ...fields })) fd.set(k, v);
+    return sendLeagueMessageAction({ status: "idle", error: null }, fd);
+  };
+
+  const refused = await send({
+    title: "Nope",
+    body: "x",
+    destination: "event:00000000-0000-4000-8000-000000000000",
+  });
+  assert(refused.status === "error", "a destination outside the league is refused");
+
+  const sent = await send({
+    title: "  Results   are in ",
+    body: "Round 1 is done — see the standings.",
+    destination: `event:${eventId}`,
+  });
+  assert(sent.status === "sent" && sent.title === "Results are in", "the note is sent with its text tidied");
+  const heard = await pushLogFor(hears, "league_message");
+  assert(
+    heard.length >= 1 && heard.every((r) => r.outcome !== "opted_out"),
+    "a phone with notes on is attempted (logged)"
+  );
+  const muted = await pushLogFor(quiet, "league_message");
+  assert(
+    muted.length >= 1 && muted.every((r) => r.outcome === "opted_out"),
+    "a phone with notes switched off is logged as opted_out, never sent"
+  );
+  const [row] = await listLeagueMessages(leagueId, 1);
+  assert(
+    row?.title === "Results are in" && row.url === `/events/${eventId}/play`,
+    "the note is recorded with its destination path"
+  );
+
+  const again = await send({ title: "Again", body: "x", destination: "schedule" });
+  assert(again.status === "error", "a second note inside the guard window is refused");
 }
 
 async function setupEvent(playerCount: number) {
@@ -3465,6 +3523,9 @@ async function main() {
 
   await runPushDevicePass(testPlayers[2].id, testPlayers[3].id);
   ok("push devices — re-register links, switches, unregister cascade");
+
+  await runLeagueMessagePass(league.id, event.id, testPlayers[4].id, testPlayers[5].id);
+  ok("organizer note — sent, opted_out, repeat guard, foreign destination refused");
 
   await driveRound2WithOverridesAndDraw(event.id);
   ok("round 2 — organizer overrides incl. a draw");

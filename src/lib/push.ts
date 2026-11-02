@@ -17,6 +17,7 @@ import {
   apnsTokenStale,
   fcmMessage,
   gameNightsNotification,
+  leagueMessageNotification,
   parseServiceAccount,
   pollNotification,
   prefForKind,
@@ -461,6 +462,31 @@ export async function notifyGameNights(input: {
     site()
   );
   if (!note) return emptyCounts();
+  const ids = await listLeaguePlayerIds(input.leagueId);
+  return notifyPlayers(new Map(ids.map((id) => [id, note])));
+}
+
+/**
+ * An organizer's one-off note to the whole league. Unlike the three
+ * triggers above this is awaited by its action rather than run after the
+ * response: the organizer is looking at a Send button and wants the count.
+ */
+export async function notifyLeagueMessage(input: {
+  leagueId: string;
+  messageId: string;
+  title: string;
+  body: string;
+  path: string;
+}) {
+  const note = leagueMessageNotification(
+    {
+      messageId: input.messageId,
+      title: input.title,
+      body: input.body,
+      path: input.path,
+    },
+    site()
+  );
   const ids = await listLeaguePlayerIds(input.leagueId);
   return notifyPlayers(new Map(ids.map((id) => [id, note])));
 }

@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, countDistinct, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import { players, pushDevicePlayers, pushDevices } from "@/db/schema";
 import { isPlausibleToken, type PushPlatform } from "@/lib/push-rules";
@@ -10,7 +10,11 @@ import { isPlausibleToken, type PushPlatform } from "@/lib/push-rules";
  * from the league cookies and call in here.
  */
 
-export type PushPrefs = { notifyRounds: boolean; notifySchedule: boolean };
+export type PushPrefs = {
+  notifyRounds: boolean;
+  notifySchedule: boolean;
+  notifyMessages: boolean;
+};
 
 /**
  * Upsert the device by token and link it to every player the phone speaks
@@ -83,6 +87,7 @@ export type RecipientDevice = {
   platform: PushPlatform;
   notifyRounds: boolean;
   notifySchedule: boolean;
+  notifyMessages: boolean;
   playerId: string;
 };
 
@@ -98,6 +103,7 @@ export async function listDevicesForPlayers(
       platform: pushDevices.platform,
       notifyRounds: pushDevices.notifyRounds,
       notifySchedule: pushDevices.notifySchedule,
+      notifyMessages: pushDevices.notifyMessages,
       playerId: pushDevicePlayers.playerId,
     })
     .from(pushDevicePlayers)
@@ -120,4 +126,28 @@ export async function listLeaguePlayerIds(
     .from(players)
     .where(eq(players.leagueId, leagueId));
   return rows.map((r) => r.id).filter((id) => id !== except);
+}
+
+/**
+ * How far an organizer's note would reach: live phones linked to the
+ * league with the messages switch on, and the players they cover. Shown on
+ * the composer so "sent to 0 phones" is never a surprise.
+ */
+export async function countMessageReach(leagueId: string) {
+  const [row] = await db
+    .select({
+      phones: countDistinct(pushDevices.id),
+      players: countDistinct(pushDevicePlayers.playerId),
+    })
+    .from(pushDevicePlayers)
+    .innerJoin(pushDevices, eq(pushDevices.id, pushDevicePlayers.deviceId))
+    .innerJoin(players, eq(players.id, pushDevicePlayers.playerId))
+    .where(
+      and(
+        eq(players.leagueId, leagueId),
+        isNull(pushDevices.failedAt),
+        eq(pushDevices.notifyMessages, true)
+      )
+    );
+  return { phones: row?.phones ?? 0, players: row?.players ?? 0 };
 }

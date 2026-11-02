@@ -39,10 +39,19 @@ import {
   getGameNight,
   getEventStandings,
   getGameWinsByMatch,
+  getLastLeagueMessageAt,
   getPairingInputs,
   getRoundMatches,
+  insertLeagueMessage,
   listOpenEventsForPlayer,
+  setLeagueMessageCounts,
 } from "@/db/queries";
+import {
+  destinationPath,
+  isRepeatSend,
+  parseDestination,
+  validateMessage,
+} from "@/lib/league-message";
 import { generateSwissPairings } from "@/lib/pairings/swiss";
 import { generateTeamDraftPairings } from "@/lib/pairings/team-draft";
 import {
@@ -87,11 +96,13 @@ import {
   notifyGameNights,
   notifyRoundStarted,
   runAfterResponse,
+  notifyLeagueMessage,
 } from "@/lib/push";
 import {
   registerPushDevice,
   removePushDevice,
   updatePushDevicePrefs,
+  type PushPrefs,
 } from "@/lib/push-devices";
 import { isPlausibleToken } from "@/lib/push-rules";
 import { checkWizardizeLimit } from "@/lib/rate-limit";
@@ -2573,6 +2584,7 @@ export async function registerPushDeviceAction(args: {
   return {
     notifyRounds: device.notifyRounds,
     notifySchedule: device.notifySchedule,
+    notifyMessages: device.notifyMessages,
     playerCount: playerIds.length,
   };
 }
@@ -2581,19 +2593,101 @@ export async function setPushPrefsAction(args: {
   token: string;
   notifyRounds?: boolean;
   notifySchedule?: boolean;
+  notifyMessages?: boolean;
 }) {
   const token = String(args.token ?? "");
   if (!isPlausibleToken(token)) throw new Error("Bad device token");
-  const patch: { notifyRounds?: boolean; notifySchedule?: boolean } = {};
-  if (typeof args.notifyRounds === "boolean")
-    patch.notifyRounds = args.notifyRounds;
-  if (typeof args.notifySchedule === "boolean")
-    patch.notifySchedule = args.notifySchedule;
+  const patch: Partial<PushPrefs> = {};
+  for (const key of ["notifyRounds", "notifySchedule", "notifyMessages"] as const) {
+    if (typeof args[key] === "boolean") patch[key] = args[key];
+  }
   const device = await updatePushDevicePrefs(token, patch);
   if (!device) throw new Error("This phone isn't registered yet");
   return {
     notifyRounds: device.notifyRounds,
     notifySchedule: device.notifySchedule,
+    notifyMessages: device.notifyMessages,
+  };
+}
+
+export type LeagueMessageFormState =
+  | { status: "idle"; error: null }
+  | { status: "error"; error: string }
+  | {
+      status: "sent";
+      error: null;
+      title: string;
+      sent: number;
+      optedOut: number;
+      failed: number;
+    };
+
+/**
+ * An organizer's one-off note to every phone in the league ("please RSVP",
+ * "results are in"). The tap destination is one of the league's own pages,
+ * checked to belong to this league, never a free URL. The send is awaited
+ * here, against the usual after-response pattern, because the organizer is
+ * waiting on this very response to learn how many phones heard it.
+ */
+export async function sendLeagueMessageAction(
+  _prev: LeagueMessageFormState,
+  formData: FormData
+): Promise<LeagueMessageFormState> {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  if (!leagueId) throw new Error("Missing league");
+  const text = validateMessage({
+    title: String(formData.get("title") ?? ""),
+    body: String(formData.get("body") ?? ""),
+  });
+  if (!text.ok) return { status: "error", error: text.error };
+  const destination = parseDestination(String(formData.get("destination") ?? ""));
+  if (!destination) return { status: "error", error: "Pick where a tap should land" };
+
+  await requireOrganizer(leagueId);
+  const [league] = await db.select().from(leagues).where(eq(leagues.id, leagueId));
+  if (!league) throw new Error("League not found");
+
+  if (destination.kind === "event") {
+    const [event] = await db.select().from(events).where(eq(events.id, destination.id));
+    if (!event || event.leagueId !== leagueId) return { status: "error", error: "That event isn't in this league" };
+  } else if (destination.kind === "poll") {
+    const poll = await getDatePoll(destination.id);
+    if (!poll || poll.leagueId !== leagueId) return { status: "error", error: "That poll isn't in this league" };
+  } else if (destination.kind === "night") {
+    const night = await getGameNight(destination.id);
+    if (!night || night.leagueId !== leagueId) return { status: "error", error: "That game night isn't in this league" };
+  }
+
+  if (isRepeatSend(await getLastLeagueMessageAt(leagueId))) {
+    return { status: "error", error: "You just sent a note. Give it half a minute." };
+  }
+
+  const path = destinationPath(destination, league.slug);
+  const message = await insertLeagueMessage({
+    leagueId,
+    title: text.value.title,
+    body: text.value.body,
+    url: path,
+  });
+  const counts = await notifyLeagueMessage({
+    leagueId,
+    messageId: message.id,
+    title: text.value.title,
+    body: text.value.body,
+    path,
+  });
+  await setLeagueMessageCounts(message.id, {
+    sentCount: counts.sent,
+    optedOutCount: counts.opted_out,
+  });
+  revalidatePath(`/leagues/${league.slug}/organize/notify`);
+  return {
+    status: "sent",
+    error: null,
+    title: text.value.title,
+    sent: counts.sent,
+    optedOut: counts.opted_out,
+    failed: counts.failed,
   };
 }
 

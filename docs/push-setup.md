@@ -10,10 +10,13 @@ is `src/lib/push.ts`, called from the server actions that confirm a round,
 open a date poll and add game nights, and it runs on Vercel after the
 response goes out.
 
-What a player sees: nothing until they tap **Turn on notifications** on the
-Play tab's Notifications card (native shell only). The OS prompt appears then,
-once. Two switches follow: round pairings, and dates to answer (polls and game
-nights). "Turn off on this phone" deletes the device row.
+What a player sees (native shell only): the OS prompt, once, about a second
+after they first open a league they have a wizard in (`PushEnroll`). Allowing
+it turns on all three kinds: round pairings, dates to answer (polls and game
+nights), and one-off notes from the organizer. The switches to turn any of
+them off live on the player's own page (tap the wizard in the header →
+Notifications), where "Turn off on this phone" deletes the device row.
+Organizers send notes from Organize → Send a note.
 
 Order: the Apple side, the Google side, the Vercel switches, the store forms,
 then a build.

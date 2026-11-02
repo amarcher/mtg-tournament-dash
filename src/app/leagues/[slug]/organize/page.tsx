@@ -156,6 +156,7 @@ export default async function OrganizePage({
             League
           </h2>
           <div className="surface-card divide-y divide-white/5 px-1">
+            <HubLink href={`${base}/organize/notify`} title="Send a note" note="Push a one-off reminder to every phone in the league" />
             <HubLink href={`${base}/settings`} title="Settings" note="Managers, invite links and the organizer QR" />
             <HubLink href={`${base}/claim`} title="Wizards" note="Everyone in the league; add or switch wizards" />
           </div>
