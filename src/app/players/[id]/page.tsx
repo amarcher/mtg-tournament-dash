@@ -210,13 +210,6 @@ export default async function PlayerPage({
         />
       </section>
 
-      {canEdit && (
-        // Renders nothing on the website: only the native shell holds a push token.
-        <div className="mb-10">
-          <NotificationSettings />
-        </div>
-      )}
-
       {canEdit && portraits.length > 0 && (
         <section className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
           <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-zinc-400">
@@ -296,6 +289,13 @@ export default async function PlayerPage({
             })}
           </ul>
         </section>
+      )}
+
+      {canEdit && (
+        // Renders nothing on the website: only the native shell holds a push token.
+        <div className="mb-10">
+          <NotificationSettings />
+        </div>
       )}
 
       <section className="mb-10 grid grid-cols-3 gap-3">
