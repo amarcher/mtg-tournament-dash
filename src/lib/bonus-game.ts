@@ -4,6 +4,12 @@ import { games, matches, players, type Match } from "@/db/schema";
 import { publishToChannel } from "@/lib/pubsub";
 import { channelForEvent, channelForMatch } from "@/lib/realtime-schema";
 import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
+import {
+  getEventRoster,
+  listLeagueMatchActivity,
+  listLeaguePlayers,
+} from "@/db/queries";
+import { rankBonusOpponents, type BonusOpponent } from "@/lib/bonus-opponents";
 
 /**
  * Lifecycle for bonus games — casual head-to-head matches outside any round
@@ -99,6 +105,33 @@ export async function listBusyBonusPlayerIds(
     if (r.b) ids.add(r.b);
   }
   return ids;
+}
+
+/**
+ * The ranked challenge list for one player. `eventId` is the ongoing event
+ * whose seats and running matches decide the top two tiers; pass null from
+ * screens with no event in play.
+ */
+export async function loadBonusOpponents(args: {
+  leagueId: string;
+  me: string;
+  eventId: string | null;
+}): Promise<BonusOpponent[]> {
+  const [players, roster, activity, busyIds] = await Promise.all([
+    listLeaguePlayers(args.leagueId),
+    args.eventId ? getEventRoster(args.eventId) : Promise.resolve([]),
+    listLeagueMatchActivity(args.leagueId),
+    listBusyBonusPlayerIds(args.leagueId),
+  ]);
+  return rankBonusOpponents({
+    me: args.me,
+    players,
+    eventRoster: roster,
+    eventId: args.eventId,
+    activity,
+    busyIds,
+    now: new Date(),
+  });
 }
 
 /**

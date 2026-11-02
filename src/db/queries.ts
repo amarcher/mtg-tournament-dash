@@ -8,6 +8,7 @@ import {
   isNotNull,
   lt,
   ne,
+  or,
   sql,
 } from "drizzle-orm";
 import { db } from "./client";
@@ -1159,6 +1160,29 @@ export async function listOpenBonusGamesForLeague(leagueId: string) {
       )
     )
     .orderBy(desc(matches.createdAt));
+}
+
+/**
+ * Every match the league has hosted — bonus games by `matches.league_id`,
+ * tournament matches through their round's event — for the opponent picker's
+ * "who is free / who played lately" ranking (`rankBonusOpponents`).
+ */
+export async function listLeagueMatchActivity(leagueId: string) {
+  return db
+    .select({
+      playerAId: matches.playerAId,
+      playerBId: matches.playerBId,
+      roundId: matches.roundId,
+      eventId: rounds.eventId,
+      roundStatus: rounds.status,
+      status: matches.status,
+      createdAt: matches.createdAt,
+      completedAt: matches.completedAt,
+    })
+    .from(matches)
+    .leftJoin(rounds, eq(rounds.id, matches.roundId))
+    .leftJoin(events, eq(events.id, rounds.eventId))
+    .where(or(eq(matches.leagueId, leagueId), eq(events.leagueId, leagueId)));
 }
 
 /** Date polls still collecting votes, newest first. */

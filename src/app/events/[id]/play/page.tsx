@@ -14,17 +14,13 @@ import {
   getEventStandings,
   getLeague,
   getPlayer,
-  listLeaguePlayers,
   listOpenBonusGamesForEvent,
 } from "@/db/queries";
 import {
   findActiveBonusGameForPlayer,
-  listBusyBonusPlayerIds,
+  loadBonusOpponents,
 } from "@/lib/bonus-game";
-import {
-  buildEventBonusOpponents,
-  type BonusOpponent,
-} from "@/lib/bonus-opponents";
+import type { BonusOpponent } from "@/lib/bonus-opponents";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { PlayClient } from "./PlayClient";
 import { WaitForRound } from "./WaitForRound";
@@ -130,22 +126,15 @@ async function loadBonusData(
       opponents: [] as never[],
     };
   }
-  const [mine, open, roster, leaguePlayers, busyIds] = await Promise.all([
+  const [mine, open, opponents] = await Promise.all([
     findActiveBonusGameForPlayer(leagueId, playerId),
     listOpenBonusGamesForEvent(eventId),
-    getEventRoster(eventId),
-    listLeaguePlayers(leagueId),
-    listBusyBonusPlayerIds(leagueId),
+    loadBonusOpponents({ leagueId, me: playerId, eventId }),
   ]);
   return {
     myActiveMatchId: mine?.id ?? null,
     openGames: open.filter((g) => g.playerAId !== playerId),
-    opponents: buildEventBonusOpponents({
-      me: playerId,
-      roster,
-      leaguePlayers,
-      busyIds,
-    }),
+    opponents,
   };
 }
 
