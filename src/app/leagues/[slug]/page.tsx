@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import {
   getLeagueBySlug,
   getPollDetail,
-  listLeaguePlayers,
   listOpenBonusGamesForLeague,
   listOpenEventsForPlayer,
   listOpenLeagueEvents,
@@ -14,7 +13,7 @@ import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   findActiveBonusGameForPlayer,
-  listBusyBonusPlayerIds,
+  loadBonusOpponents,
 } from "@/lib/bonus-game";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { AppChrome } from "@/app/components/AppChrome";
@@ -39,9 +38,8 @@ export default async function PlayHomePage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [players, openEvents, me, openPolls, upcomingNights, view] =
+  const [openEvents, me, openPolls, upcomingNights, view] =
     await Promise.all([
-      listLeaguePlayers(league.id),
       listOpenLeagueEvents(league.id),
       getCurrentLeaguePlayer(league.id),
       listOpenLeaguePolls(league.id),
@@ -49,13 +47,22 @@ export default async function PlayHomePage({
       getOrganizerView(league),
     ]);
 
-  const [myOpenEvents, myBonusGame, busyBonusIds, openSeats, pollDetails] =
+  // The newest event already under way is "the ongoing event" for the
+  // picker's top tiers; a draft that hasn't started seats nobody yet.
+  const ongoingEvent = openEvents.find((e) => e.status === "active") ?? null;
+  const [myOpenEvents, myBonusGame, bonusOpponents, openSeats, pollDetails] =
     await Promise.all([
       me ? listOpenEventsForPlayer(league.id, me.id) : Promise.resolve([]),
       me
         ? findActiveBonusGameForPlayer(league.id, me.id)
         : Promise.resolve(null),
-      me ? listBusyBonusPlayerIds(league.id) : Promise.resolve(new Set<string>()),
+      me
+        ? loadBonusOpponents({
+            leagueId: league.id,
+            me: me.id,
+            eventId: ongoingEvent?.id ?? null,
+          })
+        : Promise.resolve([]),
       listOpenBonusGamesForLeague(league.id),
       Promise.all(openPolls.map((p) => getPollDetail(p.id))),
     ]);
@@ -193,13 +200,7 @@ export default async function PlayHomePage({
                 </p>
                 <BonusGameForm
                   leagueSlug={league.slug}
-                  opponents={players
-                    .filter((p) => p.id !== me.id)
-                    .map((p) => ({
-                      playerId: p.id,
-                      displayName: p.displayName,
-                      busy: busyBonusIds.has(p.id),
-                    }))}
+                  opponents={bonusOpponents}
                   idPrefix="league-bonus"
                 />
               </>

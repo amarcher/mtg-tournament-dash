@@ -73,6 +73,7 @@ import {
   createBonusGame,
   endBonusGame,
   joinBonusGame,
+  loadBonusOpponents,
   startAnotherBonusGame,
 } from "../src/lib/bonus-game";
 import {
@@ -2394,7 +2395,32 @@ async function runBonusGamePass() {
     "challenger with an open game is returned to it"
   );
 
+  const picksWhileBusy = await loadBonusOpponents({
+    leagueId: league.id,
+    me: pb.id,
+    eventId: event.id,
+  });
+  assert(
+    !picksWhileBusy.some((o) => o.playerId === pb.id) &&
+      picksWhileBusy.every((o) => o.busy && o.tier === 4),
+    "opponent picker lists the other two as busy and off the top tiers while their game runs"
+  );
+
   await endBonusGame({ matchId: paired.id });
+
+  const picksAfter = await loadBonusOpponents({
+    leagueId: league.id,
+    me: pb.id,
+    eventId: event.id,
+  });
+  assert(
+    picksAfter.map((o) => [o.playerId, o.tier, o.busy]).join() ===
+      [
+        [pa.id, 3, false],
+        [pc.id, 3, false],
+      ].join(),
+    "opponent picker ranks recent bonus-game partners free and by name once the game ends"
+  );
 }
 
 async function checkRoutes(
