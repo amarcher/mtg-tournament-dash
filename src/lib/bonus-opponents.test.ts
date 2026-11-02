@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   filterBonusOpponents,
   groupBonusOpponents,
+  isTiedUp,
   rankBonusOpponents,
+  tiedUpLabel,
   RECENT_BONUS_WINDOW_MS,
   TIER_LABELS,
   type BonusCandidatePlayer,
@@ -39,6 +41,7 @@ function bonus(
     playerAId: a,
     playerBId: b,
     roundId: null,
+    roundNumber: null,
     eventId: null,
     roundStatus: null,
     status,
@@ -62,6 +65,7 @@ function tournament(
     playerAId: a,
     playerBId: b,
     roundId: "round",
+    roundNumber: 3,
     eventId: opts.eventId,
     roundStatus: opts.roundStatus,
     status: opts.status,
@@ -117,8 +121,12 @@ describe("rankBonusOpponents", () => {
       ["dot", 4],
       ["fay", 4],
     ]);
-    expect(result.find((o) => o.playerId === "cal")?.busy).toBe(true);
-    expect(result.find((o) => o.playerId === "bea")?.busy).toBe(false);
+    const cal = result.find((o) => o.playerId === "cal")!;
+    const bea = result.find((o) => o.playerId === "bea")!;
+    const amy = result.find((o) => o.playerId === "amy")!;
+    expect([cal.status, tiedUpLabel(cal)]).toEqual(["bonus_game", "bonus game"]);
+    expect([bea.status, bea.roundNumber, tiedUpLabel(bea)]).toEqual(["round_match", 3, "round 3"]);
+    expect([amy.status, tiedUpLabel(amy), isTiedUp(amy)]).toEqual(["free", null, false]);
     expect(result.every((o) => o.group === TIER_LABELS[o.tier])).toBe(true);
   });
 

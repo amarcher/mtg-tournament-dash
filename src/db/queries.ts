@@ -1173,6 +1173,7 @@ export async function listLeagueMatchActivity(leagueId: string) {
       playerAId: matches.playerAId,
       playerBId: matches.playerBId,
       roundId: matches.roundId,
+      roundNumber: rounds.roundNumber,
       eventId: rounds.eventId,
       roundStatus: rounds.status,
       status: matches.status,
@@ -1183,6 +1184,31 @@ export async function listLeagueMatchActivity(leagueId: string) {
     .leftJoin(rounds, eq(rounds.id, matches.roundId))
     .leftJoin(events, eq(events.id, rounds.eventId))
     .where(or(eq(matches.leagueId, leagueId), eq(events.leagueId, leagueId)));
+}
+
+/**
+ * The tournament match a player is at a table for right now: in progress,
+ * or dealt in an active round and not yet started. Same rule as the
+ * opponent picker's "round_match" status, so the Challenge button and the
+ * server agree.
+ */
+export async function getRunningRoundMatchForPlayer(playerId: string) {
+  const [row] = await db
+    .select({ roundNumber: rounds.roundNumber, eventName: events.name })
+    .from(matches)
+    .innerJoin(rounds, eq(rounds.id, matches.roundId))
+    .innerJoin(events, eq(events.id, rounds.eventId))
+    .where(
+      and(
+        or(eq(matches.playerAId, playerId), eq(matches.playerBId, playerId)),
+        or(
+          eq(matches.status, "in_progress"),
+          and(eq(matches.status, "pending"), eq(rounds.status, "active"))
+        )
+      )
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 /** Date polls still collecting votes, newest first. */

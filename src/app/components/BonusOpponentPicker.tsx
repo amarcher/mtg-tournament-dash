@@ -6,6 +6,8 @@ import {
   filterBonusOpponents,
   groupBonusOpponents,
   type BonusOpponent,
+  isTiedUp,
+  tiedUpLabel,
 } from "@/lib/bonus-opponents";
 
 /** Below this many wizards the grid fits on one screen and needs no search. */
@@ -45,7 +47,7 @@ export function BonusOpponentPicker({
     // Enter in a search box must never submit the challenge; with a single
     // match left it picks that wizard instead.
     e.preventDefault();
-    const free = visible.filter((o) => !o.busy);
+    const free = visible.filter((o) => !isTiedUp(o));
     if (free.length === 1) onChange(free[0].playerId);
   }
 
@@ -134,11 +136,13 @@ function OpponentTile({
   onSelect: () => void;
 }) {
   const url = pickAvatarUrl(20, 20, o.avatars);
+  const busy = isTiedUp(o);
+  const reason = tiedUpLabel(o);
   return (
     <li className="min-w-0">
       <label
         className={`group flex cursor-pointer touch-manipulation select-none flex-col items-center gap-1.5 rounded-[10px] p-1.5 transition has-[:checked]:bg-gold/10 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-amber-400/70 ${
-          o.busy ? "cursor-not-allowed" : "active:bg-white/[0.06]"
+          busy ? "cursor-not-allowed" : "active:bg-white/[0.06]"
         }`}
       >
         <input
@@ -147,9 +151,9 @@ function OpponentTile({
           value={o.playerId}
           className="sr-only"
           checked={selected}
-          disabled={o.busy}
+          disabled={busy}
           onChange={onSelect}
-          aria-label={o.busy ? `${o.displayName}, mid-game` : o.displayName}
+          aria-label={reason ? `${o.displayName}, in a ${reason}` : o.displayName}
         />
         <span
           aria-hidden
@@ -164,21 +168,21 @@ function OpponentTile({
               alt=""
               loading="lazy"
               className={`h-full w-full object-cover ${
-                o.busy ? "opacity-50 grayscale" : ""
+                busy ? "opacity-50 grayscale" : ""
               }`}
             />
           ) : (
             <span
               className={`grid h-full w-full place-items-center font-display text-2xl text-gold ${
-                o.busy ? "opacity-50" : ""
+                busy ? "opacity-50" : ""
               }`}
             >
               {o.displayName.charAt(0).toUpperCase()}
             </span>
           )}
-          {o.busy && (
+          {reason && (
             <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[11px] font-semibold uppercase tracking-wide text-zinc-200">
-              mid-game
+              {reason}
             </span>
           )}
           {selected && (
@@ -189,7 +193,7 @@ function OpponentTile({
         </span>
         <span
           className={`w-full truncate text-center text-xs leading-tight ${
-            o.busy ? "text-ink-faint" : selected ? "font-semibold text-gold" : "text-ink"
+            busy ? "text-ink-faint" : selected ? "font-semibold text-gold" : "text-ink"
           }`}
         >
           {o.displayName}

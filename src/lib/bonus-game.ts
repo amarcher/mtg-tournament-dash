@@ -8,6 +8,7 @@ import {
   getEventRoster,
   listLeagueMatchActivity,
   listLeaguePlayers,
+  getRunningRoundMatchForPlayer,
 } from "@/db/queries";
 import { rankBonusOpponents, type BonusOpponent } from "@/lib/bonus-opponents";
 
@@ -171,6 +172,11 @@ export async function createBonusGame(args: {
     if (theirGame)
       throw new Error(
         `${opponent.displayName} is already in a bonus game`
+      );
+    const theirRound = await getRunningRoundMatchForPlayer(playerBId);
+    if (theirRound)
+      throw new Error(
+        `${opponent.displayName} is playing round ${theirRound.roundNumber} of ${theirRound.eventName} right now`
       );
   }
 
