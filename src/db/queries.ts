@@ -19,6 +19,7 @@ import {
   eventPlayers,
   events,
   games,
+  leagueMessages,
   leagues,
   matches,
   players,
@@ -1167,4 +1168,50 @@ export async function listOpenLeaguePolls(leagueId: string) {
     .from(datePolls)
     .where(and(eq(datePolls.leagueId, leagueId), eq(datePolls.status, "open")))
     .orderBy(desc(datePolls.createdAt));
+}
+
+/* ---- organizer notes (one-off pushes) ---- */
+
+export async function insertLeagueMessage(input: {
+  leagueId: string;
+  title: string;
+  body: string;
+  url: string;
+}) {
+  const [row] = await db.insert(leagueMessages).values(input).returning();
+  return row;
+}
+
+export async function setLeagueMessageCounts(
+  messageId: string,
+  counts: { sentCount: number; optedOutCount: number }
+) {
+  await db
+    .update(leagueMessages)
+    .set(counts)
+    .where(eq(leagueMessages.id, messageId));
+}
+
+export async function listLeagueMessages(leagueId: string, limit = 5) {
+  return db
+    .select()
+    .from(leagueMessages)
+    .where(eq(leagueMessages.leagueId, leagueId))
+    .orderBy(desc(leagueMessages.sentAt))
+    .limit(limit);
+}
+
+export async function getLastLeagueMessageAt(leagueId: string) {
+  const [row] = await listLeagueMessages(leagueId, 1);
+  return row?.sentAt ?? null;
+}
+
+/** Finished events, newest first, for "results are in" to point at. */
+export async function listCompletedLeagueEvents(leagueId: string, limit = 5) {
+  return db
+    .select()
+    .from(events)
+    .where(and(eq(events.leagueId, leagueId), eq(events.status, "complete")))
+    .orderBy(desc(events.createdAt))
+    .limit(limit);
 }

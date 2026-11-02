@@ -18,7 +18,7 @@ import {
 } from "@/lib/bonus-game";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
 import { AppChrome } from "@/app/components/AppChrome";
-import { NotificationSettings } from "@/app/components/NotificationSettings";
+import { PushEnroll } from "@/app/components/PushEnroll";
 import { NightPlanLine, RsvpButtons } from "@/app/components/GameNightCard";
 import { formatPollDate } from "@/lib/schedule-types";
 
@@ -298,8 +298,10 @@ export default async function PlayHomePage({
           </section>
         )}
 
-        {/* Renders nothing on the website: only the native shell can hold a push token. */}
-        {me && <NotificationSettings />}
+        {/* Renders nothing anywhere but the native shell, where it turns
+            notifications on for a phone with a wizard here. The switches
+            to turn them off again are on the player's own page. */}
+        {me && <PushEnroll />}
       </main>
     </AppChrome>
   );

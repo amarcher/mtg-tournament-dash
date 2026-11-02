@@ -488,6 +488,7 @@ export const pushDevices = pgTable(
     appBuild: text("app_build"),
     notifyRounds: boolean("notify_rounds").notNull().default(true),
     notifySchedule: boolean("notify_schedule").notNull().default(true),
+    notifyMessages: boolean("notify_messages").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -550,6 +551,30 @@ export const pushLog = pgTable(
   })
 );
 
+// A one-off note an organizer pushed to the whole league ("please RSVP",
+// "results are up"). The text lives here rather than in push_log so the
+// organizer can see what went out, and the repeat guard has a timestamp.
+export const leagueMessages = pgTable(
+  "league_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    url: text("url").notNull(),
+    sentCount: integer("sent_count").notNull().default(0),
+    optedOutCount: integer("opted_out_count").notNull().default(0),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    leagueIdx: index("league_messages_league_idx").on(t.leagueId, t.sentAt),
+  })
+);
+
 export type League = typeof leagues.$inferSelect;
 export type LeagueMember = typeof leagueMembers.$inferSelect;
 export type NewLeague = typeof leagues.$inferInsert;
@@ -569,3 +594,4 @@ export type GameNight = typeof gameNights.$inferSelect;
 export type NightRsvp = typeof nightRsvps.$inferSelect;
 export type PushDevice = typeof pushDevices.$inferSelect;
 export type PushLogRow = typeof pushLog.$inferSelect;
+export type LeagueMessage = typeof leagueMessages.$inferSelect;

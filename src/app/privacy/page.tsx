@@ -57,10 +57,12 @@ export default function PrivacyPage() {
               used for advertising.
             </li>
             <li>
-              <strong>Notifications:</strong> if you turn them on in the iOS or
+              <strong>Notifications:</strong> if you allow them in the iOS or
               Android app, the push token Apple or Google issues for your
-              phone, so it can be told when your round is paired or dates
-              are posted. Turning them off in the app deletes it.
+              phone, so it can be told when your round is paired, dates are
+              posted, or your league&apos;s organizer sends a note. Each kind
+              is a switch on your player page; turning them all off there
+              deletes the token.
             </li>
             <li>
               <strong>Usage:</strong> anonymous page views through Google

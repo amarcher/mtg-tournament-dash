@@ -13,6 +13,7 @@ import {
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import { AppChrome } from "@/app/components/AppChrome";
+import { NotificationSettings } from "@/app/components/NotificationSettings";
 import { applyPortraitAction } from "@/app/events/actions";
 import { LEAGUE_TIMEZONE } from "@/lib/schedule-types";
 import { DeletePortraitButton } from "./DeletePortraitButton";
@@ -208,6 +209,13 @@ export default async function PlayerPage({
           defeatUrl={player.avatarDefeatUrl}
         />
       </section>
+
+      {canEdit && (
+        // Renders nothing on the website: only the native shell holds a push token.
+        <div className="mb-10">
+          <NotificationSettings />
+        </div>
+      )}
 
       {canEdit && portraits.length > 0 && (
         <section className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900 p-6">
