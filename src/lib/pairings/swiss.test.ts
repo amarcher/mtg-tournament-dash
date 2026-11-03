@@ -148,3 +148,108 @@ describe("generateSwissPairings — full 3-round event", () => {
     for (const id of ids) expect(faced[id]).toHaveLength(3);
   });
 });
+
+describe("generateSwissPairings — locked (early) pairings", () => {
+  const legal = (pairings: ReturnType<typeof generateSwissPairings>, ids: string[]) => {
+    const seen = new Set<string>();
+    for (const p of pairings) {
+      for (const id of p.playerBId ? [p.playerAId, p.playerBId] : [p.playerAId]) {
+        expect(seen.has(id)).toBe(false);
+        seen.add(id);
+      }
+    }
+    expect([...seen].sort()).toEqual([...ids].sort());
+    expect(pairings.map((p) => p.tableNumber)).toEqual(
+      pairings.map((_, i) => i + 1)
+    );
+  };
+
+  it("keeps a locked pair together at table 1 and Swiss-pairs the rest", () => {
+    const standings: PlayerStanding[] = [
+      mkStanding("a", 6),
+      mkStanding("b", 0),
+      mkStanding("c", 6),
+      mkStanding("d", 6),
+      mkStanding("e", 0),
+      mkStanding("f", 0),
+    ];
+    const pairings = generateSwissPairings(standings, {
+      rng: seededRng(3),
+      locked: [{ playerAId: "a", playerBId: "b" }],
+    });
+    expect(pairings).toHaveLength(3);
+    expect(pairings[0]).toEqual({
+      playerAId: "a",
+      playerBId: "b",
+      tableNumber: 1,
+      locked: true,
+    });
+    legal(pairings, ["a", "b", "c", "d", "e", "f"]);
+    // The remainder is paired on record: c-d (6 pts) and e-f (0 pts).
+    const rest = pairings.slice(1).map((p) =>
+      [p.playerAId, p.playerBId].sort().join("-")
+    );
+    expect(rest).toContain("c-d");
+    expect(rest).toContain("e-f");
+    expect(pairings.slice(1).every((p) => !p.locked)).toBe(true);
+  });
+
+  it("gives the bye to the odd remainder, never to a locked player", () => {
+    const standings: PlayerStanding[] = [
+      mkStanding("a", 0),
+      mkStanding("b", 3),
+      mkStanding("c", 6),
+      mkStanding("d", 3),
+      mkStanding("e", 0),
+    ];
+    const pairings = generateSwissPairings(standings, {
+      rng: seededRng(5),
+      locked: [{ playerAId: "a", playerBId: "b" }],
+    });
+    expect(pairings).toHaveLength(3);
+    legal(pairings, ["a", "b", "c", "d", "e"]);
+    const byes = pairings.filter((p) => p.playerBId === null);
+    expect(byes).toHaveLength(1);
+    // Lowest standing in the remainder (c, d, e) is e.
+    expect(byes[0].playerAId).toBe("e");
+    expect(byes[0].locked).toBeUndefined();
+  });
+
+  it("honours two locks in one round, in the order given", () => {
+    const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const standings = ids.map((id, i) => mkStanding(id, (i % 3) * 3));
+    const pairings = generateSwissPairings(standings, {
+      rng: seededRng(9),
+      locked: [
+        { playerAId: "c", playerBId: "f" },
+        { playerAId: "a", playerBId: "h" },
+      ],
+    });
+    expect(pairings).toHaveLength(4);
+    expect(pairings[0]).toMatchObject({ playerAId: "c", playerBId: "f", tableNumber: 1, locked: true });
+    expect(pairings[1]).toMatchObject({ playerAId: "a", playerBId: "h", tableNumber: 2, locked: true });
+    legal(pairings, ids);
+  });
+
+  it("returns only the locks when they cover the whole field", () => {
+    const standings = ["a", "b"].map((id) => mkStanding(id));
+    const pairings = generateSwissPairings(standings, {
+      locked: [{ playerAId: "a", playerBId: "b" }],
+    });
+    expect(pairings).toEqual([
+      { playerAId: "a", playerBId: "b", tableNumber: 1, locked: true },
+    ]);
+  });
+
+  it("rejects a player locked twice", () => {
+    const standings = ["a", "b", "c", "d"].map((id) => mkStanding(id));
+    expect(() =>
+      generateSwissPairings(standings, {
+        locked: [
+          { playerAId: "a", playerBId: "b" },
+          { playerAId: "b", playerBId: "c" },
+        ],
+      })
+    ).toThrow(/only be locked into one/);
+  });
+});

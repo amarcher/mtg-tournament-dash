@@ -6,6 +6,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  isNull,
   lt,
   ne,
   or,
@@ -562,10 +563,11 @@ export async function getResultsSincePendingDraw(
   eventId: string,
   pendingRoundId: string
 ) {
+  // Early-locked tables predate the draw; the draw time is the fresh ones'.
   const [drawn] = await db
     .select({ at: sql<Date>`min(${matches.createdAt})` })
     .from(matches)
-    .where(eq(matches.roundId, pendingRoundId));
+    .where(and(eq(matches.roundId, pendingRoundId), isNull(matches.lockedAt)));
   if (!drawn?.at) return [];
   return db
     .select({ match: matches })
@@ -1192,6 +1194,30 @@ export async function listLeagueMatchActivity(leagueId: string) {
  * opponent picker's "round_match" status, so the Challenge button and the
  * server agree.
  */
+/**
+ * Every match in the event that still ties its players to a table: in
+ * progress in any round (an excused pair playing on past its round, an early
+ * next-round table), or dealt into the active round and not yet started.
+ * Pairings drafted into a pending round don't count — they may still be
+ * redone.
+ */
+export async function listRunningEventMatches(eventId: string) {
+  return db
+    .select({ match: matches, roundNumber: rounds.roundNumber })
+    .from(matches)
+    .innerJoin(rounds, eq(rounds.id, matches.roundId))
+    .where(
+      and(
+        eq(rounds.eventId, eventId),
+        or(
+          eq(matches.status, "in_progress"),
+          and(eq(matches.status, "pending"), eq(rounds.status, "active"))
+        )
+      )
+    )
+    .orderBy(asc(rounds.roundNumber), asc(matches.tableNumber));
+}
+
 export async function getRunningRoundMatchForPlayer(playerId: string) {
   const [row] = await db
     .select({ roundNumber: rounds.roundNumber, eventName: events.name })

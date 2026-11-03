@@ -48,6 +48,8 @@ import {
   dropPendingMatchAction,
   endEventAction,
   finalizeDatePollAction,
+  lockEarlyPairingAction,
+  unlockEarlyPairingAction,
   previewNextRoundAction,
   promoteDatePollAction,
   updateEventAction,
@@ -107,6 +109,7 @@ import {
   getPollDetail,
   getRoundMatches,
   listOpenBonusGamesForEvent,
+  listRunningEventMatches,
   sweepStaleWizardJobs,
   listLeagueMessages,
 } from "../src/db/queries";
@@ -1506,6 +1509,263 @@ async function runReviewFlowPass() {
 
   await cleanup();
   ok("post-clean review-flow rows");
+}
+
+/**
+ * Early pairings: while a round is still running, two finished players are
+ * locked together as a next-round table and start at once. The lock is a real
+ * in_progress match in a pending round; the Swiss draw, re-roll, cancel and
+ * confirm all have to work around it, and its result only counts once that
+ * round closes.
+ */
+async function runEarlyPairingPass() {
+  console.log("\n--- early pairing pass ---");
+  await cleanup();
+
+  const { event } = await setupEvent(6);
+  ok(`set up 6-player event ${event.id.slice(0, 8)} for early-pairing pass`);
+
+  const finish = async (m: Awaited<ReturnType<typeof getRoundMatches>>[number]) => {
+    const winner = m.playerA.displayName < m.playerB!.displayName ? m.playerA : m.playerB!;
+    await applyGameWinner({ matchId: m.match.id, winnerId: winner.id });
+    await applyGameWinner({ matchId: m.match.id, winnerId: winner.id });
+    return winner.id;
+  };
+  const expectThrow = async (fn: () => Promise<unknown>, msg: string, re: RegExp) => {
+    let err: unknown = null;
+    try {
+      await fn();
+    } catch (e) {
+      err = e;
+    }
+    assert(err instanceof Error && re.test(err.message), `${msg} (${String(err)})`);
+  };
+
+  // --- R1 running: tables 1 and 2 finish, table 3 plays on.
+  await startNextRoundAction(event.id);
+  const r1 = (await getCurrentRound(event.id))!;
+  const r1Matches = await getRoundMatches(r1.id);
+  assert(r1Matches.length === 3, "R1 has 3 tables");
+  const [t1, t2, t3] = r1Matches;
+  await finish(t1);
+  await finish(t2);
+  const slowA = t3.match.playerAId;
+  const slowB = t3.match.playerBId!;
+  const earlyA = t1.match.playerAId;
+  const earlyB = t2.match.playerBId!;
+  const otherA = t1.match.playerBId!;
+  const otherB = t2.match.playerAId;
+
+  await expectThrow(
+    () => lockEarlyPairingAction({ eventId: event.id, playerAId: earlyA, playerBId: slowA }),
+    "locking a player still at a table is refused",
+    /finished with the current round/
+  );
+  await expectThrow(
+    () => lockEarlyPairingAction({ eventId: event.id, playerAId: earlyA, playerBId: earlyA }),
+    "locking a player with themselves is refused",
+    /themselves/
+  );
+
+  const lock = await lockEarlyPairingAction({
+    eventId: event.id,
+    playerAId: earlyA,
+    playerBId: earlyB,
+  });
+  assert(lock.roundNumber === 2, "the lock lands in round 2");
+  const r2Pending = await getPendingRound(event.id);
+  assert(r2Pending?.roundNumber === 2, "locking created a pending round 2");
+  let r2Matches = await getRoundMatches(r2Pending!.id);
+  assert(
+    r2Matches.length === 1 &&
+      r2Matches[0].match.id === lock.matchId &&
+      r2Matches[0].match.lockedAt !== null &&
+      r2Matches[0].match.status === "in_progress" &&
+      r2Matches[0].match.tableNumber === 1,
+    "the pending round holds one in_progress locked table at T1"
+  );
+  const lockGames = await db.select().from(games).where(eq(games.matchId, lock.matchId));
+  assert(
+    lockGames.length === 1 && lockGames[0].playerALife === 20,
+    "the locked table starts with a game-1 row at starting life"
+  );
+  assert(
+    (await getActiveMatchForPlayer(event.id, earlyA))?.id === lock.matchId &&
+      (await getActiveMatchForPlayer(event.id, earlyB))?.id === lock.matchId,
+    "both phones resolve to the early round-2 match while round 1 is active"
+  );
+  assert(
+    (await listRunningEventMatches(event.id)).some((r) => r.match.id === lock.matchId),
+    "the early table counts as running"
+  );
+  await expectThrow(
+    () => lockEarlyPairingAction({ eventId: event.id, playerAId: earlyA, playerBId: otherA }),
+    "a player already locked can't be locked again",
+    /finished with the current round/
+  );
+
+  // A second lock, then take it back: the round survives with the first.
+  const lock2 = await lockEarlyPairingAction({
+    eventId: event.id,
+    playerAId: otherA,
+    playerBId: otherB,
+  });
+  r2Matches = await getRoundMatches(r2Pending!.id);
+  assert(
+    r2Matches.length === 2 && r2Matches[1].match.tableNumber === 2,
+    "a second lock takes T2 in the same pending round"
+  );
+  await unlockEarlyPairingAction({ matchId: lock2.matchId });
+  r2Matches = await getRoundMatches(r2Pending!.id);
+  assert(
+    r2Matches.length === 1 && r2Matches[0].match.id === lock.matchId,
+    "unpairing removes the untouched lock and keeps the round"
+  );
+  assert(
+    (await getActiveMatchForPlayer(event.id, otherA))?.id === t1.match.id,
+    "an unpaired player's phone falls back to their finished round-1 match"
+  );
+
+  // The early table reports before round 1 is even over.
+  const earlyWinner = await finish(r2Matches[0]);
+  const [lockedDone] = await db.select().from(matches).where(eq(matches.id, lock.matchId));
+  assert(lockedDone.status === "complete" && lockedDone.winnerId === earlyWinner,
+    "the early table's result is recorded");
+  await expectThrow(
+    () => unlockEarlyPairingAction({ matchId: lock.matchId }),
+    "a finished early table can't be unpaired",
+    /already has a result/
+  );
+  const standingsMidR1 = await getEventStandings(event.id);
+  assert(
+    standingsMidR1.every((s) => s.matchPoints === 0),
+    "standings ignore the early result until its round closes"
+  );
+  const lockGamesDone = (await db.select().from(games).where(eq(games.matchId, lock.matchId))).length;
+
+  // Round 1 finishes; drawing round 2 fills in around the lock.
+  await finish(t3);
+  const preview = await previewNextRoundAction(event.id);
+  assert(
+    preview.roundId === r2Pending!.id && preview.alreadyPending === false,
+    "previewing fills the existing pending round instead of creating one"
+  );
+  const checkDraw = async (label: string) => {
+    const ms = await getRoundMatches(r2Pending!.id);
+    const locked = ms.filter((m) => m.match.lockedAt !== null);
+    const fresh = ms.filter((m) => m.match.lockedAt === null);
+    assert(
+      ms.length === 3 && locked.length === 1 && locked[0].match.id === lock.matchId &&
+        locked[0].match.status === "complete",
+      `${label}: the locked table is untouched`
+    );
+    const seated = fresh.flatMap((m) =>
+      m.match.playerBId ? [m.match.playerAId, m.match.playerBId] : [m.match.playerAId]
+    );
+    assert(
+      seated.length === 4 &&
+        new Set(seated).size === 4 &&
+        [slowA, slowB, otherA, otherB].every((id) => seated.includes(id)),
+      `${label}: the other four are seated once each`
+    );
+    assert(
+      fresh.every((m) => m.match.status === "pending") &&
+        fresh.map((m) => m.match.tableNumber).sort().join(",") === "2,3",
+      `${label}: fresh tables are pending at T2 and T3`
+    );
+    return ms;
+  };
+  await checkDraw("draw");
+  assert(
+    (await previewNextRoundAction(event.id)).alreadyPending === true,
+    "a drawn round reports alreadyPending"
+  );
+  await regeneratePendingPairingsAction(event.id);
+  await checkDraw("re-roll");
+  await cancelPendingRoundAction(event.id);
+  const afterCancel = await getRoundMatches(r2Pending!.id);
+  assert(
+    afterCancel.length === 1 && afterCancel[0].match.id === lock.matchId &&
+      (await getPendingRound(event.id))?.id === r2Pending!.id,
+    "cancelling the preview keeps the locked table and its round"
+  );
+  await previewNextRoundAction(event.id);
+  await checkDraw("redraw after cancel");
+
+  await completeRoundAction(event.id);
+  await confirmRoundAction(event.id);
+  const r2 = (await getCurrentRound(event.id))!;
+  assert(r2.id === r2Pending!.id && r2.roundNumber === 2, "round 2 confirmed");
+  const r2Live = await getRoundMatches(r2.id);
+  assert(
+    r2Live.find((m) => m.match.id === lock.matchId)!.match.status === "complete" &&
+      (await db.select().from(games).where(eq(games.matchId, lock.matchId))).length === lockGamesDone,
+    "confirming leaves the finished early table and its games alone"
+  );
+  assert(
+    r2Live.filter((m) => m.match.id !== lock.matchId).every((m) => m.match.status === "in_progress"),
+    "confirming starts the freshly drawn tables"
+  );
+  for (const m of r2Live) if (m.match.status !== "complete") await finish(m);
+  await completeRoundAction(event.id);
+  const standingsAfterR2 = await getEventStandings(event.id);
+  const earlyWinnerRow = standingsAfterR2.find((s) => s.playerId === earlyWinner)!;
+  assert(
+    earlyWinnerRow.wins === 2 || earlyWinnerRow.wins === 1,
+    "the early result counts once round 2 closes"
+  );
+  assert(
+    standingsAfterR2.reduce((n, s) => n + s.wins, 0) === 6,
+    "two rounds of three tables yield six match wins"
+  );
+
+  // --- Between rounds: two locks for round 3, one finishes before the draw;
+  // ending the event then has to refuse, and the draw seats the last pair.
+  const roster = await getEventRoster(event.id);
+  const ids = roster.map((r) => r.playerId);
+  const l3a = await lockEarlyPairingAction({ eventId: event.id, playerAId: ids[0], playerBId: ids[3] });
+  const l3b = await lockEarlyPairingAction({ eventId: event.id, playerAId: ids[1], playerBId: ids[4] });
+  const r3Pending = (await getPendingRound(event.id))!;
+  assert(r3Pending.roundNumber === 3 && l3a.roundNumber === 3 && l3b.roundNumber === 3,
+    "two locks share pending round 3");
+  const r3Locked = await getRoundMatches(r3Pending.id);
+  await finish(r3Locked.find((m) => m.match.id === l3a.matchId)!);
+  await expectThrow(
+    () => endEventAction(event.id),
+    "ending the event with a finished early table is refused",
+    /finished early table/
+  );
+  await previewNextRoundAction(event.id);
+  const r3Drawn = await getRoundMatches(r3Pending.id);
+  const r3Fresh = r3Drawn.filter((m) => m.match.lockedAt === null);
+  assert(
+    r3Drawn.length === 3 &&
+      r3Fresh.length === 1 &&
+      r3Fresh[0].match.tableNumber === 3 &&
+      [r3Fresh[0].match.playerAId, r3Fresh[0].match.playerBId].sort().join() ===
+        [ids[2], ids[5]].sort().join(),
+    "the round-3 draw seats the last two players at T3 after both locks"
+  );
+  await confirmRoundAction(event.id);
+  const r3Live = await getRoundMatches(r3Pending.id);
+  assert(
+    r3Live.find((m) => m.match.id === l3a.matchId)!.match.status === "complete" &&
+      r3Live.find((m) => m.match.id === l3b.matchId)!.match.status === "in_progress" &&
+      r3Fresh.every((f) => r3Live.find((m) => m.match.id === f.match.id)!.match.status === "in_progress"),
+    "confirming round 3 keeps the finished lock, keeps the running lock playing, starts the fresh table"
+  );
+  for (const m of r3Live) if (m.match.status !== "complete") await finish(m);
+  await completeRoundAction(event.id);
+  const [done] = await db.select().from(events).where(eq(events.id, event.id));
+  assert(done.status === "complete", "event completes after round 3 with early tables in it");
+  const finalStandings = await getEventStandings(event.id);
+  assert(
+    finalStandings.reduce((n, s) => n + s.wins, 0) === 9,
+    "three rounds of three tables yield nine match wins, early tables included"
+  );
+
+  await cleanup();
+  ok("post-clean early-pairing rows");
 }
 
 /**
@@ -3680,6 +3940,7 @@ async function main() {
 
   await runSixPlayerSwissPass();
   await runReviewFlowPass();
+  await runEarlyPairingPass();
   await runEndEarlyPass();
   await runBonusGamePass();
   await runRosterAmendmentPass();

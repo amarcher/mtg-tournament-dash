@@ -361,6 +361,9 @@ export default async function PlayPage({
       initialTimeTurn={match.timeTurn}
       roundStartedAtIso={round?.startedAt?.toISOString() ?? null}
       roundDurationSec={event.roundDurationSec}
+      earlyRoundNumber={
+        match.lockedAt && round?.status === "pending" ? round.roundNumber : null
+      }
       organizeHref={view.organizerMode ? `/events/${id}/manage` : undefined}
     />
   );

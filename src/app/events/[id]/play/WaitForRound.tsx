@@ -22,6 +22,9 @@ export function WaitForRound({ eventId }: { eventId: string }) {
           msg.type === "match_complete" ||
           // An undone result puts a "waiting" phone back into its match.
           msg.type === "match_reopened" ||
+          // The organizer seated two early finishers for the next round.
+          msg.type === "early_match_started" ||
+          msg.type === "early_match_removed" ||
           // Keep the "looking for a bonus game" list current while waiting.
           msg.type === "bonus_game_opened" ||
           msg.type === "bonus_game_started" ||

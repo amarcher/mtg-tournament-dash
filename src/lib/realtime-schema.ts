@@ -77,6 +77,20 @@ export const realtimeSchema = {
   bonus_game_opened: z.object({ ts: z.number(), matchId: z.string() }),
   bonus_game_started: z.object({ ts: z.number(), matchId: z.string() }),
   bonus_game_ended: z.object({ ts: z.number(), matchId: z.string() }),
+  // The organizer locked two early finishers into the next round (`started`)
+  // or took that lock back before they had played (`removed`). Structural:
+  // the two phones re-resolve which match is theirs, the TV picks up or
+  // drops the early table.
+  early_match_started: z.object({
+    ts: z.number(),
+    matchId: z.string(),
+    roundNumber: z.number(),
+  }),
+  early_match_removed: z.object({
+    ts: z.number(),
+    matchId: z.string(),
+    roundNumber: z.number(),
+  }),
 } as const;
 
 export const REALTIME_EVENT_NAMES = [
@@ -93,6 +107,8 @@ export const REALTIME_EVENT_NAMES = [
   "bonus_game_opened",
   "bonus_game_started",
   "bonus_game_ended",
+  "early_match_started",
+  "early_match_removed",
 ] as const;
 
 export type RealtimeEventName = (typeof REALTIME_EVENT_NAMES)[number];
@@ -132,7 +148,19 @@ export type EventMessage =
   | { type: "turn_changed"; ts: number; matchId: string; turn: number }
   | { type: "bonus_game_opened"; ts: number; matchId: string }
   | { type: "bonus_game_started"; ts: number; matchId: string }
-  | { type: "bonus_game_ended"; ts: number; matchId: string };
+  | { type: "bonus_game_ended"; ts: number; matchId: string }
+  | {
+      type: "early_match_started";
+      ts: number;
+      matchId: string;
+      roundNumber: number;
+    }
+  | {
+      type: "early_match_removed";
+      ts: number;
+      matchId: string;
+      roundNumber: number;
+    };
 
 // Event types that trigger a hard reload on the client. The SSE route drops
 // any of these whose `ts` predates the client's connection, so reconnects
@@ -149,6 +177,8 @@ export const STRUCTURAL_EVENT_TYPES: ReadonlySet<EventMessage["type"]> = new Set
   "bonus_game_opened",
   "bonus_game_started",
   "bonus_game_ended",
+  "early_match_started",
+  "early_match_removed",
 ]);
 
 // Channel-name helpers. Centralizing these so producer/consumer can't drift.

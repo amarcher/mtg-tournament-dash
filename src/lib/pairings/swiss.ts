@@ -23,10 +23,24 @@ export interface PairingResult {
   playerAId: string;
   playerBId: string | null; // null = bye
   tableNumber: number;
+  /** True for a pairing the organizer locked in early; it was never searched. */
+  locked?: boolean;
+}
+
+/** Two players the organizer locked together before the round was drawn. */
+export interface LockedPair {
+  playerAId: string;
+  playerBId: string;
 }
 
 export interface PairingOptions {
   rng?: () => number;
+  /**
+   * Pairings fixed ahead of the draw. They come out first, at tables 1..k in
+   * the order given, and their players are removed from the Swiss search —
+   * the rest of the field is paired around them, bye included.
+   */
+  locked?: LockedPair[];
 }
 
 function shuffle<T>(arr: T[], rng: () => number): T[] {
@@ -97,11 +111,30 @@ export function generateSwissPairings(
   options: PairingOptions = {}
 ): PairingResult[] {
   const rng = options.rng ?? Math.random;
-  if (standings.length === 0) return [];
+  const locked = options.locked ?? [];
+
+  const lockedIds = new Set<string>();
+  for (const { playerAId, playerBId } of locked) {
+    if (playerAId === playerBId)
+      throw new Error("A locked pairing needs two different players");
+    for (const id of [playerAId, playerBId]) {
+      if (lockedIds.has(id))
+        throw new Error("A player can only be locked into one pairing");
+      lockedIds.add(id);
+    }
+  }
+  const lockedPairings: PairingResult[] = locked.map((l, i) => ({
+    playerAId: l.playerAId,
+    playerBId: l.playerBId,
+    tableNumber: i + 1,
+    locked: true,
+  }));
+  const field = standings.filter((p) => !lockedIds.has(p.playerId));
+  if (field.length === 0) return lockedPairings;
 
   // Pre-shuffle so pairings of equal-cost matchings vary between rounds.
   // Then sort by match points DESC; within equal points the shuffle order persists.
-  const preshuffled = shuffle(standings, rng);
+  const preshuffled = shuffle(field, rng);
   const sorted = preshuffled.slice().sort((a, b) => b.matchPoints - a.matchPoints);
 
   // Bye assignment for odd counts.
@@ -120,12 +153,14 @@ export function generateSwissPairings(
 
   const matching = findBestMatching(pool);
 
-  let tableNumber = 1;
-  const pairings: PairingResult[] = matching.pairs.map(([a, b]) => ({
-    playerAId: a.playerId,
-    playerBId: b.playerId,
-    tableNumber: tableNumber++,
-  }));
+  let tableNumber = lockedPairings.length + 1;
+  const pairings: PairingResult[] = lockedPairings.concat(
+    matching.pairs.map(([a, b]) => ({
+      playerAId: a.playerId,
+      playerBId: b.playerId,
+      tableNumber: tableNumber++,
+    }))
+  );
 
   if (byePlayerId) {
     pairings.push({
