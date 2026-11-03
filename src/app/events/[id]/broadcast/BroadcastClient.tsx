@@ -42,6 +42,11 @@ export type BroadcastMatch = {
   activeGameId: string | null;
   /** Extra-turn counter after time; null until a phone starts counting. */
   timeTurn: number | null;
+  /**
+   * Set for a next-round table the organizer locked in while this round is
+   * still running — shown after the current round's tables with its round.
+   */
+  earlyRoundNumber?: number | null;
 };
 
 type Standing = {
@@ -164,7 +169,9 @@ export function BroadcastClient({
         msg.type === "round_started" ||
         msg.type === "round_completed" ||
         msg.type === "event_state_changed" ||
-        msg.type === "pairings_changed"
+        msg.type === "pairings_changed" ||
+        msg.type === "early_match_started" ||
+        msg.type === "early_match_removed"
       ) {
         // Hard refresh — server has the source of truth.
         window.location.reload();
@@ -584,7 +591,16 @@ function MatchCard({
       } overflow-hidden p-3`}
     >
       <div className="z-10 flex shrink-0 items-baseline justify-between text-[0.65rem] uppercase tracking-[0.25em] text-zinc-400">
-        <span>Table {match.tableNumber}</span>
+        <span>
+          {match.earlyRoundNumber ? (
+            <>
+              <span className="text-sky-300">Round {match.earlyRoundNumber}, early</span>
+              {" · "}Table {match.tableNumber}
+            </>
+          ) : (
+            <>Table {match.tableNumber}</>
+          )}
+        </span>
         {match.timeTurn !== null && !isComplete ? (
           <span className="text-rose-400">
             Time · turn {match.timeTurn}/{MAX_TIME_TURN}

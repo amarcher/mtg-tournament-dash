@@ -52,6 +52,8 @@ describe("realtime-schema", () => {
       bonus_game_opened: { ts: 1, matchId: "m1" },
       bonus_game_started: { ts: 1, matchId: "m1" },
       bonus_game_ended: { ts: 1, matchId: "m1" },
+      early_match_started: { ts: 1, matchId: "m1", roundNumber: 4 },
+      early_match_removed: { ts: 1, matchId: "m1", roundNumber: 4 },
     };
     for (const name of REALTIME_EVENT_NAMES) {
       const schema = realtimeSchema[name];

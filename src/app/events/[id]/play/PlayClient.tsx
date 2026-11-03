@@ -35,6 +35,8 @@ type Props = {
   initialTimeTurn: number | null;
   roundStartedAtIso: string | null;
   roundDurationSec: number;
+  /** Set when this table was locked in before its round was drawn. */
+  earlyRoundNumber?: number | null;
   /** Set for organizers: the chip that jumps back to the event console. */
   organizeHref?: string;
 };
@@ -53,6 +55,7 @@ export function PlayClient({
   initialTimeTurn,
   roundStartedAtIso,
   roundDurationSec,
+  earlyRoundNumber = null,
   organizeHref,
 }: Props) {
   const [aLife, setALife] = useState(initialGame.playerALife);
@@ -130,6 +133,9 @@ export function PlayClient({
         window.location.reload();
       }
       if (msg.type === "game_reopened" && msg.matchId === matchId) {
+        window.location.reload();
+      }
+      if (msg.type === "early_match_removed" && msg.matchId === matchId) {
         window.location.reload();
       }
       // When the organizer advances rounds, the page that decides which match
@@ -270,7 +276,11 @@ export function PlayClient({
   return (
     <Scoreboard
       backHref={leagueSlug ? `/leagues/${leagueSlug}` : "/"}
-      title={`Table ${tableNumber} · ${eventName}`}
+      title={
+        earlyRoundNumber
+          ? `Round ${earlyRoundNumber} early · ${eventName}`
+          : `Table ${tableNumber} · ${eventName}`
+      }
       status={
         <span className="flex items-center gap-2">
           <GamePips wins={myWins} />

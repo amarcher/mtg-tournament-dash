@@ -283,6 +283,12 @@ export const matches = pgTable(
     // progress when time was called, 1-5 the additional turns. Null until a
     // player starts counting. Shared so both phones show the same turn.
     timeTurn: integer("time_turn"),
+    // Set when the organizer locked this pairing in early: two players who
+    // had finished the running round, seated for the next one before it was
+    // drawn. The next round exists as `pending` around it, the match is
+    // already in_progress, and the Swiss generator and every redo-pairings
+    // path leave locked matches alone.
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (t) => ({

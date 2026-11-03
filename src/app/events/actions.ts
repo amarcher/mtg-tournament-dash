@@ -15,7 +15,7 @@ function revalidatePath(path: string) {
     /* no-op outside request context */
   }
 }
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   datePolls,
@@ -44,6 +44,7 @@ import {
   getRoundMatches,
   insertLeagueMessage,
   listOpenEventsForPlayer,
+  listRunningEventMatches,
   setLeagueMessageCounts,
 } from "@/db/queries";
 import {
@@ -52,7 +53,11 @@ import {
   parseDestination,
   validateMessage,
 } from "@/lib/league-message";
-import { generateSwissPairings } from "@/lib/pairings/swiss";
+import {
+  generateSwissPairings,
+  type LockedPair,
+} from "@/lib/pairings/swiss";
+import { earlyLockBlocker, lockablePlayers } from "@/lib/pairings/early";
 import { generateTeamDraftPairings } from "@/lib/pairings/team-draft";
 import {
   balancedTeamSplit,
@@ -237,10 +242,14 @@ export async function createEventAction(formData: FormData) {
  * team-B player they haven't faced yet.
  */
 async function pairingsForNextRound(
-  event: { id: string; format: string; status: string }
+  event: { id: string; format: string; status: string },
+  locked: LockedPair[] = []
 ) {
   const inputs = await getPairingInputs(event.id);
-  if (event.format !== "team_draft") return generateSwissPairings(inputs);
+  if (event.format !== "team_draft")
+    return generateSwissPairings(inputs, { locked });
+  if (locked.length > 0)
+    throw new Error("Early pairings are only for Swiss events");
 
   const teams = splitTeams(inputs);
   if (teams.unassigned.length > 0) {
@@ -259,6 +268,44 @@ async function pairingsForNextRound(
     );
   }
   return generateTeamDraftPairings(teams.a, teams.b);
+}
+
+/**
+ * (Re)draw a pending round around the tables the organizer locked in early.
+ * Locked matches keep their rows — they may already be mid-game or finished —
+ * and the generator seats everyone else at the tables after them. The new
+ * draw is computed before the old one is wiped so a failed draw can't leave
+ * an empty round behind.
+ */
+async function drawPendingRound(
+  event: { id: string; format: string; status: string },
+  roundId: string
+) {
+  const existing = await db
+    .select()
+    .from(matches)
+    .where(eq(matches.roundId, roundId))
+    .orderBy(asc(matches.tableNumber));
+  const locked: LockedPair[] = existing
+    .filter((m) => m.lockedAt !== null && m.playerBId !== null)
+    .map((m) => ({ playerAId: m.playerAId, playerBId: m.playerBId! }));
+  const pairings = await pairingsForNextRound(event, locked);
+
+  await db
+    .delete(matches)
+    .where(and(eq(matches.roundId, roundId), isNull(matches.lockedAt)));
+  const fresh = pairings.filter((p) => !p.locked);
+  if (fresh.length > 0) {
+    await db.insert(matches).values(
+      fresh.map((p) => ({
+        roundId,
+        tableNumber: p.tableNumber,
+        playerAId: p.playerAId,
+        playerBId: p.playerBId,
+        status: "pending" as const,
+      }))
+    );
+  }
 }
 
 /**
@@ -731,7 +778,21 @@ export async function previewNextRoundAction(eventId: string) {
     .where(eq(rounds.eventId, eventId));
 
   const pending = existingRounds.find((r) => r.status === "pending");
-  if (pending) return { roundId: pending.id, alreadyPending: true };
+  if (pending) {
+    // A pending round that holds only early-locked tables hasn't been drawn
+    // yet — seat everyone else around them instead of refusing.
+    const [drawn] = await db
+      .select({ id: matches.id })
+      .from(matches)
+      .where(and(eq(matches.roundId, pending.id), isNull(matches.lockedAt)))
+      .limit(1);
+    if (drawn) return { roundId: pending.id, alreadyPending: true };
+    await drawPendingRound(event, pending.id);
+    await publish(eventId, { type: "pairings_changed" });
+    revalidatePath(`/events/${eventId}/manage`);
+    revalidatePath(`/events/${eventId}/broadcast`);
+    return { roundId: pending.id, alreadyPending: false };
+  }
 
   const completedOrActiveCount = existingRounds.filter(
     (r) => r.status === "complete" || r.status === "active"
@@ -808,8 +869,11 @@ export async function confirmRoundAction(eventId: string) {
   }
 
   // Resolve byes and flip in-progress on real matches as a single sweep.
-  const realMatches = pendingMatches.filter((m) => m.playerBId !== null);
-  const byes = pendingMatches.filter((m) => m.playerBId === null);
+  // Early-locked tables are already in progress (or finished) and keep their
+  // game rows; only the freshly drawn matches start here.
+  const freshMatches = pendingMatches.filter((m) => m.status === "pending");
+  const realMatches = freshMatches.filter((m) => m.playerBId !== null);
+  const byes = freshMatches.filter((m) => m.playerBId === null);
 
   for (const bye of byes) {
     await db
@@ -859,7 +923,7 @@ export async function confirmRoundAction(eventId: string) {
   // Phones that are locked in a pocket don't get the SSE message; the push
   // is what brings them to the table. Sent after the response goes out.
   await runAfterResponse(() =>
-    notifyRoundStarted(event, pending.roundNumber, pendingMatches)
+    notifyRoundStarted(event, pending.roundNumber, freshMatches)
   );
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
@@ -888,21 +952,7 @@ export async function regeneratePendingPairingsAction(eventId: string) {
     .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
   if (!pending) throw new Error("No pending round to regenerate");
 
-  // Validate the format's preconditions before wiping the old pairings so a
-  // failed re-roll doesn't leave an empty round behind.
-  const pairings = await pairingsForNextRound(event);
-
-  await db.delete(matches).where(eq(matches.roundId, pending.id));
-
-  await db.insert(matches).values(
-    pairings.map((p) => ({
-      roundId: pending.id,
-      tableNumber: p.tableNumber,
-      playerAId: p.playerAId,
-      playerBId: p.playerBId,
-      status: "pending" as const,
-    }))
-  );
+  await drawPendingRound(event, pending.id);
   await publish(eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
@@ -1064,11 +1114,28 @@ export async function setPendingPairingsAction(args: {
     new Set(roster.filter((r) => !r.droppedAt).map((r) => r.playerId))
   );
 
-  await db.delete(matches).where(eq(matches.roundId, pending.id));
+  // Early-locked tables are already playing: they stay, and the hand-built
+  // tables fill in after them.
+  const locked = (
+    await db.select().from(matches).where(eq(matches.roundId, pending.id))
+  ).filter((m) => m.lockedAt !== null);
+  const lockedIds = new Set(
+    locked.flatMap((m) => (m.playerBId ? [m.playerAId, m.playerBId] : [m.playerAId]))
+  );
+  for (const p of pairings) {
+    if (lockedIds.has(p.playerAId) || (p.playerBId && lockedIds.has(p.playerBId)))
+      throw new Error(
+        "A player at an early table can't be re-seated — remove the early pairing first"
+      );
+  }
+
+  await db
+    .delete(matches)
+    .where(and(eq(matches.roundId, pending.id), isNull(matches.lockedAt)));
   await db.insert(matches).values(
     pairings.map((p, i) => ({
       roundId: pending.id,
-      tableNumber: i + 1,
+      tableNumber: locked.length + i + 1,
       playerAId: p.playerAId,
       playerBId: p.playerBId,
       status: "pending" as const,
@@ -1242,6 +1309,143 @@ export async function swapActiveMatchPlayersAction(args: {
   revalidatePath(`/events/${event.id}/play`);
 }
 
+/**
+ * Lock two early finishers together as a next-round pairing and let them
+ * start now. Both must be seated, finished with the running round (a bye
+ * counts) and not already placed in the next round. The next round is
+ * created `pending` if it doesn't exist yet; the match itself is a normal
+ * in_progress round match with a game-1 row, so life taps and results work
+ * unchanged. If the next round was already drawn, the rest is re-drawn
+ * around the new lock.
+ */
+export async function lockEarlyPairingAction(args: {
+  eventId: string;
+  playerAId: string;
+  playerBId: string;
+}) {
+  const event = await requireOrganizerForEvent(args.eventId);
+  const allRounds = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.eventId, event.id));
+  const pending = allRounds.find((r) => r.status === "pending");
+  const playedCount = allRounds.filter(
+    (r) => r.status === "complete" || r.status === "active"
+  ).length;
+  const nextRoundNumber = pending?.roundNumber ?? playedCount + 1;
+
+  const roster = await db
+    .select()
+    .from(eventPlayers)
+    .where(eq(eventPlayers.eventId, event.id));
+  const running = (await listRunningEventMatches(event.id)).map((r) => r.match);
+  const nextMatches = pending
+    ? await db.select().from(matches).where(eq(matches.roundId, pending.id))
+    : [];
+  const lockedNext = nextMatches.filter((m) => m.lockedAt !== null);
+  const lockable = new Set(
+    lockablePlayers(roster, running, lockedNext).map((p) => p.playerId)
+  );
+  const blocker = earlyLockBlocker(
+    {
+      format: event.format,
+      eventStatus: event.status,
+      nextRoundNumber,
+      totalRounds: event.totalRounds,
+    },
+    lockable,
+    args.playerAId,
+    args.playerBId
+  );
+  if (blocker) throw new Error(blocker);
+
+  let roundId = pending?.id;
+  if (!roundId) {
+    const [created] = await db
+      .insert(rounds)
+      .values({ eventId: event.id, roundNumber: nextRoundNumber, status: "pending" })
+      .returning();
+    roundId = created.id;
+  }
+
+  const [match] = await db
+    .insert(matches)
+    .values({
+      roundId,
+      tableNumber: lockedNext.length + 1,
+      playerAId: args.playerAId,
+      playerBId: args.playerBId,
+      status: "in_progress",
+      lockedAt: new Date(),
+    })
+    .returning();
+  await db.insert(games).values({
+    matchId: match.id,
+    gameNumber: 1,
+    playerALife: event.startingLife,
+    playerBLife: event.startingLife,
+  });
+
+  // A draw made before this lock seated these two elsewhere; redo it around
+  // every lock so nobody sits at two tables.
+  if (nextMatches.some((m) => m.lockedAt === null)) {
+    await drawPendingRound(event, roundId);
+  }
+
+  await publish(event.id, {
+    type: "early_match_started",
+    matchId: match.id,
+    roundNumber: nextRoundNumber,
+  });
+  revalidatePath(`/events/${event.id}/manage`);
+  revalidatePath(`/events/${event.id}/broadcast`);
+  revalidatePath(`/events/${event.id}/play`);
+  return { matchId: match.id, roundNumber: nextRoundNumber };
+}
+
+/**
+ * Take back an early lock that hasn't been played: the match goes away (its
+ * untouched game row with it) and the two are free to be paired normally. A
+ * recorded game or result keeps the table — clear the result first.
+ */
+export async function unlockEarlyPairingAction(args: { matchId: string }) {
+  const match = await requireOrganizerForMatch(args.matchId);
+  if (!match.lockedAt || !match.roundId)
+    throw new Error("Not an early pairing");
+  const [round] = await db
+    .select()
+    .from(rounds)
+    .where(eq(rounds.id, match.roundId));
+  if (round.status !== "pending")
+    throw new Error("The round has started — swap players instead");
+  if (match.status !== "complete") {
+    const played = (
+      await db.select().from(games).where(eq(games.matchId, match.id))
+    ).some((g) => g.winnerId !== null);
+    if (played) throw new Error("A game is already recorded on this table");
+  } else {
+    throw new Error("This table already has a result — clear it first");
+  }
+
+  await db.delete(games).where(eq(games.matchId, match.id));
+  await db.delete(matches).where(eq(matches.id, match.id));
+  const [left] = await db
+    .select({ id: matches.id })
+    .from(matches)
+    .where(eq(matches.roundId, round.id))
+    .limit(1);
+  if (!left) await db.delete(rounds).where(eq(rounds.id, round.id));
+
+  await publish(round.eventId, {
+    type: "early_match_removed",
+    matchId: match.id,
+    roundNumber: round.roundNumber,
+  });
+  revalidatePath(`/events/${round.eventId}/manage`);
+  revalidatePath(`/events/${round.eventId}/broadcast`);
+  revalidatePath(`/events/${round.eventId}/play`);
+}
+
 export async function cancelPendingRoundAction(eventId: string) {
   await requireOrganizerForEvent(eventId);
   const [pending] = await db
@@ -1249,8 +1453,17 @@ export async function cancelPendingRoundAction(eventId: string) {
     .from(rounds)
     .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
   if (!pending) return;
-  await db.delete(matches).where(eq(matches.roundId, pending.id));
-  await db.delete(rounds).where(eq(rounds.id, pending.id));
+  // Early-locked tables survive a cancelled preview — the pair is mid-game.
+  // The round row only goes once nothing is left in it.
+  await db
+    .delete(matches)
+    .where(and(eq(matches.roundId, pending.id), isNull(matches.lockedAt)));
+  const [left] = await db
+    .select({ id: matches.id })
+    .from(matches)
+    .where(eq(matches.roundId, pending.id))
+    .limit(1);
+  if (!left) await db.delete(rounds).where(eq(rounds.id, pending.id));
   await publish(eventId, { type: "pairings_changed" });
   revalidatePath(`/events/${eventId}/manage`);
   revalidatePath(`/events/${eventId}/broadcast`);
@@ -1347,6 +1560,17 @@ export async function endEventAction(eventId: string) {
     .from(rounds)
     .where(and(eq(rounds.eventId, eventId), eq(rounds.status, "pending")));
   if (pending) {
+    // An early table that already has a result has moved ELO; dropping it
+    // silently would leave the ratings inconsistent with the record.
+    const pendingMatches = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.roundId, pending.id));
+    if (pendingMatches.some((m) => m.lockedAt && m.status === "complete")) {
+      throw new Error(
+        `Round ${pending.roundNumber} has a finished early table — clear its result or play the round out before ending the event`
+      );
+    }
     await db.delete(matches).where(eq(matches.roundId, pending.id));
     await db.delete(rounds).where(eq(rounds.id, pending.id));
   }

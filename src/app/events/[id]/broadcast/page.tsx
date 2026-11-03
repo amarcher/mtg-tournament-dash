@@ -83,9 +83,18 @@ export default async function BroadcastPage({
         })
       : [];
 
+  // Tables the organizer locked in early for the next round play alongside
+  // the current round's; they come after it, labelled with their round.
+  const pendingRound = round ? await getPendingRound(id) : null;
+  const earlyMatches = pendingRound
+    ? (await getRoundMatches(pendingRound.id)).filter(
+        ({ match }) => match.lockedAt !== null
+      )
+    : [];
+
   let matchData: BroadcastMatch[] = [];
   if (round) {
-    const ms = await getRoundMatches(round.id);
+    const ms = [...(await getRoundMatches(round.id)), ...earlyMatches];
     matchData = await Promise.all(
       ms.map(async ({ match, playerA, playerB }) => {
         const allGames = await db
@@ -140,6 +149,7 @@ export default async function BroadcastPage({
             : null,
           activeGameId: activeGame?.id ?? null,
           timeTurn: match.timeTurn,
+          earlyRoundNumber: match.lockedAt ? pendingRound!.roundNumber : null,
         };
       })
     );

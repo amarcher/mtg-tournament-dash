@@ -13,6 +13,7 @@ import {
   getRoundMatches,
   getEventStandings,
   listLeaguePlayers,
+  listRunningEventMatches,
   sweepStaleWizardJobs,
 } from "@/db/queries";
 import {
@@ -25,6 +26,7 @@ import {
   confirmRoundAction,
   dropPendingMatchAction,
   endEventAction,
+  lockEarlyPairingAction,
   previewNextRoundAction,
   regeneratePendingPairingsAction,
   removeEventPlayerAction,
@@ -33,6 +35,7 @@ import {
   setEventTeamsAction,
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
+  unlockEarlyPairingAction,
   updateEventAction,
 } from "@/app/events/actions";
 import { qrDataUrl } from "@/lib/qr";
@@ -46,6 +49,7 @@ import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { CopyButton } from "@/app/components/CopyButton";
 import { formatPct } from "@/lib/format";
 import { draftSeatOrder } from "@/lib/draft-seating";
+import { lockablePlayers } from "@/lib/pairings/early";
 import {
   computeTeamStandings,
   formatLabel,
@@ -109,11 +113,29 @@ export default async function ManagePage({
   const pendingMatches = pendingRound
     ? await getRoundMatches(pendingRound.id)
     : [];
+  // Tables the organizer locked in early are already playing; the rest of the
+  // pending round is the draw, and the round only counts as "previewed" once
+  // that draw exists.
+  const lockedPending = pendingMatches.filter(
+    ({ match }) => match.lockedAt !== null
+  );
+  const draftedPending = pendingMatches.filter(
+    ({ match }) => match.lockedAt === null
+  );
+  const lockedIds = new Set(
+    lockedPending.flatMap(({ match }) =>
+      match.playerBId ? [match.playerAId, match.playerBId] : [match.playerAId]
+    )
+  );
   const pairedIds = new Set<string>();
   for (const { match } of pendingMatches) {
     pairedIds.add(match.playerAId);
     if (match.playerBId) pairedIds.add(match.playerBId);
   }
+  const pendingDrawn =
+    draftedPending.length > 0 ||
+    (lockedPending.length > 0 &&
+      roster.every((p) => p.droppedAt || pairedIds.has(p.playerId)));
   const pendingPlayersById = new Map(
     pendingMatches.flatMap(({ playerA, playerB }) =>
       [playerA, playerB].flatMap((p) =>
@@ -160,7 +182,7 @@ export default async function ManagePage({
           )
         : [];
   const nameById = new Map(roster.map((p) => [p.playerId, p.displayName]));
-  const lateResults = pendingRound
+  const lateResults = pendingRound && pendingDrawn
     ? (await getResultsSincePendingDraw(id, pendingRound.id)).map(
         ({ match }) => {
           const a = nameById.get(match.playerAId) ?? "?";
@@ -199,7 +221,7 @@ export default async function ManagePage({
     ? await getRoundMatches(activeRound.id)
     : [];
   const gameWinsByMatch = await getGameWinsByMatch(
-    activeMatches
+    [...activeMatches, ...lockedPending]
       .filter(({ match }) => match.status !== "complete")
       .map(({ match }) => match.id)
   );
@@ -240,6 +262,29 @@ export default async function ManagePage({
     (r) => r.status === "complete"
   ).length;
   const isComplete = event.status === "complete";
+  // Early pairings: two players done with the running round can be seated
+  // for the next one now. Who qualifies is the pure helper's call; the lists
+  // here just feed the form.
+  const earlyRoundNumber =
+    pendingRound?.roundNumber ??
+    completedRoundsCount + (activeRound ? 1 : 0) + 1;
+  const canLockEarly =
+    !isComplete &&
+    !isTeamDraft &&
+    event.status === "active" &&
+    earlyRoundNumber <= event.totalRounds;
+  const lockable = canLockEarly
+    ? lockablePlayers(
+        roster,
+        (await listRunningEventMatches(id)).map((r) => r.match),
+        lockedPending.map(({ match }) => match)
+      )
+    : [];
+  const earlyIdsWithGames = pendingRound
+    ? await getMatchIdsWithRecordedGames(pendingRound.id)
+    : [];
+  const showEarlyPanel =
+    lockedPending.length > 0 || (canLockEarly && lockable.length >= 2);
   // Rounds whose results would count if the organizer ended right now: every
   // closed round, plus the active one once its last match is reported.
   const roundsIfEndedNow =
@@ -255,11 +300,13 @@ export default async function ManagePage({
       standings[0]?.displayName);
   const roundsRemaining =
     event.totalRounds -
-    (completedRoundsCount + (activeRound ? 1 : 0) + (pendingRound ? 1 : 0));
+    (completedRoundsCount +
+      (activeRound ? 1 : 0) +
+      (pendingRound && pendingDrawn ? 1 : 0));
   const nextRoundNumber = completedRoundsCount + (activeRound ? 1 : 0) + 1;
   const now: { step: number; title: string; detail: string } = isComplete
     ? { step: 5, title: "Finished", detail: "Final standings are locked in." }
-    : pendingRound
+    : pendingRound && pendingDrawn
       ? {
           step: 2,
           title: `Round ${pendingRound.roundNumber} · review pairings`,
@@ -480,14 +527,16 @@ export default async function ManagePage({
         </div>
       ) : (
         <div className="flex flex-wrap items-start gap-3">
-          {!pendingRound && roundsRemaining > 0 && (
+          {!(pendingRound && pendingDrawn) && roundsRemaining > 0 && (
             <div>
               <form action={previewNext}>
                 <button
                   type="submit"
                   className="rounded-[8px] px-5 py-3 text-sm btn-gold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
                 >
-                  Preview round {nextRoundNumber}
+                  {lockedPending.length > 0
+                    ? `Pair the rest of round ${nextRoundNumber}`
+                    : `Preview round ${nextRoundNumber}`}
                 </button>
               </form>
               {activeRound && incompleteCount > 0 && (
@@ -561,6 +610,11 @@ export default async function ManagePage({
                       {roundsIfEndedNow} round{roundsIfEndedNow === 1 ? "" : "s"}{" "}
                       played so far. Final standings get locked in and this
                       can&apos;t be undone.
+                      {lockedPending.some(({ match }) => match.status === "complete")
+                        ? ` Round ${earlyRoundNumber} already has a finished early table — clear its result (or play the round out) first.`
+                        : lockedPending.length > 0
+                          ? ` The early table${lockedPending.length === 1 ? "" : "s"} for round ${earlyRoundNumber} won't count.`
+                          : ""}
                     </p>
                     <form action={endEvent}>
                       <button
@@ -711,7 +765,7 @@ export default async function ManagePage({
         </section>
       )}
 
-      {pendingRound && (
+      {pendingRound && pendingDrawn && (
         <section className="mb-10 rounded-xl border border-amber-500/40 bg-amber-500/5 p-5">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-sm font-medium uppercase tracking-[0.2em] text-amber-300">
@@ -810,7 +864,25 @@ export default async function ManagePage({
           )}
 
           <ul className="space-y-2">
-            {pendingMatches.map(({ match, playerA, playerB }) => (
+            {lockedPending.map(({ match, playerA, playerB }) => (
+              <li
+                key={match.id}
+                className="flex flex-wrap items-center gap-3 rounded-md border border-sky-500/30 bg-sky-500/5 p-3"
+              >
+                <span className="font-mono text-xs text-zinc-500">
+                  T{match.tableNumber}
+                </span>
+                <span className="flex-1 text-sm">
+                  <strong>{playerA.displayName}</strong>{" "}
+                  <span className="text-zinc-500">vs</span>{" "}
+                  <strong>{playerB?.displayName ?? "BYE"}</strong>
+                </span>
+                <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 text-xs font-medium text-sky-200">
+                  {match.status === "complete" ? "early · finished" : "early · playing now"}
+                </span>
+              </li>
+            ))}
+            {draftedPending.map(({ match, playerA, playerB }) => (
               <li
                 key={match.id}
                 className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/30 bg-zinc-900 p-3"
@@ -825,7 +897,7 @@ export default async function ManagePage({
                   label={playerA.displayName}
                   matchId={match.id}
                   side="a"
-                  pendingMatches={pendingMatches}
+                  pendingMatches={draftedPending}
                   unpaired={unpaired}
                 />
                 <span className="text-zinc-500">vs</span>
@@ -836,7 +908,7 @@ export default async function ManagePage({
                   label={playerB?.displayName ?? "BYE"}
                   matchId={match.id}
                   side="b"
-                  pendingMatches={pendingMatches}
+                  pendingMatches={draftedPending}
                   unpaired={unpaired}
                   isBye={playerB === null}
                 />
@@ -868,17 +940,17 @@ export default async function ManagePage({
             </summary>
             <div className="border-t border-zinc-800 p-3">
               <PairingBuilder
-                key={pendingMatches
+                key={draftedPending
                   .map(({ match }) => `${match.playerAId}:${match.playerBId}`)
                   .join(",")}
                 eventId={id}
                 players={roster
-                  .filter((p) => !p.droppedAt)
+                  .filter((p) => !p.droppedAt && !lockedIds.has(p.playerId))
                   .map((p) => ({
                     playerId: p.playerId,
                     displayName: p.displayName,
                   }))}
-                initialTables={pendingMatches.map(({ match }) => ({
+                initialTables={draftedPending.map(({ match }) => ({
                   a: match.playerAId,
                   b: match.playerBId,
                 }))}
@@ -953,6 +1025,159 @@ export default async function ManagePage({
                 </form>
               )}
             </div>
+          )}
+        </section>
+      )}
+
+      {showEarlyPanel && (
+        <section className="mb-10 rounded-xl border border-sky-500/30 bg-sky-500/5 p-5">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-sm font-medium uppercase tracking-[0.2em] text-sky-300">
+              Round {earlyRoundNumber} — early tables
+            </h2>
+            <p className="text-xs text-zinc-400">
+              Two players who are done for this round can start their round{" "}
+              {earlyRoundNumber} match now. When you pair round{" "}
+              {earlyRoundNumber}, everyone else is seated around them.
+            </p>
+          </div>
+          {lockedPending.length > 0 && (
+            <ul className="mb-4 space-y-2">
+              {lockedPending.map(({ match, playerA, playerB }) => {
+                const done = match.status === "complete";
+                const winnerName =
+                  done && match.winnerId
+                    ? match.winnerId === playerA.id
+                      ? playerA.displayName
+                      : playerB?.displayName ?? null
+                    : null;
+                const untouched = !earlyIdsWithGames.includes(match.id);
+                return (
+                  <li
+                    key={match.id}
+                    className={`flex flex-wrap items-center gap-3 rounded-md border p-4 ${
+                      done
+                        ? "border-zinc-800 bg-zinc-900/60"
+                        : "border-sky-500/40 bg-zinc-900"
+                    }`}
+                  >
+                    <span className="font-mono text-xs text-zinc-500">
+                      T{match.tableNumber}
+                    </span>
+                    <span className="flex-1">
+                      <strong>{playerA.displayName}</strong>{" "}
+                      <span className="text-zinc-500">vs</span>{" "}
+                      <strong>{playerB?.displayName ?? "BYE"}</strong>
+                    </span>
+                    {done ? (
+                      <span className="flex items-center gap-3">
+                        <span className="text-xs text-emerald-400">
+                          {match.isDraw
+                            ? "draw"
+                            : winnerName
+                              ? `✓ ${winnerName}`
+                              : "complete"}
+                        </span>
+                        {playerB && <UndoResultButton matchId={match.id} />}
+                      </span>
+                    ) : (
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                        <TimeButton
+                          matchId={match.id}
+                          label={timeLabel({ match, playerA, playerB })}
+                        />
+                        <ResultButton
+                          matchId={match.id}
+                          outcome="a"
+                          label={`${playerA.displayName} wins`}
+                        />
+                        <ResultButton
+                          matchId={match.id}
+                          outcome="b"
+                          label={`${playerB!.displayName} wins`}
+                        />
+                        <ResultButton
+                          matchId={match.id}
+                          outcome="draw"
+                          label="Draw"
+                          variant="muted"
+                        />
+                        {untouched && (
+                          <form
+                            action={async () => {
+                              "use server";
+                              await unlockEarlyPairingAction({ matchId: match.id });
+                            }}
+                          >
+                            <button
+                              type="submit"
+                              className="min-h-11 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+                              title="Take the pairing back — possible until a game is recorded"
+                            >
+                              Unpair
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {canLockEarly && lockable.length >= 2 && (
+            <form
+              action={async (fd) => {
+                "use server";
+                await lockEarlyPairingAction({
+                  eventId: id,
+                  playerAId: String(fd.get("playerAId") ?? ""),
+                  playerBId: String(fd.get("playerBId") ?? ""),
+                });
+              }}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <select
+                name="playerAId"
+                required
+                defaultValue=""
+                className="min-h-11 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-base sm:text-sm"
+              >
+                <option value="" disabled>
+                  Player
+                </option>
+                {lockable.map((p) => (
+                  <option key={p.playerId} value={p.playerId}>
+                    {p.displayName}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-zinc-500">vs</span>
+              <select
+                name="playerBId"
+                required
+                defaultValue=""
+                className="min-h-11 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-base sm:text-sm"
+              >
+                <option value="" disabled>
+                  Player
+                </option>
+                {lockable.map((p) => (
+                  <option key={p.playerId} value={p.playerId}>
+                    {p.displayName}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="min-h-11 rounded-md btn-gold px-4 py-2 text-sm"
+              >
+                Start round {earlyRoundNumber} now
+              </button>
+              <span className="text-xs text-zinc-500">
+                {lockable.length} finished and free
+              </span>
+            </form>
           )}
         </section>
       )}
