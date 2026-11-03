@@ -557,6 +557,24 @@ async function driveRound2WithOverridesAndDraw(eventId: string) {
   const ms = await getRoundMatches(round!.id);
   const real = ms.filter((m) => m.playerB);
 
+  // A wizard dealt a table this round can't be challenged to a bonus game,
+  // and the refusal names the round.
+  const eventRow = await getEvent(eventId);
+  let roundRefusal = "";
+  try {
+    await createBonusGame({
+      leagueId: eventRow!.leagueId,
+      playerAId: real[1].playerA.id,
+      playerBId: real[0].playerA.id,
+    });
+  } catch (err) {
+    roundRefusal = String(err);
+  }
+  assert(
+    /playing round 2 of/.test(roundRefusal),
+    "challenging a wizard who is mid-round is refused, naming the round"
+  );
+
   // First match: a draw via override
   await setMatchResultAction(
     makeFormData({
@@ -2402,7 +2420,7 @@ async function runBonusGamePass() {
   });
   assert(
     !picksWhileBusy.some((o) => o.playerId === pb.id) &&
-      picksWhileBusy.every((o) => o.busy && o.tier === 4),
+      picksWhileBusy.every((o) => o.status === "bonus_game" && o.tier === 4),
     "opponent picker lists the other two as busy and off the top tiers while their game runs"
   );
 
@@ -2414,10 +2432,10 @@ async function runBonusGamePass() {
     eventId: event.id,
   });
   assert(
-    picksAfter.map((o) => [o.playerId, o.tier, o.busy]).join() ===
+    picksAfter.map((o) => [o.playerId, o.tier, o.status]).join() ===
       [
-        [pa.id, 3, false],
-        [pc.id, 3, false],
+        [pa.id, 3, "free"],
+        [pc.id, 3, "free"],
       ].join(),
     "opponent picker ranks recent bonus-game partners free and by name once the game ends"
   );

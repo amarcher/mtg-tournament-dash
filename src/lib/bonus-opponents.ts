@@ -10,15 +10,40 @@ import type { AvatarTiers } from "./avatar-tier";
 
 export type BonusOpponentTier = 1 | 2 | 3 | 4;
 
+/**
+ * Why a wizard can't be challenged right now, if they can't: in an open
+ * bonus game, or at a table in the ongoing event's current round.
+ */
+export type BonusOpponentStatus = "free" | "bonus_game" | "round_match";
+
 export type BonusOpponent = {
   playerId: string;
   displayName: string;
   avatars: AvatarTiers;
-  /** Already in an open bonus game — listed, but can't be challenged. */
-  busy: boolean;
+  status: BonusOpponentStatus;
+  /** The round they are playing when status is "round_match". */
+  roundNumber: number | null;
   tier: BonusOpponentTier;
   group: string;
 };
+
+export function isTiedUp(o: Pick<BonusOpponent, "status">): boolean {
+  return o.status !== "free";
+}
+
+/** The short reason shown on a tied-up tile, or null when free. */
+export function tiedUpLabel(
+  o: Pick<BonusOpponent, "status" | "roundNumber">
+): string | null {
+  switch (o.status) {
+    case "free":
+      return null;
+    case "bonus_game":
+      return "bonus game";
+    case "round_match":
+      return o.roundNumber ? `round ${o.roundNumber}` : "round match";
+  }
+}
 
 export const TIER_LABELS: Record<BonusOpponentTier, string> = {
   1: "In this event, free right now",
@@ -36,6 +61,7 @@ export type LeagueMatchActivity = {
   playerBId: string | null;
   /** Null = bonus game. */
   roundId: string | null;
+  roundNumber: number | null;
   /** The tournament event (through the round); null for bonus games. */
   eventId: string | null;
   roundStatus: "pending" | "active" | "complete" | null;
@@ -120,14 +146,15 @@ export function rankBonusOpponents(
   const seated = new Set(eventRoster.map((r) => r.playerId));
   const lastActive = new Map<string, number>();
   const lastBonus = new Map<string, number>();
-  const pairedNow = new Set<string>();
+  const pairedNow = new Map<string, number | null>();
 
   for (const m of activity) {
     const t = activityTime(m);
     for (const id of participants(m)) {
       lastActive.set(id, Math.max(lastActive.get(id) ?? 0, t));
       if (!m.roundId) lastBonus.set(id, Math.max(lastBonus.get(id) ?? 0, t));
-      if (eventId && isRunningTournamentMatch(m, eventId)) pairedNow.add(id);
+      if (eventId && isRunningTournamentMatch(m, eventId))
+        pairedNow.set(id, m.roundNumber);
     }
   }
 
@@ -135,8 +162,12 @@ export function rankBonusOpponents(
   const ranked = players
     .filter((p) => p.id !== me)
     .map((p) => {
-      const busy = busyIds.has(p.id);
-      const tiedUp = busy || pairedNow.has(p.id);
+      const status: BonusOpponentStatus = busyIds.has(p.id)
+        ? "bonus_game"
+        : pairedNow.has(p.id)
+          ? "round_match"
+          : "free";
+      const tiedUp = status !== "free";
       const inEvent = seated.has(p.id);
       const recentBonus = (lastBonus.get(p.id) ?? 0) >= recentCutoff;
       const tier: BonusOpponentTier = inEvent
@@ -151,7 +182,8 @@ export function rankBonusOpponents(
           playerId: p.id,
           displayName: p.displayName,
           avatars: avatarTiersOf(p),
-          busy,
+          status,
+          roundNumber: status === "round_match" ? (pairedNow.get(p.id) ?? null) : null,
           tier,
           group: TIER_LABELS[tier],
         },
