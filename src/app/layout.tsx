@@ -119,12 +119,13 @@ export default function RootLayout({
         suppressHydrationWarning
         className="min-h-full flex flex-col bg-canvas text-ink"
       >
+        {/* First in the body so it sits above every page's sticky header. */}
+        <BetaInvite />
         {children}
         <ResumeRefresh deploymentId={deploymentId} />
         <NativeLinks />
         <NativeUpdate />
         <PushEffects />
-        <BetaInvite />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>

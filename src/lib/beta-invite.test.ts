@@ -17,6 +17,7 @@ const base = {
   userAgent: iphone,
   maxTouchPoints: 5,
   isNativeShell: false,
+  isStandalone: false,
   pathname: "/leagues/friday",
   dismissedAt: null,
   now: 1_700_000_000_000,
@@ -48,12 +49,19 @@ describe("isQuietRoute", () => {
 });
 
 describe("shouldShowBetaInvite", () => {
-  it("shows to an iPhone browser on an ordinary page", () => {
+  it("shows to an iPhone browser on an ordinary page, Safari or Chrome", () => {
     expect(shouldShowBetaInvite(base)).toBe(true);
+    expect(
+      shouldShowBetaInvite({
+        ...base,
+        userAgent: iphone.replace("Version/27.1", "CriOS/142.0"),
+      })
+    ).toBe(true);
   });
 
   it("stays out of the native shell, other platforms and quiet routes", () => {
     expect(shouldShowBetaInvite({ ...base, isNativeShell: true })).toBe(false);
+    expect(shouldShowBetaInvite({ ...base, isStandalone: true })).toBe(false);
     expect(shouldShowBetaInvite({ ...base, userAgent: android })).toBe(false);
     expect(
       shouldShowBetaInvite({ ...base, pathname: "/events/abc/play" })
