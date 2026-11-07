@@ -19,24 +19,34 @@ function readDismissedAt(): number | null {
   }
 }
 
+function isStandalone() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
 /**
- * Invites iPhone and iPad visitors to the TestFlight build. Decided in an
- * effect from the real user agent, so the server renders nothing and
- * hydration never mismatches; the decision itself is `shouldShowBetaInvite`.
+ * Invites iPhone and iPad visitors to the TestFlight build with a strip drawn
+ * like Apple's Smart App Banner (icon, name, subtitle, a blue pill, close),
+ * which Apple only offers App Store apps. It sits in flow above the page and
+ * scrolls away with it, as Apple's does. Decided in an effect from the real
+ * user agent, so the server renders nothing and hydration never mismatches;
+ * the decision itself is `shouldShowBetaInvite`.
  */
 export function BetaInvite() {
   const pathname = usePathname();
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // Deferred so the first client render matches the server's (nothing), and
-    // the banner slides in after paint instead of flashing during hydration.
+    // Deferred so the first client render matches the server's (nothing).
     const id = window.setTimeout(() => {
       setVisible(
         shouldShowBetaInvite({
           userAgent: navigator.userAgent,
           maxTouchPoints: navigator.maxTouchPoints ?? 0,
           isNativeShell: Capacitor.isNativePlatform(),
+          isStandalone: isStandalone(),
           pathname,
           dismissedAt: readDismissedAt(),
         })
@@ -59,28 +69,56 @@ export function BetaInvite() {
   return (
     <aside
       aria-label="Get the iPhone app"
-      className="fixed inset-x-[calc(1rem+env(safe-area-inset-left))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 mx-auto max-w-md rounded-[14px] border border-line bg-surface p-4 shadow-e3 motion-safe:animate-[sheet-up_260ms_var(--ease-out-expo)]"
+      className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-3 font-[system-ui]"
     >
-      <p className="text-sm leading-snug text-ink">
-        <span className="font-semibold">MTG Dash for iPhone</span> is in
-        TestFlight. Get a buzz when your round is paired.
-      </p>
-      <div className="mt-3 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={dismiss}
-          className="inline-flex min-h-11 items-center rounded-md px-3 text-sm text-ink-dim btn-ghost focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
-        >
-          Not now
-        </button>
+      {/* eslint-disable-next-line @next/next/no-img-element -- a route-generated PNG; next/image would re-encode it */}
+      <img
+        src="/apple-icon"
+        alt=""
+        width={56}
+        height={56}
+        className="size-14 shrink-0 rounded-[13px] ring-1 ring-white/10"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[15px] font-semibold leading-tight text-ink">
+          MTG Dash
+        </p>
+        <p className="line-clamp-2 text-[13px] leading-snug text-ink-dim">
+          Get a buzz when your round is paired
+        </p>
+      </div>
+      <div className="flex shrink-0 flex-col items-center gap-0.5">
         <a
           href={TESTFLIGHT_PUBLIC_LINK}
           onClick={dismiss}
-          className="inline-flex min-h-11 items-center rounded-md btn-gold px-4 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          className="inline-flex h-9 min-w-[4.5rem] items-center justify-center rounded-full bg-[#0a7cff] px-4 text-[15px] font-semibold text-white active:bg-[#0062d6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
         >
-          Join the beta
+          Get
         </a>
+        <span className="text-[10px] leading-tight text-ink-dim">
+          TestFlight beta
+        </span>
       </div>
+      <button
+        type="button"
+        onClick={dismiss}
+        aria-label="Close"
+        className="-mr-1.5 grid size-11 shrink-0 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+      >
+        <span className="grid size-8 place-items-center rounded-full bg-surface-2 text-[#0a7cff] active:bg-line">
+          <svg
+            viewBox="0 0 16 16"
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </span>
+      </button>
     </aside>
   );
 }

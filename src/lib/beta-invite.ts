@@ -1,8 +1,9 @@
 /**
  * The website's invitation to install the iPhone app. Apple's Smart App Banner
  * only works for App Store apps, and MTG Dash is TestFlight-only, so this is a
- * banner of our own: shown to iPhone and iPad browsers, never inside the
- * native shell, never mid-game, and snoozed for a month once dismissed.
+ * banner of our own drawn like Apple's: shown to iPhone and iPad browsers
+ * (Safari, Chrome and the rest alike), never inside the native shell or a
+ * home-screen web app, never mid-game, and snoozed for a month once dismissed.
  */
 
 export const TESTFLIGHT_PUBLIC_LINK =
@@ -16,6 +17,9 @@ export interface BetaInviteContext {
   userAgent: string;
   maxTouchPoints: number;
   isNativeShell: boolean;
+  /** A home-screen web app: the banner sits under the status bar there, where
+   * each page's sticky header already pads the top inset. */
+  isStandalone: boolean;
   pathname: string;
   dismissedAt: number | null;
   now?: number;
@@ -34,7 +38,7 @@ export function isQuietRoute(pathname: string) {
 }
 
 export function shouldShowBetaInvite(ctx: BetaInviteContext): boolean {
-  if (ctx.isNativeShell) return false;
+  if (ctx.isNativeShell || ctx.isStandalone) return false;
   if (!isIosBrowser(ctx.userAgent, ctx.maxTouchPoints)) return false;
   if (isQuietRoute(ctx.pathname)) return false;
   const now = ctx.now ?? Date.now();
