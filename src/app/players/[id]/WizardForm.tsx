@@ -51,8 +51,10 @@ export function WizardForm({
   return (
     <form
       action={generateWizardAction}
+      // React resets uncontrolled fields when the action returns, but this
+      // action only starts the job. Keep the submitted settings visible.
+      onReset={(event) => event.preventDefault()}
       className="grid gap-4 md:grid-cols-2"
-      encType="multipart/form-data"
     >
       <input type="hidden" name="playerId" value={playerId} />
       {showError && (
