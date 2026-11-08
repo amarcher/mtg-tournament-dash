@@ -5,6 +5,7 @@ import {
   DEFAULT_PORTRAIT_THEME,
   TMNT_ARCHETYPES,
   REALITY_FRACTURE_ARCHETYPES,
+  STAR_TREK_ARCHETYPES,
   LOTR_ARCHETYPES,
   MARVEL_ARCHETYPES,
   PORTRAIT_THEMES,
@@ -245,8 +246,7 @@ describe("TMNT portraits", () => {
 });
 
 describe("Reality Fracture portraits", () => {
-  it("defaults new generations to Reality Fracture, accepts every character and falls back to the Theorist", () => {
-    expect(DEFAULT_PORTRAIT_THEME).toBe("reality-fracture");
+  it("accepts every character and falls back to the Theorist", () => {
     expect(isPortraitTheme("reality-fracture")).toBe(true);
     for (const character of REALITY_FRACTURE_ARCHETYPES) {
       expect(archetypeForTheme("reality-fracture", character)).toBe(character);
@@ -272,6 +272,49 @@ describe("Reality Fracture portraits", () => {
     expect(buildWizardPrompt("reality-fracture", "Garruk, Veiled Butcher")).toContain(
       "pushed back over their head"
     );
+  });
+});
+
+describe("Star Trek portraits", () => {
+  it("defaults to Star Trek and validates character choices with a Picard fallback", () => {
+    expect(DEFAULT_PORTRAIT_THEME).toBe("star-trek");
+    expect(PORTRAIT_THEMES[0]).toBe("star-trek");
+    expect(isPortraitTheme("star-trek")).toBe(true);
+    for (const character of STAR_TREK_ARCHETYPES) {
+      expect(archetypeForTheme("star-trek", character)).toBe(character);
+    }
+    for (const invalid of ["", "unknown", "the Theorist", "Leonardo"]) {
+      expect(archetypeForTheme("star-trek", invalid)).toBe("Jean-Luc Picard");
+      expect(buildWizardPrompt("star-trek", invalid)).toBe(
+        buildWizardPrompt("star-trek", "Jean-Luc Picard")
+      );
+    }
+  });
+
+  it.each(STAR_TREK_ARCHETYPES)("preserves the player's likeness as %s across all five states", (character) => {
+    const tiers = ["fresh", "wounded", "critical", "victory", "defeat"] as const;
+    const prompts = tiers.map((tier) =>
+      buildVariantPrompt("star-trek", character, "  a tribble on my shoulder  ", tier)
+    );
+    expect(new Set(prompts).size).toBe(5);
+    for (const prompt of prompts) {
+      expect(prompt).toContain(character);
+      expect(prompt).toContain("keeping their likeness, age, facial proportions");
+      expect(prompt).toContain("rather than replacing it with an actor's likeness");
+      expect(prompt).toContain("Also: a tribble on my shoulder.");
+      expect(prompt).toContain("no blood or gore");
+      expect(prompt).not.toMatch(/robes|magical|motes|Fully transform|undefined/);
+    }
+  });
+
+  it("allows specific species accents while keeping Borg faces visible", () => {
+    expect(buildWizardPrompt("star-trek", "Spock")).toContain("pointed Vulcan ear tips");
+    expect(buildWizardPrompt("star-trek", "Worf")).toContain("Klingon ridges");
+    expect(buildWizardPrompt("star-trek", "Data")).toContain("pale-gold synthetic sheen");
+    for (const character of ["Seven of Nine", "Borg drone"]) {
+      expect(buildWizardPrompt("star-trek", character)).toContain("both eyes and the central face unobstructed");
+    }
+    expect(buildWizardPrompt("star-trek", "Jean-Luc Picard", "  ")).not.toContain("Also:");
   });
 });
 

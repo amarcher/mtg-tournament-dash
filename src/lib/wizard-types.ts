@@ -102,13 +102,29 @@ export const REALITY_FRACTURE_ARCHETYPES = [
 export type RealityFractureArchetype =
   (typeof REALITY_FRACTURE_ARCHETYPES)[number];
 
+export const STAR_TREK_ARCHETYPES = [
+  "Jean-Luc Picard",
+  "James T. Kirk",
+  "Spock",
+  "Nyota Uhura",
+  "Montgomery Scott",
+  "Worf",
+  "Data",
+  "Seven of Nine",
+  "Kathryn Janeway",
+  "Borg drone",
+] as const;
+
+export type StarTrekArchetype = (typeof STAR_TREK_ARCHETYPES)[number];
+
 // A theme is a themed pack of selectable archetypes; the player picks the
 // theme first, then a character within it.
-export const PORTRAIT_THEMES = ["standard", "lotr", "marvel", "hobbit", "tmnt", "reality-fracture"] as const;
+export const PORTRAIT_THEMES = ["star-trek", "standard", "lotr", "marvel", "hobbit", "tmnt", "reality-fracture"] as const;
 
 export type PortraitTheme = (typeof PORTRAIT_THEMES)[number];
 
 export const PORTRAIT_THEME_LABELS: Record<PortraitTheme, string> = {
+  "star-trek": "Star Trek",
   standard: "Standard",
   lotr: "Lord of the Rings",
   marvel: "Marvel Super Heroes",
@@ -118,6 +134,7 @@ export const PORTRAIT_THEME_LABELS: Record<PortraitTheme, string> = {
 };
 
 export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
+  "star-trek": STAR_TREK_ARCHETYPES,
   standard: WIZARD_ARCHETYPES,
   lotr: LOTR_ARCHETYPES,
   marvel: MARVEL_ARCHETYPES,
@@ -128,9 +145,10 @@ export const THEME_ARCHETYPES: Record<PortraitTheme, readonly string[]> = {
 
 // What the wizardize form pre-selects. Hardcoded to the current draft's set
 // for now — TBD whether this later derives from the upcoming event.
-export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "reality-fracture";
+export const DEFAULT_PORTRAIT_THEME: PortraitTheme = "star-trek";
 
 export const THEME_FALLBACK_ARCHETYPE: Record<PortraitTheme, string> = {
+  "star-trek": "Jean-Luc Picard",
   standard: "archmage",
   lotr: "wizard",
   marvel: "armored genius",
