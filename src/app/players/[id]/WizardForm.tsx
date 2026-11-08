@@ -173,6 +173,11 @@ function FormBody({
               </option>
             ))}
           </select>
+          {theme === "star-trek" && (
+            <p className="mt-1 text-xs text-zinc-400">
+              Join the crew as a Starfleet officer, Vulcan, Klingon, android, or Borg.
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="wizard-archetype" className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400">
@@ -201,18 +206,20 @@ function FormBody({
           <input
             id="wizard-freeform"
             name="freeform"
-            placeholder="e.g. red beard, raven on shoulder"
+            placeholder={theme === "star-trek"
+              ? "e.g. a tribble on my shoulder"
+              : "e.g. red beard, raven on shoulder"}
             maxLength={140}
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
           />
         </div>
       </fieldset>
 
-      <div className="flex items-center gap-3 md:col-span-2">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center md:col-span-2">
         <button
           type="submit"
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-full btn-gold px-5 py-2 text-sm disabled:cursor-not-allowed"
+          className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full btn-gold px-5 py-2 text-sm disabled:cursor-not-allowed"
         >
           {busy && (
             <svg

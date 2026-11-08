@@ -22,6 +22,7 @@ import {
   type MarvelArchetype,
   type PortraitTheme,
   type RealityFractureArchetype,
+  type StarTrekArchetype,
   type TmntArchetype,
   type WizardArchetype,
 } from "./wizard-types";
@@ -236,12 +237,36 @@ const TURTLE_ARCHETYPES = new Set<string>([
   "Leonardo", "Raphael", "Donatello", "Michelangelo",
 ]);
 
+const STAR_TREK_DETAILS: Record<StarTrekArchetype, string> = {
+  "Jean-Luc Picard":
+    "Jean-Luc Picard's captain attire: a burgundy-and-black Starfleet command uniform with four gold collar pips and a delta communicator badge, seated upright in the Enterprise-D captain's chair with warm bridge consoles and stars behind them",
+  "James T. Kirk":
+    "James T. Kirk's captain attire: a gold command tunic with a black collar, gold sleeve braid and a Starfleet delta badge, an original-series Enterprise bridge with colorful illuminated controls behind them",
+  Spock:
+    "Spock's science officer attire: a blue science tunic with a black collar and a Starfleet delta badge, subtly pointed Vulcan ear tips as the only facial alteration, a blue-lit science scanner and starfield behind them",
+  "Nyota Uhura":
+    "Nyota Uhura's communications officer attire: a red Starfleet uniform with a black collar and delta badge, a small silver communications earpiece, colorful subspace signals glowing on the communications station behind them",
+  "Montgomery Scott":
+    "Montgomery Scott's chief engineer attire: a red engineering tunic with a black collar and delta badge, a handheld engineering scanner near their shoulder, glowing engine-room machinery behind them",
+  Worf:
+    "Worf's Klingon security officer attire: a gold-and-black Starfleet uniform with a diagonal silver segmented baldric, subtle Klingon ridges added only to their forehead without reshaping the rest of their face, the Enterprise tactical station behind them",
+  Data:
+    "Data's android officer attire: a gold-and-black Starfleet operations uniform with a delta communicator badge, a subtle pale-gold synthetic sheen on their skin and amber irises as the only facial alterations, softly glowing analytical displays behind them",
+  "Seven of Nine":
+    "Seven of Nine's reclaimed Borg attire: a structured Voyager-era Starfleet field jacket, a small silver implant above one eyebrow and a fine implant at the temple, both eyes and the central face unobstructed, a blue-lit Voyager astrometrics lab behind them",
+  "Kathryn Janeway":
+    "Kathryn Janeway's captain attire: a black Starfleet uniform with burgundy shoulders, a grey undershirt, four gold collar pips and a delta communicator badge, Voyager's sweeping bridge and a colorful distant nebula behind them",
+  "Borg drone":
+    "a Borg drone's gear: black segmented biomechanical armor, small metallic implants at the temple and along one cheek with green indicator lights, both eyes and the central face unobstructed, a Borg cube interior with green-lit geometric conduits behind them; no exposed tissue or body horror",
+};
+
 // Characters whose transformation must rebuild the face itself (bark, fur,
 // scales, feathers, chitin — not skin). The strict identity lock overpowers
 // the costume clause and FLUX errs human, so these swap it for a softer
 // carve-the-likeness instruction. Scoped per theme since archetype strings
 // aren't unique across packs.
 const FULL_TRANSFORM_ARCHETYPES: Record<PortraitTheme, ReadonlySet<string>> = {
+  "star-trek": new Set(),
   standard: new Set(),
   tmnt: new Set([
     "Splinter", "Bebop", "Rocksteady",
@@ -264,6 +289,7 @@ const TRANSFORM_THEME_DETAILS: Record<
   Exclude<PortraitTheme, "standard">,
   Record<string, string>
 > = {
+  "star-trek": STAR_TREK_DETAILS,
   lotr: LOTR_DETAILS,
   marvel: MARVEL_DETAILS,
   hobbit: HOBBIT_DETAILS,
@@ -276,6 +302,16 @@ export function buildWizardPrompt(
   archetype: string,
   freeform?: string
 ): string {
+  if (theme === "star-trek") {
+    const character = archetypeForTheme(theme, archetype) as StarTrekArchetype;
+    const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
+    return (
+      "Repaint this exact person as a Star Trek character, keeping their likeness, age, facial proportions, hair, and expression recognizable. " +
+      `Add ${STAR_TREK_DETAILS[character]}.${extra} ` +
+      "Preserve their own face rather than replacing it with an actor's likeness. Only apply the alien, android, or cybernetic accents explicitly described; otherwise keep their facial features and skin tone unchanged. " +
+      "Shoulders-up portrait, painterly oil-painting style, dramatic starship lighting. Family-friendly science-fiction adventure, no blood or gore."
+    );
+  }
   if (theme === "tmnt") archetype = archetypeForTheme(theme, archetype);
   const extra = freeform?.trim() ? ` Also: ${freeform.trim()}.` : "";
   const style =
@@ -364,10 +400,21 @@ const TIER_SUFFIX: Record<WizardTier, string> = {
     " The duel is over and they have been vanquished: head hung slightly, chin lowered toward their chest, eyes cast downward in quiet resignation, no smile, expression solemn and accepting. Robes scorched and frayed at the shoulders just like in the critical state — visibly weathered from the fight. The magical glow around them has dimmed to almost nothing, ambient light cool and somber. Family-friendly, no blood, no anguish, no tears — dignified defeat.",
 };
 
+const STAR_TREK_TIER_SUFFIX: Record<WizardTier, string> = {
+  fresh: "",
+  wounded:
+    " After a difficult away mission, their uniform or armor is dusty and lightly scuffed, their expression tired but determined, with soft amber console lighting. Keep the same character outfit and equipment; no blood or injuries.",
+  critical:
+    " After a long starship emergency, their uniform or armor is scorched and worn, their expression exhausted but resolute, with dim red alert lighting and faint background haze. Keep the same character outfit and equipment; no blood, wounds, or gore.",
+  victory:
+    " The mission is a success: a quiet triumphant smile, relaxed confident posture, warm golden bridge lighting and bright stars behind them. Keep the same character outfit and equipment.",
+  defeat:
+    " The mission is over: chin lowered, eyes downcast, a solemn dignified expression, weathered uniform or armor and cool dim console lighting. Keep the same character outfit and equipment; no blood, anguish, or tears.",
+};
+
 /**
  * Like buildWizardPrompt, but appends a tier-specific suffix so the same
- * archetype renders three life-state variants. Identity lock and base costume
- * stay the same so the three portraits are recognizably the same wizard.
+ * archetype renders five life and outcome states with the same identity and costume.
  */
 export function buildVariantPrompt(
   theme: PortraitTheme,
@@ -375,7 +422,8 @@ export function buildVariantPrompt(
   freeform: string | undefined,
   tier: WizardTier
 ): string {
-  return buildWizardPrompt(theme, archetype, freeform) + TIER_SUFFIX[tier];
+  const suffixes = theme === "star-trek" ? STAR_TREK_TIER_SUFFIX : TIER_SUFFIX;
+  return buildWizardPrompt(theme, archetype, freeform) + suffixes[tier];
 }
 
 export type WizardVariantResult = {
