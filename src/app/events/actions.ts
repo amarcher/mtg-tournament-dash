@@ -102,6 +102,8 @@ import {
   notifyRoundStarted,
   runAfterResponse,
   notifyLeagueMessage,
+  notifyRsvpNudge,
+  getLastRsvpNudgeAt,
 } from "@/lib/push";
 import {
   registerPushDevice,
@@ -109,7 +111,7 @@ import {
   updatePushDevicePrefs,
   type PushPrefs,
 } from "@/lib/push-devices";
-import { isPlausibleToken } from "@/lib/push-rules";
+import { isPlausibleToken, nudgeWaitMs } from "@/lib/push-rules";
 import { checkWizardizeLimit } from "@/lib/rate-limit";
 import { isMatchParticipant } from "@/lib/match-authz";
 import {
@@ -140,6 +142,7 @@ import {
 import {
   formatPollDate,
   isPollResponse,
+  nightIsUpcoming,
   parseDateTimeLocal,
 } from "@/lib/schedule-types";
 import { MAX_SERIES_COUNT } from "@/lib/recurrence";
@@ -2574,6 +2577,66 @@ export async function updateGameNightAction(formData: FormData) {
     .where(eq(gameNights.id, nightId));
 
   revalidateCalendar(league.slug, nightId);
+}
+
+export type RsvpNudgeFormState =
+  | { status: "idle"; error: null }
+  | { status: "error"; error: string }
+  | { status: "sent"; error: null; sent: number; optedOut: number; failed: number };
+
+/**
+ * Organizer: push a reminder to the players who have not answered a night.
+ * Only they hear it, each phone's schedule switch is honored, and a night
+ * can be nudged once an hour. Awaited inline so the count comes back.
+ */
+export async function nudgeNightRsvpsAction(
+  _prev: RsvpNudgeFormState,
+  formData: FormData
+): Promise<RsvpNudgeFormState> {
+  const nightId = String(formData.get("nightId") ?? "");
+  const { night, league } = await requireNight(nightId);
+  await requireOrganizer(night.leagueId);
+  if (night.status === "canceled") {
+    return { status: "error", error: "This night was canceled" };
+  }
+  if (!nightIsUpcoming(night.startsAt)) {
+    return { status: "error", error: "This night has already happened" };
+  }
+
+  const [leaguePlayers, rsvps] = await Promise.all([
+    db.select({ id: players.id }).from(players).where(eq(players.leagueId, night.leagueId)),
+    db.select({ playerId: nightRsvps.playerId }).from(nightRsvps).where(eq(nightRsvps.nightId, nightId)),
+  ]);
+  const answered = new Set(rsvps.map((r) => r.playerId));
+  const silent = leaguePlayers.map((p) => p.id).filter((id) => !answered.has(id));
+  if (silent.length === 0) {
+    return { status: "error", error: "Everyone has answered" };
+  }
+
+  const waitMs = nudgeWaitMs(await getLastRsvpNudgeAt(nightId));
+  if (waitMs > 0) {
+    const minutes = Math.ceil(waitMs / 60_000);
+    return {
+      status: "error",
+      error: `Already nudged. You can nudge again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+    };
+  }
+
+  const counts = await notifyRsvpNudge({
+    nightId,
+    startsAt: night.startsAt,
+    setName: night.setName,
+    leagueSlug: league.slug,
+    leagueName: league.name,
+    playerIds: silent,
+  });
+  return {
+    status: "sent",
+    error: null,
+    sent: counts.sent,
+    optedOut: counts.opted_out,
+    failed: counts.failed,
+  };
 }
 
 /** Organizer: take a date back off the calendar. */

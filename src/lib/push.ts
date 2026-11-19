@@ -1,7 +1,7 @@
 import http2 from "node:http2";
 import { after } from "next/server";
 import { importPKCS8, SignJWT } from "jose";
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { players, pushDevices, pushLog } from "@/db/schema";
 import type { Event, Match } from "@/db/schema";
@@ -18,10 +18,12 @@ import {
   fcmMessage,
   gameNightsNotification,
   leagueMessageNotification,
+  nudgeCollapseId,
   parseServiceAccount,
   pollNotification,
   prefForKind,
   roundNotification,
+  rsvpNudgeNotification,
   testNotification,
   type ServiceAccount,
   tokenUnregistered,
@@ -464,6 +466,38 @@ export async function notifyGameNights(input: {
   if (!note) return emptyCounts();
   const ids = await listLeaguePlayerIds(input.leagueId);
   return notifyPlayers(new Map(ids.map((id) => [id, note])));
+}
+
+/**
+ * A reminder to the players who have not answered a night. Awaited by its
+ * action, like the organizer's note: the button reports how many it reached.
+ */
+export async function notifyRsvpNudge(input: {
+  nightId: string;
+  startsAt: Date;
+  setName: string | null;
+  leagueSlug: string;
+  leagueName: string;
+  playerIds: string[];
+}) {
+  const note = rsvpNudgeNotification(input, site());
+  return notifyPlayers(new Map(input.playerIds.map((id) => [id, note])));
+}
+
+/** When this night's stragglers were last nudged; the cooldown reads it. */
+export async function getLastRsvpNudgeAt(nightId: string): Promise<Date | null> {
+  const [row] = await db
+    .select({ sentAt: pushLog.sentAt })
+    .from(pushLog)
+    .where(
+      and(
+        eq(pushLog.kind, "rsvp_nudge"),
+        eq(pushLog.collapseId, nudgeCollapseId(nightId))
+      )
+    )
+    .orderBy(desc(pushLog.sentAt))
+    .limit(1);
+  return row?.sentAt ?? null;
 }
 
 /**
