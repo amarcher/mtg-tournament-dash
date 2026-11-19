@@ -64,6 +64,7 @@ import {
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
   sendLeagueMessageAction,
+  nudgeNightRsvpsAction,
 } from "../src/app/events/actions";
 import {
   applyGameWinner,
@@ -130,6 +131,7 @@ import {
   removePushDevice,
   updatePushDevicePrefs,
   countMessageReach,
+  countScheduleReach,
 } from "../src/lib/push-devices";
 import { generateDateSeries } from "../src/lib/recurrence";
 import { computeTeamStandings, splitTeams } from "../src/lib/team-draft";
@@ -3765,6 +3767,48 @@ async function runGameNightPass(): Promise<{
   assert(
     (await listUpcomingNights(league.id)).length === 3,
     "a canceled night drops off the upcoming schedule"
+  );
+
+  // Nudge: only the players who have not answered, each phone's schedule
+  // switch honored, once per cooldown. Fresh phones, because a real gateway
+  // deletes the fake ones above mid-run.
+  await rsvpGameNightAction(
+    makeFormData({ nightId: spare.id, playerId: n3p.id, response: "yes" })
+  );
+  await registerVerifyDevice("nudge-on", [n1p.id]);
+  const nudgeOff = await registerVerifyDevice("nudge-off", [n2p.id], "android");
+  await updatePushDevicePrefs(nudgeOff, { notifySchedule: false });
+  await registerVerifyDevice("nudge-answered", [n3p.id]);
+  assert(
+    (await countScheduleReach([n1p.id, n2p.id, n4p.id])) === 1,
+    "nudge reach counts only players with a phone that has schedule on"
+  );
+  const nudge = () =>
+    nudgeNightRsvpsAction(
+      { status: "idle", error: null },
+      makeFormData({ nightId: spare.id })
+    );
+  const nudged = await nudge();
+  assert(
+    nudged.status === "sent" && nudged.optedOut === 1,
+    "nudge goes out and reports the phone with schedule switched off"
+  );
+  const nudgeHeard = await pushLogFor(n1p.id, "rsvp_nudge");
+  assert(
+    nudgeHeard.length === 1 && nudgeHeard[0].outcome !== "opted_out",
+    "a silent player's phone is attempted (logged)"
+  );
+  assert(
+    (await pushLogFor(n2p.id, "rsvp_nudge")).every((r) => r.outcome === "opted_out"),
+    "a phone with schedule off is logged as opted_out, never sent"
+  );
+  assert(
+    (await pushLogFor(n3p.id, "rsvp_nudge")).length === 0,
+    "a player who already answered is not nudged"
+  );
+  assert(
+    (await nudge()).status === "error",
+    "a second nudge inside the cooldown is refused"
   );
 
   try {

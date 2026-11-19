@@ -129,6 +129,16 @@ export async function listLeaguePlayerIds(
 }
 
 /**
+ * How many of these players a schedule push can reach: those with a live
+ * phone that has the schedule switch on. Shown beside the nudge button.
+ */
+export async function countScheduleReach(playerIds: string[]): Promise<number> {
+  const devices = await listDevicesForPlayers(playerIds);
+  return new Set(devices.filter((d) => d.notifySchedule).map((d) => d.playerId))
+    .size;
+}
+
+/**
  * How far an organizer's note would reach: live phones linked to the
  * league with the messages switch on, and the players they cover. Shown on
  * the composer so "sent to 0 phones" is never a surprise.

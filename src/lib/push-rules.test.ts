@@ -4,6 +4,10 @@ import {
   apnsTokenStale,
   fcmMessage,
   gameNightsNotification,
+  NUDGE_COOLDOWN_MS,
+  nudgeCollapseId,
+  nudgeWaitMs,
+  rsvpNudgeNotification,
   isPlausibleToken,
   leagueMessageNotification,
   parseServiceAccount,
@@ -81,6 +85,42 @@ describe("gameNightsNotification", () => {
     expect(
       gameNightsNotification({ dates: [], leagueSlug: "h", leagueName: "H" })
     ).toBeNull();
+  });
+});
+
+describe("rsvpNudgeNotification", () => {
+  const night = {
+    nightId: "n1",
+    startsAt: new Date("2026-11-27T19:00:00-08:00"),
+    setName: "Lorwyn",
+    leagueSlug: "home",
+    leagueName: "Home League",
+  };
+  it("asks the question and opens the night's RSVP page", () => {
+    const n = rsvpNudgeNotification(night);
+    expect(n.title).toMatch(/^Are you in for .+\?$/);
+    expect(n.body).toBe("Home League · Lorwyn · tap to RSVP");
+    expect(n.url).toBe("https://mtg.capxun.com/leagues/home/schedule/nights/n1");
+    expect(n.collapseId).toBe(nudgeCollapseId("n1"));
+    expect(prefForKind(n.kind)).toBe("notifySchedule");
+  });
+  it("leaves the set out when none is planned", () => {
+    expect(rsvpNudgeNotification({ ...night, setName: null }).body).toBe(
+      "Home League · tap to RSVP"
+    );
+  });
+});
+
+describe("nudgeWaitMs", () => {
+  const now = new Date("2026-11-20T12:00:00Z");
+  it("allows a first nudge and one after the cooldown", () => {
+    expect(nudgeWaitMs(null, now)).toBe(0);
+    expect(nudgeWaitMs(new Date(now.getTime() - NUDGE_COOLDOWN_MS), now)).toBe(0);
+  });
+  it("reports what is left inside the cooldown", () => {
+    expect(nudgeWaitMs(new Date(now.getTime() - 60_000), now)).toBe(
+      NUDGE_COOLDOWN_MS - 60_000
+    );
   });
 });
 

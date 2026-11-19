@@ -119,6 +119,11 @@ export function formatPollDateParts(value: Date | string | number) {
   };
 }
 
+/** A night counts as upcoming until six hours after it starts (the schedule's own cutoff). */
+export function nightIsUpcoming(startsAt: Date, now: Date = new Date()): boolean {
+  return startsAt.getTime() > now.getTime() - 6 * 60 * 60 * 1000;
+}
+
 export function formatPollDate(value: Date | string | number) {
   return pollDateFormatter.format(new Date(value));
 }

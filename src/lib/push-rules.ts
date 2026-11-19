@@ -13,6 +13,7 @@ export type PushKind =
   | "round_started"
   | "date_poll"
   | "game_nights"
+  | "rsvp_nudge"
   | "league_message"
   | "test";
 
@@ -25,6 +26,7 @@ export function prefForKind(kind: PushKind): PushPref | null {
       return "notifyRounds";
     case "date_poll":
     case "game_nights":
+    case "rsvp_nudge":
       return "notifySchedule";
     case "league_message":
       return "notifyMessages";
@@ -126,6 +128,40 @@ export function gameNightsNotification(
     // Collapse per batch, not per league: two batches on one day are two
     // separate pieces of news.
     collapseId: `nights-${input.leagueSlug}-${sorted[0].getTime()}`,
+    ttlSeconds: SCHEDULE_TTL_SECONDS,
+  };
+}
+
+/** One nudge per night per hour: enough to chase stragglers, not to nag. */
+export const NUDGE_COOLDOWN_MS = 60 * 60 * 1000;
+
+export function nudgeCollapseId(nightId: string): string {
+  return `nudge-${nightId}`;
+}
+
+/** Milliseconds until this night may be nudged again; 0 when it may be now. */
+export function nudgeWaitMs(lastSentAt: Date | null, now: Date = new Date()): number {
+  if (!lastSentAt) return 0;
+  return Math.max(0, lastSentAt.getTime() + NUDGE_COOLDOWN_MS - now.getTime());
+}
+
+/** The organizer's reminder to the players who have not answered a night. */
+export function rsvpNudgeNotification(
+  input: {
+    nightId: string;
+    startsAt: Date;
+    setName: string | null;
+    leagueSlug: string;
+    leagueName: string;
+  },
+  site: string = DEFAULT_SITE
+): PushNotification {
+  return {
+    kind: "rsvp_nudge",
+    title: `Are you in for ${formatPollDate(input.startsAt)}?`,
+    body: `${input.leagueName}${input.setName ? ` · ${input.setName}` : ""} · tap to RSVP`,
+    url: `${site}/leagues/${input.leagueSlug}/schedule/nights/${input.nightId}`,
+    collapseId: nudgeCollapseId(input.nightId),
     ttlSeconds: SCHEDULE_TTL_SECONDS,
   };
 }

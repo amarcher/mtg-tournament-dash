@@ -7,6 +7,8 @@ import {
 } from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
+import { countScheduleReach } from "@/lib/push-devices";
+import { NudgeButton } from "./NudgeButton";
 import {
   deleteGameNightAction,
   promoteGameNightAction,
@@ -22,6 +24,7 @@ import {
 import {
   POLL_RESPONSE_LABELS,
   formatPollDate,
+  nightIsUpcoming,
   toDateTimeLocal,
   type PollResponseValue,
 } from "@/lib/schedule-types";
@@ -79,6 +82,15 @@ export default async function GameNightPage({
     ? night.rsvps.find((r) => r.playerId === me.id)?.response
     : undefined;
   const canceled = night.status === "canceled";
+  const canNudge =
+    view.organizerMode &&
+    !canceled &&
+    !night.event &&
+    silent.length > 0 &&
+    nightIsUpcoming(night.startsAt);
+  const nudgeReach = canNudge
+    ? await countScheduleReach(silent.map((p) => p.id))
+    : 0;
 
   return (
     <AppChrome
@@ -184,6 +196,13 @@ export default async function GameNightPage({
             <p className="text-xs text-zinc-500">
               No answer yet: {silent.map((p) => p.displayName).join(", ")}
             </p>
+          )}
+          {canNudge && (
+            <NudgeButton
+              nightId={night.id}
+              silentCount={silent.length}
+              reachable={nudgeReach}
+            />
           )}
         </section>
 
