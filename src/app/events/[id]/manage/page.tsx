@@ -47,6 +47,7 @@ import { isLeagueOrganizer } from "@/lib/authz";
 import { readOrganizerModeCookie } from "@/lib/organizer-mode";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { CopyButton } from "@/app/components/CopyButton";
+import { ShareButton } from "@/app/components/ShareButton";
 import { formatPct } from "@/lib/format";
 import { draftSeatOrder } from "@/lib/draft-seating";
 import { lockablePlayers } from "@/lib/pairings/early";
@@ -422,6 +423,10 @@ export default async function ManagePage({
             >
               Broadcast ↗
             </Link>
+            <ShareButton
+              label={isComplete ? "Share results" : "Share with players"}
+              className="rounded-[8px] px-4 py-2.5 text-sm btn-ghost"
+            />
           </div>
         </div>
 

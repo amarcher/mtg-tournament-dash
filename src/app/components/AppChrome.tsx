@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { League, Player } from "@/db/schema";
 import { AccountMenu } from "@/app/components/AccountMenu";
+import { ShareButton } from "@/app/components/ShareButton";
 
 export type AppTab = "play" | "schedule" | "league" | "organize";
 
@@ -48,7 +49,8 @@ export function AppChrome({
               Organizer
             </span>
           )}
-          <div className="ml-auto shrink-0">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {organizerMode && <ShareButton />}
             <AccountMenu
               league={league ? { id: league.id, slug: league.slug, name: league.name } : null}
               player={player ?? null}

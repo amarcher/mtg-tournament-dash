@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, players, rounds } from "@/db/schema";
-import { getCurrentPlayer } from "@/lib/auth";
+import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import { AppChrome } from "@/app/components/AppChrome";
 import {
@@ -152,11 +152,13 @@ export default async function PlayPage({
   // No (or stale) event cookie — the claim page can recover every case: it
   // recognizes league-cookie holders for a one-tap continue and shows the
   // roster grid to everyone else. Never strand the player on a dead end.
-  if (!me) redirect(`/events/${id}/claim`);
+  // A finished event is the exception: its results link gets texted to the
+  // whole group, and the ranking needs no seat to read.
+  if (!me && event.status !== "complete") redirect(`/events/${id}/claim`);
 
   const [match, mePlayer, view] = await Promise.all([
-    getActiveMatchForPlayer(id, me.playerId),
-    getPlayer(me.playerId),
+    me ? getActiveMatchForPlayer(id, me.playerId) : null,
+    me ? getPlayer(me.playerId) : getCurrentLeaguePlayer(event.leagueId),
     getOrganizerView(league),
   ]);
   const chrome = (children: React.ReactNode) => (
@@ -208,12 +210,15 @@ export default async function PlayPage({
         team: s.team,
       };
     });
-    const myRank =
-      ranking.findIndex((r) => r.playerId === me.playerId) + 1;
+    const myRank = me
+      ? ranking.findIndex((r) => r.playerId === me.playerId) + 1
+      : 0;
     const teamNames = teamNamesFor(event);
     const teamScore =
       event.format === "team_draft" ? computeTeamStandings(standings) : null;
-    const myTeam = standings.find((s) => s.playerId === me.playerId)?.team ?? null;
+    const myTeam = me
+      ? (standings.find((s) => s.playerId === me.playerId)?.team ?? null)
+      : null;
     const teamLine = teamScore
       ? teamScore.leader === null
         ? teamScore.decidedBy === "tie"
@@ -221,7 +226,7 @@ export default async function PlayPage({
           : "No results recorded"
         : `${teamNames[teamScore.leader]} ${myTeam === teamScore.leader ? "win — that's you!" : "win"} ${teamScore[teamScore.leader].wins}–${teamScore[teamScore.leader === "a" ? "b" : "a"].wins}${teamScore.decidedBy === "game_wins" ? " on game wins" : ""}`
       : null;
-    const bonus = await loadBonusData(league?.id, id, me.playerId);
+    const bonus = me ? await loadBonusData(league?.id, id, me.playerId) : null;
     return chrome(
       <main className="mx-auto w-full max-w-md px-4 py-6">
         <div className="mb-4 text-center">
@@ -248,10 +253,10 @@ export default async function PlayPage({
         </div>
         <FinalRanking
           players={ranking}
-          highlightPlayerId={me.playerId}
+          highlightPlayerId={me?.playerId}
           teams={teamScore ? { names: teamNames, winner: teamScore.leader } : null}
         />
-        {league && (
+        {league && bonus && (
           <BonusGameSection
             leagueSlug={league.slug}
             eventId={id}
@@ -264,6 +269,9 @@ export default async function PlayPage({
       </main>
     );
   }
+
+  // Only a finished event renders without a seat, and that returned above.
+  if (!me) redirect(`/events/${id}/claim`);
 
   // A complete match must never mount PlayClient: its poll sees
   // status "complete" and reloads, which re-renders the same complete match —
