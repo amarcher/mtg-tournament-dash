@@ -41,9 +41,11 @@ import {
   getGameWinsByMatch,
   getLastLeagueMessageAt,
   getPairingInputs,
+  getPlayerForUser,
   getRoundMatches,
   insertLeagueMessage,
   listOpenEventsForPlayer,
+  listPlayersForUser,
   listRunningEventMatches,
   setLeagueMessageCounts,
 } from "@/db/queries";
@@ -94,6 +96,16 @@ import {
 } from "@/lib/authz";
 import { safeNextPath } from "@/lib/safe-next";
 import { leagueMembers } from "@/db/schema";
+import {
+  CLAIM_POLICIES,
+  CLAIM_REFUSAL_MESSAGES,
+  claimDecision,
+  createDecision,
+  parseClaimPolicy,
+  type ClaimPolicy,
+} from "@/lib/wizard-ownership";
+import { releaseWizard, takeWizard } from "@/lib/wizard-claims";
+import type { League, Player } from "@/db/schema";
 import {
   addPlayerToEventRoster,
   removePlayerFromEventRoster,
@@ -514,6 +526,21 @@ export async function createLeaguePlayerAction(formData: FormData) {
     .where(eq(leagues.slug, leagueSlug));
   if (!league) throw new Error("League not found");
 
+  const user = await getSessionUser();
+  const creating = createDecision({
+    policy: parseClaimPolicy(league.claimPolicy),
+    sessionUserId: user?.id ?? null,
+    ownedPlayerId: user
+      ? ((await getPlayerForUser(league.id, user.id))?.id ?? null)
+      : null,
+  });
+  if (!creating.ok) {
+    if (creating.reason === "sign_in") {
+      redirect(signInPath(`/leagues/${league.slug}/claim`));
+    }
+    throw new Error(CLAIM_REFUSAL_MESSAGES.has_wizard);
+  }
+
   const token = generateJoinToken();
   const [player] = await db
     .insert(players)
@@ -521,6 +548,7 @@ export async function createLeaguePlayerAction(formData: FormData) {
       leagueId: league.id,
       leagueToken: token,
       displayName: name,
+      userId: creating.owned ? user!.id : null,
     })
     .returning();
 
@@ -545,6 +573,42 @@ export async function createLeaguePlayerAction(formData: FormData) {
   }
 
   redirect(next ?? `/players/${player.id}`);
+}
+
+function signInPath(next: string): string {
+  return `/sign-in?next=${encodeURIComponent(next)}`;
+}
+
+/**
+ * The gate every "tap a wizard to be it" action passes through: an owned
+ * wizard answers to its owner's session only, and the league's claim policy
+ * decides what a tap on an unowned one does (wizard-ownership.ts). Sends a
+ * signed-out visitor to sign in and back; throws on any other refusal.
+ * Outside a request scope (verify) there is no session, so the open policy's
+ * no-login tap is all that passes, exactly as before accounts.
+ */
+async function authorizeWizardClaim(
+  league: Pick<League, "id" | "claimPolicy">,
+  player: Pick<Player, "id" | "userId">,
+  returnTo: string
+) {
+  const user = await getSessionUser();
+  const decision = claimDecision({
+    policy: parseClaimPolicy(league.claimPolicy),
+    playerId: player.id,
+    ownerUserId: player.userId,
+    sessionUserId: user?.id ?? null,
+    ownedPlayerId: user
+      ? ((await getPlayerForUser(league.id, user.id))?.id ?? null)
+      : null,
+  });
+  if (!decision.ok) {
+    if (decision.reason === "sign_in") redirect(signInPath(returnTo));
+    throw new Error(CLAIM_REFUSAL_MESSAGES[decision.reason]);
+  }
+  if (decision.takeOwnership && !(await takeWizard(player.id, user!.id))) {
+    throw new Error(CLAIM_REFUSAL_MESSAGES.taken);
+  }
 }
 
 /**
@@ -608,6 +672,7 @@ export async function claimLeaguePlayerAction(formData: FormData) {
     .where(and(eq(players.id, playerId), eq(players.leagueId, league.id)));
   if (!player) throw new Error("Player is not in this league");
 
+  await authorizeWizardClaim(league, player, `/leagues/${league.slug}/claim`);
   await setLeagueCookie(league.id, player.leagueToken);
 
   // An explicit return target (e.g. a bonus-game QR that routed through
@@ -2154,7 +2219,8 @@ async function finalizeMatchOutcome(args: {
  * Claim a player identity for an event by tapping a wizard portrait on
  * `/events/[id]/claim`. Sets both the per-event cookie (used by /play and the
  * realtime views) and the league cookie (durable identity across events in
- * the same league). Last-claim-wins by design.
+ * the same league). Last-claim-wins for an unowned wizard in an open league;
+ * authorizeWizardClaim holds the line for everything else.
  */
 export async function claimIdentityAction(formData: FormData) {
   const eventId = String(formData.get("eventId") ?? "");
@@ -2178,11 +2244,16 @@ export async function claimIdentityAction(formData: FormData) {
     .select()
     .from(players)
     .where(eq(players.id, playerId));
+  if (!player) throw new Error("Player not found");
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, player.leagueId));
+  if (!league) throw new Error("League not found");
 
+  await authorizeWizardClaim(league, player, `/events/${eventId}/claim`);
   await setPlayerCookie(eventId, ep.joinToken);
-  if (player) {
-    await setLeagueCookie(player.leagueId, player.leagueToken);
-  }
+  await setLeagueCookie(player.leagueId, player.leagueToken);
   redirect(`/events/${eventId}/play`);
 }
 
@@ -2879,7 +2950,13 @@ export async function registerPushDeviceAction(args: {
   const mine = await Promise.all(
     leagueIds.map((id) => getCurrentLeaguePlayer(id))
   );
-  const playerIds = mine.flatMap((p) => (p ? [p.id] : []));
+  // A signed-in phone also speaks for the wizards its account owns, which
+  // it may hold no cookie for yet.
+  const user = await getSessionUser();
+  const owned = user ? await listPlayersForUser(user.id) : [];
+  const playerIds = [
+    ...new Set([...mine.flatMap((p) => (p ? [p.id] : [])), ...owned.map((p) => p.id)]),
+  ];
   const device = await registerPushDevice({
     token,
     platform,
@@ -3113,6 +3190,43 @@ export async function rotateManagerInviteTokenAction(formData: FormData) {
     .returning();
 
   revalidatePath(`/leagues/${league.slug}/settings`);
+}
+
+/** Organizer: choose who may take a wizard that no account owns. */
+export async function setClaimPolicyAction(formData: FormData) {
+  const leagueId = String(formData.get("leagueId") ?? "");
+  const policy = String(formData.get("policy") ?? "");
+  if (!leagueId) throw new Error("League required");
+  if (!(CLAIM_POLICIES as readonly string[]).includes(policy)) {
+    throw new Error("Unknown setting");
+  }
+  await requireOrganizer(leagueId);
+  const [league] = await db
+    .update(leagues)
+    .set({ claimPolicy: policy as ClaimPolicy })
+    .where(eq(leagues.id, leagueId))
+    .returning();
+  if (!league) throw new Error("League not found");
+  revalidatePath(`/leagues/${league.slug}/settings`);
+  revalidatePath(`/leagues/${league.slug}/claim`);
+}
+
+/** Organizer: detach a wizard from its account (a wrong claim, a departed member). */
+export async function releaseWizardAction(formData: FormData) {
+  const playerId = String(formData.get("playerId") ?? "");
+  if (!playerId) throw new Error("Player required");
+  const [player] = await db.select().from(players).where(eq(players.id, playerId));
+  if (!player) throw new Error("Player not found");
+  await requireOrganizer(player.leagueId);
+  await releaseWizard(playerId);
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, player.leagueId));
+  if (league) {
+    revalidatePath(`/leagues/${league.slug}/settings`);
+    revalidatePath(`/leagues/${league.slug}/claim`);
+  }
 }
 
 export async function removeLeagueMemberAction(formData: FormData) {

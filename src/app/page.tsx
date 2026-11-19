@@ -2,7 +2,11 @@ import Link from "next/link";
 import { db } from "@/db/client";
 import { events, players } from "@/db/schema";
 import { eq, sql, desc } from "drizzle-orm";
-import { listLeaguesByIds, listLeaguesForUser } from "@/db/queries";
+import {
+  listLeaguesByIds,
+  listLeaguesForUser,
+  listPlayersForUser,
+} from "@/db/queries";
 import { listCookieLeagueIds } from "@/lib/auth";
 import { getSessionUser } from "@/lib/authz";
 import type { League } from "@/db/schema";
@@ -19,7 +23,13 @@ export default async function HomePage() {
   // already belongs to: managed via account, or played in via guest cookie.
   const managed = user ? await listLeaguesForUser(user.id) : [];
   const managedIds = new Set(managed.map((l) => l.id));
-  const playedIn = (await listLeaguesByIds(cookieLeagueIds)).filter(
+  // An account's own wizards count too: a new phone holds no cookie yet.
+  const ownedLeagueIds = user
+    ? (await listPlayersForUser(user.id)).map((p) => p.leagueId)
+    : [];
+  const playedIn = (
+    await listLeaguesByIds([...new Set([...cookieLeagueIds, ...ownedLeagueIds])])
+  ).filter(
     (l) => !managedIds.has(l.id)
   );
 

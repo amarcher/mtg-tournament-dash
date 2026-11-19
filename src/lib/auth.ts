@@ -1,8 +1,12 @@
 import { cookies } from "next/headers";
 import {
   getEventPlayerByToken,
+  getEventPlayerForUser,
   getPlayerByLeagueToken,
+  getPlayerForUser,
 } from "@/db/queries";
+import { getSessionUser } from "@/lib/authz";
+import { ownerAllows } from "@/lib/wizard-ownership";
 
 const EVENT_COOKIE_PREFIX = "mtg_event_";
 const LEAGUE_COOKIE_PREFIX = "mtg_league_";
@@ -39,13 +43,20 @@ export async function setPlayerCookie(eventId: string, joinToken: string) {
   });
 }
 
+// Both lookups below answer in two steps. The cookie is the fast path and
+// the only one for an unowned wizard. An owned wizard also needs its owner's
+// session (so a stale cookie or an old join link on someone else's phone
+// stops working the moment the wizard is claimed), and a signed-in owner is
+// recognized with no cookie at all, which is how a new phone finds its seat.
 export async function getCurrentPlayer(eventId: string) {
   const store = await cookies();
   const token = store.get(eventCookieName(eventId))?.value;
-  if (!token) return null;
-  const ep = await getEventPlayerByToken(token);
-  if (!ep || ep.eventId !== eventId) return null;
-  return ep;
+  const ep = token ? await getEventPlayerByToken(token) : null;
+  const seat = ep && ep.eventId === eventId ? ep : null;
+  if (seat && !seat.userId) return seat;
+  const user = await getSessionUser();
+  if (seat && ownerAllows(seat.userId, user?.id ?? null)) return seat;
+  return user ? getEventPlayerForUser(eventId, user.id) : null;
 }
 
 // League cookie is path-scoped to the whole site so it survives across events
@@ -72,10 +83,12 @@ export async function clearLeagueCookie(leagueId: string) {
 export async function getCurrentLeaguePlayer(leagueId: string) {
   const store = await cookies();
   const token = store.get(leagueCookieName(leagueId))?.value;
-  if (!token) return null;
-  const player = await getPlayerByLeagueToken(token);
-  if (!player || player.leagueId !== leagueId) return null;
-  return player;
+  const found = token ? await getPlayerByLeagueToken(token) : null;
+  const player = found && found.leagueId === leagueId ? found : null;
+  if (player && !player.userId) return player;
+  const user = await getSessionUser();
+  if (player && ownerAllows(player.userId, user?.id ?? null)) return player;
+  return user ? getPlayerForUser(leagueId, user.id) : null;
 }
 
 /**

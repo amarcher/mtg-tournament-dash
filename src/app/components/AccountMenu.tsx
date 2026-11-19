@@ -127,7 +127,7 @@ export function AccountMenu({
               onClick={() => setOpen(false)}
               className={`${sheetRowClass} text-ink-dim`}
             >
-              Organizer sign-in
+              Sign in
               <Chevron />
             </Link>
           )}

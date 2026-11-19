@@ -1,7 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getLeagueBySlug, listLeaguePlayers } from "@/db/queries";
+import {
+  getLeagueBySlug,
+  getPlayerForUser,
+  listLeaguePlayers,
+} from "@/db/queries";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
+import { getSessionUser } from "@/lib/authz";
+import {
+  claimCard,
+  claimDecision,
+  createDecision,
+  parseClaimPolicy,
+} from "@/lib/wizard-ownership";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   claimLeaguePlayerAction,
@@ -29,11 +40,19 @@ export default async function LeagueClaimPage({
   const league = await getLeagueBySlug(slug);
   if (!league) notFound();
 
-  const [roster, me, view] = await Promise.all([
+  const [roster, me, view, sessionUser] = await Promise.all([
     listLeaguePlayers(league.id),
     getCurrentLeaguePlayer(league.id),
     getOrganizerView(league),
+    getSessionUser(),
   ]);
+  const policy = parseClaimPolicy(league.claimPolicy);
+  const ownedPlayerId = sessionUser
+    ? ((await getPlayerForUser(league.id, sessionUser.id))?.id ?? null)
+    : null;
+  const viewer = { policy, sessionUserId: sessionUser?.id ?? null, ownedPlayerId };
+  const creating = createDecision(viewer);
+  const signInHref = `/sign-in?next=${encodeURIComponent(`/leagues/${league.slug}/claim`)}`;
 
   const switchMode = sp.switch === "1";
   const showBanner = me && !switchMode;
@@ -75,6 +94,25 @@ export default async function LeagueClaimPage({
         </div>
       )}
 
+      {!creating.ok && creating.reason === "sign_in" && (
+        <section className="mb-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
+          <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-amber-300">
+            Sign in to join {league.name}
+          </h2>
+          <p className="mb-3 text-xs text-zinc-400">
+            Wizards here belong to accounts. Sign in with your email, then
+            take your wizard or create a new one.
+          </p>
+          <Link
+            href={signInHref}
+            className="inline-block rounded-md btn-gold px-4 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70"
+          >
+            Sign in
+          </Link>
+        </section>
+      )}
+
+      {creating.ok && (
       <section className="mb-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
         <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-amber-300">
           New here?
@@ -110,6 +148,7 @@ export default async function LeagueClaimPage({
           </button>
         </form>
       </section>
+      )}
 
       {roster.length > 0 && (
         <>
@@ -117,7 +156,11 @@ export default async function LeagueClaimPage({
             Returning? Tap your wizard
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {roster.map((p) => (
+            {roster.map((p) => {
+              const card = claimCard(
+                claimDecision({ ...viewer, playerId: p.id, ownerUserId: p.userId })
+              );
+              return (
               <div key={p.id} className="relative">
                 <form action={claimLeaguePlayerAction}>
                   <input
@@ -132,7 +175,8 @@ export default async function LeagueClaimPage({
                   <button
                     type="submit"
                     aria-label={`Claim ${p.displayName}`}
-                    className={`group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border bg-zinc-900 text-left transition active:scale-[0.98] ${
+                    disabled={card.locked}
+                    className={`group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border bg-zinc-900 text-left transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
                       me?.id === p.id
                         ? "border-emerald-500/60 ring-2 ring-emerald-500/60"
                         : "border-zinc-800 hover:border-amber-500/60"
@@ -159,10 +203,16 @@ export default async function LeagueClaimPage({
                     >
                       {p.displayName}
                     </div>
+                    {card.label && (
+                      <span className="label-caps absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1.5 text-zinc-200">
+                        {card.label}
+                      </span>
+                    )}
                   </button>
                 </form>
               </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
