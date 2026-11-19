@@ -46,6 +46,10 @@ been uploaded yet — see "Signing" below before the first upload.
   of the web Screen Wake Lock. The bridge is injected into pages loaded from
   `server.url`, so the web bundle can import `@capacitor/core` safely — on a
   plain browser `isNativePlatform()` is false and the plugin is never called.
+- `@capacitor/share`: `shareLink` in `src/lib/share-link.ts` opens the OS
+  share sheet from the organizer's share button. Added after iOS build 6 /
+  Android build 3; an older shell falls back to Web Share (iOS) or copies
+  the link (Android), so it needs a new store build to take effect.
 - `@capacitor/status-bar` plus the `StatusBar` / `SystemBars` blocks in
   `capacitor.config.ts`: canvas-colored, light-text status bar with the
   WebView inset below it on iOS. On Android 15+/16 edge-to-edge is enforced
