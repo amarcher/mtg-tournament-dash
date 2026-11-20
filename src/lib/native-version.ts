@@ -2,7 +2,7 @@
 // ios/App/App.xcodeproj (CURRENT_PROJECT_VERSION) and android/app/build.gradle
 // (versionCode); the unit test fails if the three disagree. The deploy that
 // carries the bump is what tells installed shells an update exists.
-export const NATIVE_BUILDS = { ios: 7, android: 3 } as const;
+export const NATIVE_BUILDS = { ios: 7, android: 4 } as const;
 
 export type NativePlatform = keyof typeof NATIVE_BUILDS;
 
