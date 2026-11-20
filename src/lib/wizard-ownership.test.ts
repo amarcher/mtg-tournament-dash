@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimCard,
   claimDecision,
   createDecision,
   ownerAllows,
@@ -11,6 +12,7 @@ const base = {
   ownerUserId: null,
   sessionUserId: null,
   ownedPlayerId: null,
+  isOrganizer: false,
 } as const;
 
 describe("claimDecision", () => {
@@ -54,6 +56,80 @@ describe("claimDecision", () => {
     expect(
       claimDecision({ ...base, policy: "organizer", sessionUserId: "u1" })
     ).toEqual({ ok: false, reason: "guest" });
+  });
+});
+
+describe("claimDecision for an organizer", () => {
+  const organizer = { ...base, isOrganizer: true } as const;
+  it("runs a guest without taking it when guests are organizer-run", () => {
+    for (const sessionUserId of [null, "u1"]) {
+      for (const ownedPlayerId of [null, "p2"]) {
+        expect(
+          claimDecision({
+            ...organizer,
+            policy: "organizer",
+            sessionUserId,
+            ownedPlayerId,
+          })
+        ).toEqual({ ok: true, takeOwnership: false });
+      }
+    }
+  });
+  it("runs a second wizard under members instead of being refused", () => {
+    expect(
+      claimDecision({
+        ...organizer,
+        policy: "members",
+        sessionUserId: "u1",
+        ownedPlayerId: "p2",
+      })
+    ).toEqual({ ok: true, takeOwnership: false });
+    expect(claimDecision({ ...organizer, policy: "members" })).toEqual({
+      ok: true,
+      takeOwnership: false,
+    });
+  });
+  it("still picks their own wizard like any member", () => {
+    expect(
+      claimDecision({ ...organizer, policy: "members", sessionUserId: "u1" })
+    ).toEqual({ ok: true, takeOwnership: true });
+  });
+  it("gets no way into a wizard another account owns", () => {
+    for (const policy of ["anyone", "members", "organizer"] as const) {
+      expect(
+        claimDecision({
+          ...organizer,
+          policy,
+          ownerUserId: "u2",
+          sessionUserId: "u1",
+        })
+      ).toEqual({ ok: false, reason: "taken" });
+    }
+  });
+});
+
+describe("claimCard", () => {
+  it("labels what a tap will meet and locks the dead ends", () => {
+    expect(claimCard({ ok: true, takeOwnership: true })).toEqual({
+      label: null,
+      locked: false,
+    });
+    expect(claimCard({ ok: false, reason: "sign_in" })).toEqual({
+      label: "Sign in",
+      locked: false,
+    });
+    expect(claimCard({ ok: false, reason: "taken" })).toEqual({
+      label: "Taken",
+      locked: true,
+    });
+    expect(claimCard({ ok: false, reason: "guest" })).toEqual({
+      label: "Guest",
+      locked: true,
+    });
+    expect(claimCard({ ok: false, reason: "has_wizard" })).toEqual({
+      label: null,
+      locked: true,
+    });
   });
 });
 

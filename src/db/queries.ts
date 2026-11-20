@@ -181,6 +181,16 @@ export async function getPlayerForUser(leagueId: string, userId: string) {
   return row ?? null;
 }
 
+/** The account behind an email, for an organizer handing a wizard over. */
+export async function getUserByEmail(email: string) {
+  const [row] = await db
+    .select({ id: user.id, email: user.email })
+    .from(user)
+    .where(eq(sql`lower(${user.email})`, email.trim().toLowerCase()))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Every wizard an account owns, across leagues. */
 export async function listPlayersForUser(userId: string) {
   return db.select().from(players).where(eq(players.userId, userId));
@@ -622,6 +632,7 @@ export async function getEventPlayerByToken(token: string) {
       displayName: players.displayName,
       droppedAt: eventPlayers.droppedAt,
       userId: players.userId,
+      leagueId: players.leagueId,
     })
     .from(eventPlayers)
     .innerJoin(players, eq(players.id, eventPlayers.playerId))
@@ -639,6 +650,7 @@ export async function getEventPlayerForUser(eventId: string, userId: string) {
       displayName: players.displayName,
       droppedAt: eventPlayers.droppedAt,
       userId: players.userId,
+      leagueId: players.leagueId,
     })
     .from(eventPlayers)
     .innerJoin(players, eq(players.id, eventPlayers.playerId))

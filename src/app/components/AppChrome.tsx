@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { League, Player } from "@/db/schema";
 import { AccountMenu } from "@/app/components/AccountMenu";
 import { ShareButton } from "@/app/components/ShareButton";
+import { getSessionUser } from "@/lib/authz";
 
 export type AppTab = "play" | "schedule" | "league" | "organize";
 
@@ -24,7 +25,7 @@ type AppChromeProps = {
  * mode. The scorekeeper and broadcast views don't use this — they're
  * full-screen on purpose.
  */
-export function AppChrome({
+export async function AppChrome({
   league,
   player,
   isOrganizer = false,
@@ -33,6 +34,7 @@ export function AppChrome({
   children,
 }: AppChromeProps) {
   const leagueHref = league ? `/leagues/${league.slug}` : "/";
+  const account = await getSessionUser();
 
   return (
     <>
@@ -63,6 +65,7 @@ export function AppChrome({
                   : null
               }
               isOrganizer={isOrganizer}
+              accountEmail={account?.email ?? null}
               organizerMode={organizerMode}
             />
           </div>

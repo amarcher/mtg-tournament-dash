@@ -32,7 +32,7 @@ export const CLAIM_POLICY_LABELS: Record<
   organizer: {
     title: "Unowned wizards are guests",
     detail:
-      "Nobody can take an unowned wizard. New members sign in and create their own; you run the guests.",
+      "Nobody can take an unowned wizard. New members sign in and create their own; you run the guests from your phone, or hand one to an account below.",
   },
 };
 
@@ -59,6 +59,8 @@ export function claimDecision(input: {
   sessionUserId: string | null;
   /** The wizard this account already owns in the league, if any. */
   ownedPlayerId: string | null;
+  /** An organizer of this league, by session or by the no-login organizer link. */
+  isOrganizer: boolean;
 }): ClaimDecision {
   const { policy, ownerUserId, sessionUserId } = input;
   if (ownerUserId) {
@@ -68,6 +70,12 @@ export function claimDecision(input: {
       : { ok: false, reason: "taken" };
   }
   if (policy === "anyone") return { ok: true, takeOwnership: false };
+  // An organizer runs the guests (a child with no phone, a visitor) on their
+  // own device without taking them. The one case left to the member rule is
+  // a signed-in organizer with no wizard yet, who is picking their own.
+  const picksOwn =
+    policy === "members" && sessionUserId !== null && !input.ownedPlayerId;
+  if (input.isOrganizer && !picksOwn) return { ok: true, takeOwnership: false };
   if (policy === "organizer") return { ok: false, reason: "guest" };
   if (!sessionUserId) return { ok: false, reason: "sign_in" };
   if (input.ownedPlayerId && input.ownedPlayerId !== input.playerId) {
@@ -109,7 +117,7 @@ export const CLAIM_REFUSAL_MESSAGES: Record<ClaimRefusal, string> = {
   taken: "This wizard belongs to another account.",
   has_wizard:
     "Your account already has a wizard in this league. Ask the organizer to release it if it's the wrong one.",
-  guest: "This is a guest wizard. Ask the organizer to hand it to you.",
+  guest: "This is a guest wizard. Ask the organizer to hand it to your account.",
 };
 
 /**

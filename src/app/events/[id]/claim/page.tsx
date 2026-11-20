@@ -15,6 +15,7 @@ import {
 import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
 import { claimIdentityAction, joinEventAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
+import { TakeWizardConfirm } from "@/app/components/TakeWizardConfirm";
 import { getOrganizerView } from "@/lib/organizer-mode";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function ClaimPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ switch?: string; badlink?: string }>;
+  searchParams: Promise<{ switch?: string; badlink?: string; take?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -45,7 +46,17 @@ export default async function ClaimPage({
     ownedPlayerId: sessionUser
       ? ((await getPlayerForUser(event.leagueId, sessionUser.id))?.id ?? null)
       : null,
+    isOrganizer: view.isOrganizer,
   };
+  // Set by the claim action when a tap would make the wizard this account's.
+  const asked = sp.take ? roster.find((r) => r.playerId === sp.take) : undefined;
+  const askedDecision = asked
+    ? claimDecision({ ...viewer, playerId: asked.playerId, ownerUserId: asked.userId })
+    : null;
+  const taking =
+    asked && sessionUser && askedDecision?.ok && askedDecision.takeOwnership
+      ? asked
+      : null;
 
   // "Switch player" toggle: when the user lands here already claimed, we show
   // the banner. Tapping "Switch player" re-renders without the banner so the
@@ -74,6 +85,16 @@ export default async function ClaimPage({
           Tap your wizard to claim your seat.
         </p>
       </div>
+
+      {taking && sessionUser && (
+        <TakeWizardConfirm
+          action={claimIdentityAction}
+          fields={{ eventId: id, playerId: taking.playerId }}
+          wizardName={taking.displayName}
+          accountEmail={sessionUser.email}
+          cancelHref={`/events/${id}/claim`}
+        />
+      )}
 
       {sp.badlink === "1" && !me && (
         <div className="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">

@@ -64,6 +64,7 @@ import {
   swapActiveMatchPlayersAction,
   swapMatchPlayersAction,
   sendLeagueMessageAction,
+  assignWizardAction,
   releaseWizardAction,
   setClaimPolicyAction,
   nudgeNightRsvpsAction,
@@ -98,6 +99,8 @@ import {
   getCurrentRound,
   getDatePoll,
   getEventBySourceNight,
+  getPlayerByLeagueToken,
+  getEventPlayerByToken,
   getNightDetail,
   listPastNights,
   listUpcomingNights,
@@ -328,13 +331,42 @@ async function runWizardOwnershipPass(
     )
     .returning();
 
-  assert(await takeWizard(first, alice.id), "an account takes an unowned wizard");
+  const tokensOf = async (playerId: string) => {
+    const [p] = await db.select().from(players).where(eq(players.id, playerId));
+    const [seat] = await db
+      .select()
+      .from(eventPlayers)
+      .where(
+        and(eq(eventPlayers.eventId, eventId), eq(eventPlayers.playerId, playerId))
+      );
+    return { league: p.leagueToken, seat: seat.joinToken };
+  };
+  const before = await tokensOf(first);
+
   assert(
-    !(await takeWizard(first, bob.id)),
+    (await takeWizard(first, alice.id)) === "taken",
+    "an account takes an unowned wizard"
+  );
+  const taken = await tokensOf(first);
+  assert(
+    taken.league !== before.league && taken.seat !== before.seat,
+    "taking a wizard replaces its league and seat tokens"
+  );
+  assert(
+    (await getPlayerByLeagueToken(before.league)) === null &&
+      (await getEventPlayerByToken(before.seat)) === null,
+    "a cookie or link from before the take no longer finds the wizard"
+  );
+  assert(
+    (await takeWizard(first, alice.id)) === "already_mine",
+    "the owner tapping again on a second phone is not told it is someone else's"
+  );
+  assert(
+    (await takeWizard(first, bob.id)) === "owned_by_other",
     "a wizard that is already owned cannot be taken by another account"
   );
   assert(
-    !(await takeWizard(second, alice.id)),
+    (await takeWizard(second, alice.id)) === "has_wizard",
     "an account cannot own a second wizard in the same league"
   );
   assert(
@@ -376,7 +408,33 @@ async function runWizardOwnershipPass(
     (await getPlayerForUser(leagueId, alice.id)) === null,
     "releasing a wizard detaches it from its account"
   );
-  assert(await takeWizard(second, alice.id), "a released account can take a wizard again");
+  const released = await tokensOf(first);
+  assert(
+    released.league !== taken.league && released.seat !== taken.seat,
+    "releasing a wizard replaces its tokens, so the old owner's phones lose it"
+  );
+
+  try {
+    await assignWizardAction(
+      makeFormData({ playerId: second, email: `${PREFIX}nobody@example.invalid` })
+    );
+    fail("handing a wizard to an unknown email should throw");
+  } catch {
+    ok("refuses to hand a wizard to an email with no account");
+  }
+  await assignWizardAction(
+    makeFormData({ playerId: second, email: alice.email.toUpperCase() })
+  );
+  assert(
+    (await getPlayerForUser(leagueId, alice.id))?.id === second,
+    "the organizer hands an unowned wizard to an account by email"
+  );
+  try {
+    await assignWizardAction(makeFormData({ playerId: first, email: alice.email }));
+    fail("handing a second wizard to the same account should throw");
+  } catch {
+    ok("refuses to hand an account a second wizard");
+  }
   await releaseWizard(second);
   await db.delete(user).where(like(user.id, `${PREFIX}%`));
 }

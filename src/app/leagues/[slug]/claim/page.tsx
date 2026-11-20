@@ -19,6 +19,7 @@ import {
   createLeaguePlayerAction,
 } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
+import { TakeWizardConfirm } from "@/app/components/TakeWizardConfirm";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,12 @@ export default async function LeagueClaimPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ switch?: string; event?: string; next?: string }>;
+  searchParams: Promise<{
+    switch?: string;
+    event?: string;
+    next?: string;
+    take?: string;
+  }>;
 }) {
   const { slug } = await params;
   const sp = await searchParams;
@@ -50,9 +56,28 @@ export default async function LeagueClaimPage({
   const ownedPlayerId = sessionUser
     ? ((await getPlayerForUser(league.id, sessionUser.id))?.id ?? null)
     : null;
-  const viewer = { policy, sessionUserId: sessionUser?.id ?? null, ownedPlayerId };
+  const viewer = {
+    policy,
+    sessionUserId: sessionUser?.id ?? null,
+    ownedPlayerId,
+    isOrganizer: view.isOrganizer,
+  };
   const creating = createDecision(viewer);
-  const signInHref = `/sign-in?next=${encodeURIComponent(`/leagues/${league.slug}/claim`)}`;
+  const carried = new URLSearchParams();
+  if (returnEventId) carried.set("event", returnEventId);
+  if (returnPath) carried.set("next", returnPath);
+  const selfHref = `/leagues/${league.slug}/claim${carried.size ? `?${carried}` : ""}`;
+  const signInHref = `/sign-in?next=${encodeURIComponent(selfHref)}`;
+
+  // Set by the claim action when a tap would make the wizard this account's.
+  const asked = sp.take ? roster.find((p) => p.id === sp.take) : undefined;
+  const askedDecision = asked
+    ? claimDecision({ ...viewer, playerId: asked.id, ownerUserId: asked.userId })
+    : null;
+  const taking =
+    asked && sessionUser && askedDecision?.ok && askedDecision.takeOwnership
+      ? asked
+      : null;
 
   const switchMode = sp.switch === "1";
   const showBanner = me && !switchMode;
@@ -92,6 +117,20 @@ export default async function LeagueClaimPage({
             Switch player
           </Link>
         </div>
+      )}
+
+      {taking && sessionUser && (
+        <TakeWizardConfirm
+          action={claimLeaguePlayerAction}
+          fields={{
+            leagueSlug: league.slug,
+            playerId: taking.id,
+            ...(returnPath ? { next: returnPath } : {}),
+          }}
+          wizardName={taking.displayName}
+          accountEmail={sessionUser.email}
+          cancelHref={selfHref}
+        />
       )}
 
       {!creating.ok && creating.reason === "sign_in" && (

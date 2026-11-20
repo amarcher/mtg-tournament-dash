@@ -48,6 +48,10 @@ export async function setPlayerCookie(eventId: string, joinToken: string) {
 // session (so a stale cookie or an old join link on someone else's phone
 // stops working the moment the wizard is claimed), and a signed-in owner is
 // recognized with no cookie at all, which is how a new phone finds its seat.
+//
+// A cookie for an unowned wizard beats the session on purpose: it is how an
+// organizer runs a guest on their own phone, and tapping their own wizard
+// again switches back.
 export async function getCurrentPlayer(eventId: string) {
   const store = await cookies();
   const token = store.get(eventCookieName(eventId))?.value;
@@ -56,7 +60,20 @@ export async function getCurrentPlayer(eventId: string) {
   if (seat && !seat.userId) return seat;
   const user = await getSessionUser();
   if (seat && ownerAllows(seat.userId, user?.id ?? null)) return seat;
-  return user ? getEventPlayerForUser(eventId, user.id) : null;
+  const own = user ? await getEventPlayerForUser(eventId, user.id) : null;
+  if (!own) return null;
+  // No seat cookie, but this phone may be running a guest league-wide. Then
+  // it is not its owner's wizard here either, or league pages and the
+  // scorekeeper would disagree about who is holding the phone; the event's
+  // claim page offers the guest's seat instead.
+  const leagueToken = store.get(leagueCookieName(own.leagueId))?.value;
+  const acting = leagueToken ? await getPlayerByLeagueToken(leagueToken) : null;
+  const runningGuest =
+    acting !== null &&
+    acting.leagueId === own.leagueId &&
+    acting.userId === null &&
+    acting.id !== own.playerId;
+  return runningGuest ? null : own;
 }
 
 // League cookie is path-scoped to the whole site so it survives across events

@@ -3,6 +3,7 @@ import { AppChrome } from "@/app/components/AppChrome";
 import { OrganizerGate } from "@/app/components/OrganizerGate";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import {
+  assignWizardAction,
   releaseWizardAction,
   removeLeagueMemberAction,
   rotateManagerInviteTokenAction,
@@ -50,7 +51,9 @@ export default async function LeagueSettingsPage({
     listLeaguePlayers(league.id),
   ]);
   const claimPolicy = parseClaimPolicy(league.claimPolicy);
-  const unowned = roster.length - owners.length;
+  const ownedIds = new Set(owners.map((o) => o.playerId));
+  const unownedWizards = roster.filter((p) => !ownedIds.has(p.id));
+  const unowned = unownedWizards.length;
 
   const organizerUrl = league.organizerToken
     ? `${baseUrl}/leagues/${league.slug}/manage/${league.organizerToken}`
@@ -186,6 +189,61 @@ export default async function LeagueSettingsPage({
               Save
             </button>
           </form>
+          {claimPolicy === "organizer" && unowned > 0 && (
+            <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+              {unowned} {unowned === 1 ? "wizard has" : "wizards have"} no
+              account. With this setting their players cannot take them: a
+              returning player who signs in would have to make a second
+              wizard. Hand each one over below, or use &ldquo;Signed-in
+              members take their wizard&rdquo; until everyone has theirs.
+            </p>
+          )}
+          {unowned > 0 && (
+            <form
+              action={assignWizardAction}
+              className="mt-5 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+            >
+              <label className="block">
+                <span className="mb-1 block text-xs text-zinc-500">
+                  Hand a wizard
+                </span>
+                <select
+                  name="playerId"
+                  required
+                  defaultValue=""
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-base"
+                >
+                  <option value="" disabled>
+                    Pick a wizard
+                  </option>
+                  {unownedWizards.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-zinc-500">
+                  to the account with this email
+                </span>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  autoComplete="off"
+                  placeholder="they must have signed in once"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-base"
+                />
+              </label>
+              <button
+                type="submit"
+                className="min-h-11 self-end rounded-md btn-gold px-4 text-sm"
+              >
+                Hand over
+              </button>
+            </form>
+          )}
           {owners.length > 0 && (
             <ul className="mt-5 space-y-2">
               {owners.map((o) => (

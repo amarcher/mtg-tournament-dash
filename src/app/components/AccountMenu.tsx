@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { setOrganizerModeAction } from "@/app/events/actions";
+import {
+  deauthorizeDeviceAction,
+  setOrganizerModeAction,
+} from "@/app/events/actions";
+import { authClient } from "@/lib/auth-client";
 import { Sheet, sheetRowClass } from "@/app/components/Sheet";
 
 type MenuPlayer = { id: string; displayName: string; avatarUrl: string | null };
@@ -18,14 +22,19 @@ export function AccountMenu({
   player,
   isOrganizer,
   organizerMode,
+  accountEmail,
 }: {
   league: { id: string; slug: string; name: string } | null;
   player: MenuPlayer | null;
   isOrganizer: boolean;
   organizerMode: boolean;
+  /** The signed-in account, if any; a wizard's owner needs a way out of it. */
+  accountEmail: string | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <>
@@ -121,15 +130,42 @@ export function AccountMenu({
             All leagues
             <Chevron />
           </Link>
-          {league && !isOrganizer && (
-            <Link
-              href={`/sign-in?next=/leagues/${league.slug}`}
-              onClick={() => setOpen(false)}
-              className={`${sheetRowClass} text-ink-dim`}
+          {accountEmail ? (
+            <button
+              type="button"
+              disabled={signingOut}
+              onClick={async () => {
+                setSigningOut(true);
+                try {
+                  // Both halves, like SignOutButton: the session alone would
+                  // leave a no-login organizer cookie behind on this phone.
+                  await deauthorizeDeviceAction();
+                  await authClient.signOut();
+                  setOpen(false);
+                  router.push("/");
+                  router.refresh();
+                } finally {
+                  setSigningOut(false);
+                }
+              }}
+              className={`${sheetRowClass} w-full text-left text-ink-dim disabled:opacity-50`}
             >
-              Sign in
-              <Chevron />
-            </Link>
+              <span className="min-w-0">
+                <span className="block">{signingOut ? "Signing out…" : "Sign out"}</span>
+                <span className="block truncate text-xs">{accountEmail}</span>
+              </span>
+            </button>
+          ) : (
+            league && (
+              <Link
+                href={`/sign-in?next=/leagues/${league.slug}`}
+                onClick={() => setOpen(false)}
+                className={`${sheetRowClass} text-ink-dim`}
+              >
+                Sign in
+                <Chevron />
+              </Link>
+            )
           )}
         </Sheet>
       )}
