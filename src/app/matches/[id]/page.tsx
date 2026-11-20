@@ -18,6 +18,7 @@ import { CopyButton } from "@/app/components/CopyButton";
 import { BonusPlayClient } from "./BonusPlayClient";
 import { BonusGameLive, CancelBonusGameButton } from "./BonusGameLive";
 
+import { toTablePlayer } from "@/lib/table-player";
 export const dynamic = "force-dynamic";
 
 function tiersFor(p: Player | null): AvatarTiers {
@@ -286,7 +287,7 @@ export default async function BonusGamePage({
       leagueName={league.name}
       eventId={match.eventId}
       mySide={mySide}
-      players={{ a: playerA, b: playerB }}
+      players={{ a: toTablePlayer(playerA), b: toTablePlayer(playerB) }}
       startingLife={match.startingLife ?? 20}
       initialGame={activeGame}
       initialWins={{ a: aWins, b: bWins }}

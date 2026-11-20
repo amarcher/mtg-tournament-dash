@@ -53,7 +53,15 @@ export function AppChrome({
             {organizerMode && <ShareButton />}
             <AccountMenu
               league={league ? { id: league.id, slug: league.slug, name: league.name } : null}
-              player={player ?? null}
+              player={
+                player
+                  ? {
+                      id: player.id,
+                      displayName: player.displayName,
+                      avatarUrl: player.avatarUrl,
+                    }
+                  : null
+              }
               isOrganizer={isOrganizer}
               organizerMode={organizerMode}
             />

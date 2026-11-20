@@ -28,6 +28,7 @@ import { FinalRanking, type FinalRankingPlayer } from "../FinalRanking";
 import { computeTeamStandings, teamNamesFor } from "@/lib/team-draft";
 import { TEAM_STYLES } from "../TeamChip";
 
+import { toTablePlayer } from "@/lib/table-player";
 export const dynamic = "force-dynamic";
 
 /**
@@ -362,7 +363,7 @@ export default async function PlayPage({
       tableNumber={match.tableNumber}
       matchId={match.id}
       mySide={mySide}
-      players={{ a, b }}
+      players={{ a: toTablePlayer(a), b: b ? toTablePlayer(b) : null }}
       startingLife={event.startingLife}
       initialGame={activeGame}
       initialWins={{ a: aWins, b: bWins }}

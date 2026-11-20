@@ -84,12 +84,15 @@ import {
 import {
   clearOrganizerCookies,
   getSessionUser,
+  hasRequestScope,
+  isLeagueOrganizer,
   requireOrganizer,
   requireOrganizerForEvent,
   requireOrganizerForMatch,
   requireOrganizerForRound,
   setOrganizerCookie,
 } from "@/lib/authz";
+import { safeNextPath } from "@/lib/safe-next";
 import { leagueMembers } from "@/db/schema";
 import {
   addPlayerToEventRoster,
@@ -501,7 +504,7 @@ export async function createLeaguePlayerAction(formData: FormData) {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const eventId = String(formData.get("eventId") ?? "").trim();
-  const next = safeNextPath(formData);
+  const next = nextFrom(formData);
   if (!leagueSlug) throw new Error("League required");
   if (!name) throw new Error("Display name required");
 
@@ -549,9 +552,8 @@ export async function createLeaguePlayerAction(formData: FormData) {
  * whose QR sent an unrecognized phone through claim first). Anything that
  * isn't a same-origin absolute path is discarded.
  */
-function safeNextPath(formData: FormData): string | null {
-  const next = String(formData.get("next") ?? "").trim();
-  return next.startsWith("/") && !next.startsWith("//") ? next : null;
+function nextFrom(formData: FormData): string | null {
+  return safeNextPath(String(formData.get("next") ?? ""));
 }
 
 /**
@@ -590,7 +592,7 @@ export async function joinEventAction(formData: FormData) {
 export async function claimLeaguePlayerAction(formData: FormData) {
   const leagueSlug = String(formData.get("leagueSlug") ?? "").trim();
   const playerId = String(formData.get("playerId") ?? "").trim();
-  const next = safeNextPath(formData);
+  const next = nextFrom(formData);
   if (!leagueSlug) throw new Error("League required");
   if (!playerId) throw new Error("Player required");
 
@@ -2205,6 +2207,22 @@ async function requireLeaguePlayer(leagueId: string, playerId: string) {
   return player;
 }
 
+/**
+ * The form names the wizard, but a hidden field proves nothing: the caller
+ * has to hold that wizard's league cookie, or be an organizer answering for
+ * someone without a phone. No request scope means verify is driving.
+ */
+async function requireActingPlayer(leagueId: string, playerId: string) {
+  const player = await requireLeaguePlayer(leagueId, playerId);
+  if (!(await hasRequestScope())) return player;
+  const caller = await getCurrentLeaguePlayer(leagueId);
+  if (caller?.id === player.id) return player;
+  if (await isLeagueOrganizer(leagueId)) return player;
+  throw new Error(
+    `Only ${player.displayName} can do that. Claim your wizard from the league page first.`
+  );
+}
+
 export async function createDatePollAction(formData: FormData) {
   const leagueId = String(formData.get("leagueId") ?? "");
   const createdByPlayerId = String(formData.get("playerId") ?? "");
@@ -2217,7 +2235,7 @@ export async function createDatePollAction(formData: FormData) {
 
   if (!leagueId) throw new Error("League required");
   const league = await requirePollLeague(leagueId);
-  const creator = await requireLeaguePlayer(leagueId, createdByPlayerId);
+  const creator = await requireActingPlayer(leagueId, createdByPlayerId);
 
   const dates: Date[] = [];
   for (const raw of rawDates) {
@@ -2264,7 +2282,7 @@ export async function castPollVotesAction(formData: FormData) {
   const poll = await getDatePoll(pollId);
   if (!poll) throw new Error("Poll not found");
   if (poll.status !== "open") throw new Error("This poll is closed");
-  await requireLeaguePlayer(poll.leagueId, playerId);
+  await requireActingPlayer(poll.leagueId, playerId);
 
   const options = await db
     .select()
@@ -2304,7 +2322,7 @@ export async function finalizeDatePollAction(formData: FormData) {
   const poll = await getDatePoll(pollId);
   if (!poll) throw new Error("Poll not found");
   if (poll.status !== "open") throw new Error("This poll is already closed");
-  await requireLeaguePlayer(poll.leagueId, playerId);
+  await requireActingPlayer(poll.leagueId, playerId);
 
   const [option] = await db
     .select()
@@ -2510,7 +2528,7 @@ export async function rsvpGameNightAction(formData: FormData) {
   const response = formData.get("response");
 
   const { night, league } = await requireNight(nightId);
-  await requireLeaguePlayer(night.leagueId, playerId);
+  await requireActingPlayer(night.leagueId, playerId);
 
   if (response === "clear") {
     // Deleting is allowed even on a canceled night: withdrawing an answer
@@ -3132,7 +3150,7 @@ export async function removeLeagueMemberAction(formData: FormData) {
 export async function setOrganizerModeAction(formData: FormData) {
   const on = String(formData.get("on") ?? "") === "1";
   const leagueId = String(formData.get("leagueId") ?? "").trim();
-  const next = safeNextPath(formData) ?? "/";
+  const next = nextFrom(formData) ?? "/";
   if (on) {
     if (!leagueId) throw new Error("League required");
     await requireOrganizer(leagueId);
