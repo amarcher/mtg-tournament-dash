@@ -7,8 +7,9 @@ import { nextCookies } from "better-auth/next-js";
 import { Resend } from "resend";
 import { db } from "@/db/client";
 
-// Accounts exist for ORGANIZERS only. Players never sign in — their identity
-// stays the league_token / join_token cookie scheme in src/lib/auth.ts.
+// Accounts are for organizers and for players who own their wizard
+// (players.user_id). A wizard nobody owns still runs on the league_token /
+// join_token cookie scheme in src/lib/auth.ts with no sign-in at all.
 
 function resolveBaseUrl() {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
@@ -65,11 +66,12 @@ export const auth = betterAuth({
     // to sequential statements when this is off.
     transaction: false,
   }),
-  // 30-day sliding window (same policy as storybook-studio): anyone active at
-  // least monthly never sees another sign-in code email. updateAge bounds the
-  // renewal write to ~once per 15 days per active user.
+  // A one-year sliding window: an owned wizard needs its owner's session, and
+  // a phone at the table must never meet a sign-in screen mid-game, so a
+  // league that plays every other month has to stay signed in between nights.
+  // updateAge bounds the renewal write to ~once per 15 days per active user.
   session: {
-    expiresIn: 60 * 60 * 24 * 30,
+    expiresIn: 60 * 60 * 24 * 365,
     updateAge: 60 * 60 * 24 * 15,
   },
   plugins: [

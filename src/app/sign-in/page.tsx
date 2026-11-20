@@ -22,8 +22,8 @@ export default async function SignInPage({
           Sign in
         </h1>
         <p className="mb-8 text-center text-sm text-zinc-500">
-          For league organizers — create leagues, run events, and invite
-          co-managers.
+          We email you a 6-digit code. Players sign in to own their wizard;
+          organizers to run their league.
         </p>
         <SignInForm next={next} />
       </main>

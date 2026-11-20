@@ -22,8 +22,20 @@ export function ResumeRefresh({
   useEffect(() => {
     let hiddenAt: number | null = null;
 
+    // A sign-in lasts a year from its last renewal, but the renewed cookie
+    // can only be written by a route handler: a page render refreshes the
+    // session row and then cannot set the cookie. Asking here, on launch and
+    // on every return, is what keeps a wizard's owner signed in.
+    const renewSession = () => {
+      void fetch("/api/auth/get-session", { cache: "no-store" }).catch(() => {
+        /* offline — the next return tries again */
+      });
+    };
+    renewSession();
+
     const resume = async (awayMs: number) => {
       if (awayMs < STALE_AFTER_MS) return;
+      renewSession();
       let remoteId: string | null = null;
       if (deploymentId) {
         try {

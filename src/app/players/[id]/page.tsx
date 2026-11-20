@@ -14,7 +14,11 @@ import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import { AppChrome } from "@/app/components/AppChrome";
 import { NotificationSettings } from "@/app/components/NotificationSettings";
-import { applyPortraitAction } from "@/app/events/actions";
+import {
+  applyPortraitAction,
+  releaseMyWizardAction,
+} from "@/app/events/actions";
+import { getSessionUser } from "@/lib/authz";
 import { LEAGUE_TIMEZONE } from "@/lib/schedule-types";
 import { DeletePortraitButton } from "./DeletePortraitButton";
 import { WizardForm } from "./WizardForm";
@@ -38,6 +42,8 @@ export default async function PlayerPage({
   const openEvents = await listOpenEventsForPlayer(player.leagueId, player.id);
   const leagueMe = await getCurrentLeaguePlayer(player.leagueId);
   const canEdit = leagueMe?.id === player.id;
+  const sessionUser = player.userId ? await getSessionUser() : null;
+  const isOwner = sessionUser !== null && sessionUser.id === player.userId;
   const view = await getOrganizerView(league);
   const portraits = canEdit ? await listPlayerPortraits(player.id) : [];
 
@@ -296,6 +302,29 @@ export default async function PlayerPage({
         <div className="mb-10">
           <NotificationSettings />
         </div>
+      )}
+
+      {isOwner && sessionUser && (
+        <details className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm">
+          <summary className="cursor-pointer text-zinc-400">
+            This wizard belongs to {sessionUser.email}
+          </summary>
+          <p className="mt-2 text-xs text-zinc-500">
+            Took the wrong wizard? Letting go removes it from your account and
+            signs every phone out of it. Its history stays with the wizard,
+            and you can then pick the right one, or ask the organizer to hand
+            it to you.
+          </p>
+          <form action={releaseMyWizardAction} className="mt-3">
+            <input type="hidden" name="playerId" value={player.id} />
+            <button
+              type="submit"
+              className="min-h-11 rounded-md border border-red-500/30 px-3 text-xs font-medium text-red-300 transition hover:bg-red-500/10"
+            >
+              This isn&apos;t my wizard
+            </button>
+          </form>
+        </details>
       )}
 
       <section className="mb-10 grid grid-cols-3 gap-3">

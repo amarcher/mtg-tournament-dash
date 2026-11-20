@@ -1,9 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getEvent, getEventRoster, getLeague } from "@/db/queries";
+import {
+  getEvent,
+  getEventRoster,
+  getLeague,
+  getPlayerForUser,
+} from "@/db/queries";
+import { getSessionUser } from "@/lib/authz";
+import {
+  claimCard,
+  claimDecision,
+  parseClaimPolicy,
+} from "@/lib/wizard-ownership";
 import { getCurrentLeaguePlayer, getCurrentPlayer } from "@/lib/auth";
 import { claimIdentityAction, joinEventAction } from "@/app/events/actions";
 import { AppChrome } from "@/app/components/AppChrome";
+import { TakeWizardConfirm } from "@/app/components/TakeWizardConfirm";
 import { getOrganizerView } from "@/lib/organizer-mode";
 
 export const dynamic = "force-dynamic";
@@ -13,20 +25,38 @@ export default async function ClaimPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ switch?: string; badlink?: string }>;
+  searchParams: Promise<{ switch?: string; badlink?: string; take?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
   const event = await getEvent(id);
   if (!event) notFound();
 
-  const [league, roster, me, leagueMe, view] = await Promise.all([
+  const [league, roster, me, leagueMe, view, sessionUser] = await Promise.all([
     getLeague(event.leagueId),
     getEventRoster(id),
     getCurrentPlayer(id),
     getCurrentLeaguePlayer(event.leagueId),
     getOrganizerView(event.leagueId),
+    getSessionUser(),
   ]);
+  const viewer = {
+    policy: parseClaimPolicy(league?.claimPolicy),
+    sessionUserId: sessionUser?.id ?? null,
+    ownedPlayerId: sessionUser
+      ? ((await getPlayerForUser(event.leagueId, sessionUser.id))?.id ?? null)
+      : null,
+    isOrganizer: view.isOrganizer,
+  };
+  // Set by the claim action when a tap would make the wizard this account's.
+  const asked = sp.take ? roster.find((r) => r.playerId === sp.take) : undefined;
+  const askedDecision = asked
+    ? claimDecision({ ...viewer, playerId: asked.playerId, ownerUserId: asked.userId })
+    : null;
+  const taking =
+    asked && sessionUser && askedDecision?.ok && askedDecision.takeOwnership
+      ? asked
+      : null;
 
   // "Switch player" toggle: when the user lands here already claimed, we show
   // the banner. Tapping "Switch player" re-renders without the banner so the
@@ -55,6 +85,16 @@ export default async function ClaimPage({
           Tap your wizard to claim your seat.
         </p>
       </div>
+
+      {taking && sessionUser && (
+        <TakeWizardConfirm
+          action={claimIdentityAction}
+          fields={{ eventId: id, playerId: taking.playerId }}
+          wizardName={taking.displayName}
+          accountEmail={sessionUser.email}
+          cancelHref={`/events/${id}/claim`}
+        />
+      )}
 
       {sp.badlink === "1" && !me && (
         <div className="mb-6 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -138,7 +178,11 @@ export default async function ClaimPage({
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-        {roster.map((p) => (
+        {roster.map((p) => {
+          const card = claimCard(
+            claimDecision({ ...viewer, playerId: p.playerId, ownerUserId: p.userId })
+          );
+          return (
           <div key={p.playerId} className="relative">
             <form action={claimIdentityAction}>
               <input type="hidden" name="eventId" value={id} />
@@ -146,7 +190,8 @@ export default async function ClaimPage({
               <button
                 type="submit"
                 aria-label={`Claim ${p.displayName}`}
-                className={`group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border bg-zinc-900 text-left transition active:scale-[0.98] ${
+                disabled={card.locked}
+                className={`group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border bg-zinc-900 text-left transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
                   me?.playerId === p.playerId
                     ? "border-emerald-500/60 ring-2 ring-emerald-500/60"
                     : "border-zinc-800 hover:border-amber-500/60"
@@ -173,10 +218,16 @@ export default async function ClaimPage({
                 >
                   {p.displayName}
                 </div>
+                {card.label && (
+                  <span className="label-caps absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1.5 text-zinc-200">
+                    {card.label}
+                  </span>
+                )}
               </button>
             </form>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <p className="mt-8 text-center text-xs text-zinc-500">

@@ -85,6 +85,11 @@ export const leagues = pgTable(
     // either token invalidates all outstanding links (and cookies) at once.
     managerInviteToken: text("manager_invite_token"),
     ownerUserId: text("owner_user_id").references(() => user.id),
+    // Who may take a wizard that no account owns yet: "anyone" (the original
+    // no-login tap), "members" (signed in; the tap makes it theirs for good)
+    // or "organizer" (nobody: unowned wizards are guests the organizer runs).
+    // Values and rules live in src/lib/wizard-ownership.ts.
+    claimPolicy: text("claim_policy").notNull().default("anyone"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -127,6 +132,10 @@ export const players = pgTable(
       .notNull()
       .references(() => leagues.id, { onDelete: "cascade" }),
     leagueToken: text("league_token").notNull(),
+    // The account this wizard belongs to. Null is a guest wizard (or one
+    // from before accounts): nobody is signed in as it. Once set, only that
+    // account's session may act as the wizard, whatever cookie a phone holds.
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
     displayName: text("display_name").notNull(),
     avatarUrl: text("avatar_url"),
     avatarWoundedUrl: text("avatar_wounded_url"),
@@ -152,6 +161,8 @@ export const players = pgTable(
   (t) => ({
     leagueIdx: index("players_league_idx").on(t.leagueId),
     tokenIdx: uniqueIndex("players_league_token_idx").on(t.leagueToken),
+    // One wizard per account per league. Null owners never collide.
+    ownerIdx: uniqueIndex("players_league_user_idx").on(t.leagueId, t.userId),
   })
 );
 

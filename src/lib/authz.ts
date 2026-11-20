@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
@@ -28,7 +29,10 @@ export async function hasRequestScope(): Promise<boolean> {
   }
 }
 
-export async function getSessionUser(): Promise<{
+// Memoized per render: a page asks who is signed in from several places
+// (the chrome, the wizard lookup, the organizer view), and each ask is a
+// session row read. Outside a render (actions, route handlers) it just runs.
+export const getSessionUser = cache(async function getSessionUser(): Promise<{
   id: string;
   email: string;
   name: string | null;
@@ -46,7 +50,7 @@ export async function getSessionUser(): Promise<{
     email: session.user.email,
     name: session.user.name ?? null,
   };
-}
+});
 
 /**
  * Drop every no-login organizer grant on this device. Sign-out must call

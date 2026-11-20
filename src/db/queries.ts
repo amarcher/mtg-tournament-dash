@@ -171,6 +171,45 @@ export async function getPlayerByLeagueToken(token: string) {
   return row ?? null;
 }
 
+/** The wizard an account owns in a league (at most one). */
+export async function getPlayerForUser(leagueId: string, userId: string) {
+  const [row] = await db
+    .select()
+    .from(players)
+    .where(and(eq(players.leagueId, leagueId), eq(players.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The account behind an email, for an organizer handing a wizard over. */
+export async function getUserByEmail(email: string) {
+  const [row] = await db
+    .select({ id: user.id, email: user.email })
+    .from(user)
+    .where(eq(sql`lower(${user.email})`, email.trim().toLowerCase()))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Every wizard an account owns, across leagues. */
+export async function listPlayersForUser(userId: string) {
+  return db.select().from(players).where(eq(players.userId, userId));
+}
+
+/** Owned wizards in a league with their owner's email, for the organizer's settings. */
+export async function listWizardOwners(leagueId: string) {
+  return db
+    .select({
+      playerId: players.id,
+      displayName: players.displayName,
+      email: user.email,
+    })
+    .from(players)
+    .innerJoin(user, eq(user.id, players.userId))
+    .where(eq(players.leagueId, leagueId))
+    .orderBy(asc(players.displayName));
+}
+
 export async function getEvent(eventId: string) {
   const [row] = await db.select().from(events).where(eq(events.id, eventId));
   return row;
@@ -188,6 +227,7 @@ export async function getEventRoster(eventId: string) {
       droppedAt: eventPlayers.droppedAt,
       team: eventPlayers.team,
       displayName: players.displayName,
+      userId: players.userId,
       currentElo: players.currentElo,
       avatarUrl: players.avatarUrl,
       avatarWoundedUrl: players.avatarWoundedUrl,
@@ -591,10 +631,30 @@ export async function getEventPlayerByToken(token: string) {
       playerId: eventPlayers.playerId,
       displayName: players.displayName,
       droppedAt: eventPlayers.droppedAt,
+      userId: players.userId,
+      leagueId: players.leagueId,
     })
     .from(eventPlayers)
     .innerJoin(players, eq(players.id, eventPlayers.playerId))
     .where(eq(eventPlayers.joinToken, token))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The seat an account's own wizard holds in an event, same shape as the token lookup. */
+export async function getEventPlayerForUser(eventId: string, userId: string) {
+  const [row] = await db
+    .select({
+      eventId: eventPlayers.eventId,
+      playerId: eventPlayers.playerId,
+      displayName: players.displayName,
+      droppedAt: eventPlayers.droppedAt,
+      userId: players.userId,
+      leagueId: players.leagueId,
+    })
+    .from(eventPlayers)
+    .innerJoin(players, eq(players.id, eventPlayers.playerId))
+    .where(and(eq(eventPlayers.eventId, eventId), eq(players.userId, userId)))
     .limit(1);
   return row ?? null;
 }

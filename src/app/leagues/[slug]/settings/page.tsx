@@ -3,11 +3,24 @@ import { AppChrome } from "@/app/components/AppChrome";
 import { OrganizerGate } from "@/app/components/OrganizerGate";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import {
+  assignWizardAction,
+  releaseWizardAction,
   removeLeagueMemberAction,
   rotateManagerInviteTokenAction,
   rotateOrganizerTokenAction,
+  setClaimPolicyAction,
 } from "@/app/events/actions";
-import { getLeagueBySlug, listLeagueMembers } from "@/db/queries";
+import {
+  getLeagueBySlug,
+  listLeagueMembers,
+  listLeaguePlayers,
+  listWizardOwners,
+} from "@/db/queries";
+import {
+  CLAIM_POLICIES,
+  CLAIM_POLICY_LABELS,
+  parseClaimPolicy,
+} from "@/lib/wizard-ownership";
 import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getSessionUser, isLeagueOrganizer } from "@/lib/authz";
 import { readOrganizerModeCookie } from "@/lib/organizer-mode";
@@ -29,12 +42,18 @@ export default async function LeagueSettingsPage({
     return <OrganizerGate league={league} next={`/leagues/${slug}/settings`} />;
   }
 
-  const [members, me, sessionUser, baseUrl] = await Promise.all([
+  const [members, me, sessionUser, baseUrl, owners, roster] = await Promise.all([
     listLeagueMembers(league.id),
     getCurrentLeaguePlayer(league.id),
     getSessionUser(),
     getPublicBaseUrl(),
+    listWizardOwners(league.id),
+    listLeaguePlayers(league.id),
   ]);
+  const claimPolicy = parseClaimPolicy(league.claimPolicy);
+  const ownedIds = new Set(owners.map((o) => o.playerId));
+  const unownedWizards = roster.filter((p) => !ownedIds.has(p.id));
+  const unowned = unownedWizards.length;
 
   const organizerUrl = league.organizerToken
     ? `${baseUrl}/leagues/${league.slug}/manage/${league.organizerToken}`
@@ -72,8 +91,7 @@ export default async function LeagueSettingsPage({
           </div>
           <p className="mt-1 text-xs text-zinc-500">
             Signed-in accounts that can run events, pair rounds, and edit the
-            roster. Players don&apos;t need any of this — they just tap their
-            wizard.
+            roster.
           </p>
           {members.length === 0 ? (
             <p className="mt-4 text-sm text-zinc-500">
@@ -121,6 +139,135 @@ export default async function LeagueSettingsPage({
                       </button>
                     </form>
                   )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-400">
+            Wizards and accounts
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            A wizard an account owns can only be played by that account.{" "}
+            {owners.length} of {roster.length} wizards are owned; this setting
+            decides what happens to the other {unowned}.
+          </p>
+          <form
+            key={claimPolicy}
+            action={setClaimPolicyAction}
+            className="mt-4 space-y-2"
+          >
+            <input type="hidden" name="leagueId" value={league.id} />
+            {CLAIM_POLICIES.map((p) => (
+              <label
+                key={p}
+                className="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-800 bg-zinc-950/60 px-4 py-3 has-[:checked]:border-amber-500/50"
+              >
+                <input
+                  type="radio"
+                  name="policy"
+                  value={p}
+                  defaultChecked={p === claimPolicy}
+                  className="mt-1 accent-amber-400"
+                />
+                <span>
+                  <span className="block text-sm font-medium">
+                    {CLAIM_POLICY_LABELS[p].title}
+                  </span>
+                  <span className="block text-xs text-zinc-500">
+                    {CLAIM_POLICY_LABELS[p].detail}
+                  </span>
+                </span>
+              </label>
+            ))}
+            <button
+              type="submit"
+              className="mt-2 min-h-11 rounded-md btn-gold px-4 text-sm"
+            >
+              Save
+            </button>
+          </form>
+          {claimPolicy === "organizer" && unowned > 0 && (
+            <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+              {unowned} {unowned === 1 ? "wizard has" : "wizards have"} no
+              account. With this setting their players cannot take them: a
+              returning player who signs in would have to make a second
+              wizard. Hand each one over below, or use &ldquo;Signed-in
+              members take their wizard&rdquo; until everyone has theirs.
+            </p>
+          )}
+          {unowned > 0 && (
+            <form
+              action={assignWizardAction}
+              className="mt-5 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+            >
+              <label className="block">
+                <span className="mb-1 block text-xs text-zinc-500">
+                  Hand a wizard
+                </span>
+                <select
+                  name="playerId"
+                  required
+                  defaultValue=""
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-base"
+                >
+                  <option value="" disabled>
+                    Pick a wizard
+                  </option>
+                  {unownedWizards.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-zinc-500">
+                  to the account with this email
+                </span>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  autoComplete="off"
+                  placeholder="they must have signed in once"
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-base"
+                />
+              </label>
+              <button
+                type="submit"
+                className="min-h-11 self-end rounded-md btn-gold px-4 text-sm"
+              >
+                Hand over
+              </button>
+            </form>
+          )}
+          {owners.length > 0 && (
+            <ul className="mt-5 space-y-2">
+              {owners.map((o) => (
+                <li
+                  key={o.playerId}
+                  className="flex flex-wrap items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/60 px-4 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">
+                      {o.displayName}
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      {o.email}
+                    </div>
+                  </div>
+                  <form action={releaseWizardAction}>
+                    <input type="hidden" name="playerId" value={o.playerId} />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-red-500/30 px-2.5 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/10"
+                    >
+                      Release
+                    </button>
+                  </form>
                 </li>
               ))}
             </ul>
