@@ -9,7 +9,8 @@ import {
   undoLastGameWinAction,
 } from "@/app/events/actions";
 import { useLifeHistory } from "@/lib/use-life-history";
-import type { Game, Player } from "@/db/schema";
+import type { Game } from "@/db/schema";
+import type { TablePlayer } from "@/lib/table-player";
 import type { EventMessage } from "@/lib/pubsub";
 import { remoteEditLockMs, shouldApplyLifeChanged } from "@/lib/life-events";
 import { useLifeWriter } from "@/lib/use-life-writer";
@@ -27,7 +28,7 @@ type Props = {
   tableNumber: number;
   matchId: string;
   mySide: "a" | "b";
-  players: { a: Player; b: Player | null };
+  players: { a: TablePlayer; b: TablePlayer | null };
   startingLife: number;
   initialGame: Game;
   initialWins: { a: number; b: number };

@@ -3,20 +3,15 @@ import { AppChrome } from "@/app/components/AppChrome";
 import { getSessionUser } from "@/lib/authz";
 import { SignInForm } from "./SignInForm";
 
+import { safeNextPath } from "@/lib/safe-next";
 export const dynamic = "force-dynamic";
-
-function safeNext(raw: string | undefined): string {
-  // Same-origin paths only — anything else would make ?next= an open redirect.
-  if (raw && raw.startsWith("/") && !raw.startsWith("//")) return raw;
-  return "/";
-}
 
 export default async function SignInPage({
   searchParams,
 }: {
   searchParams: Promise<{ next?: string }>;
 }) {
-  const next = safeNext((await searchParams).next);
+  const next = safeNextPath((await searchParams).next) ?? "/";
   const user = await getSessionUser();
   if (user) redirect(next);
 

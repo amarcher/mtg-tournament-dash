@@ -1,6 +1,6 @@
 "use client";
 
-import type { Player } from "@/db/schema";
+import type { TablePlayer } from "@/lib/table-player";
 import {
   resolveTierUrl,
   tierForLife,
@@ -12,7 +12,7 @@ import {
  * end-of-match only and never rendered by this panel. */
 const IN_PLAY_TIERS: WizardTier[] = ["fresh", "wounded", "critical"];
 
-export function avatarsFor(p: Player | null): AvatarTiers {
+export function avatarsFor(p: TablePlayer | null): AvatarTiers {
   return {
     fresh: p?.avatarUrl ?? null,
     wounded: p?.avatarWoundedUrl ?? null,

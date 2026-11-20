@@ -19,7 +19,7 @@ function organizerCookieName(leagueId: string) {
  * wrapper in src/app/events/actions.ts — cookies() throws outside a request
  * scope, and no network caller can reach that state.
  */
-async function hasRequestScope(): Promise<boolean> {
+export async function hasRequestScope(): Promise<boolean> {
   try {
     await cookies();
     return true;
