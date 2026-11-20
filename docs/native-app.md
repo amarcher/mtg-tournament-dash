@@ -8,7 +8,7 @@ duplication. Everything that works in mobile Safari / Chrome on
 `mtg.capxun.com` works in the app — and any deploy to Vercel is instantly
 live in the app, no resubmission required.
 
-**Status:** build 6 (2026-11-01, Android versionCode 3) adds push notifications (`docs/push-setup.md`). Build 5 was the first launchable Xcode 27.1 build (2026-10-29; `npm run ios:release -- --upload`). Build 4, uploaded the same day, crashes on launch and must never be released: an app built with the iOS 27 SDK needs the UIScene life cycle, which the shell lacked (see "iPhone Duo"). Not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
+**Status:** iOS build 7 (2026-11-19) adds the native share sheet (`@capacitor/share`) and is the first built on the Mac Studio, alongside Android versionCode 4 (same change; the upload key was copied to the Studio's `~/.mtg-dash/` that day). Build 6 (2026-11-01, Android versionCode 3) adds push notifications (`docs/push-setup.md`). Build 5 was the first launchable Xcode 27.1 build (2026-10-29; `npm run ios:release -- --upload`). Build 4, uploaded the same day, crashes on launch and must never be released: an app built with the iOS 27 SDK needs the UIScene life cycle, which the shell lacked (see "iPhone Duo"). Not submitted for review. Scaffolded Oct 27 2026. `ios/` (Swift
 Package Manager — no CocoaPods) and `android/` are checked in, icons and
 splash are generated from `resources/`, and the keep-awake plugin is wired
 into `useWakeLock`. App records exist on both stores (created Oct 27 2026) but no build has
@@ -113,6 +113,28 @@ Individual) — pass `DEVELOPMENT_TEAM=J39B2498YF` on the `xcodebuild` line or
 set it once in Xcode's Signing & Capabilities. The first build uploaded to
 App Store Connect permanently binds `com.capxun.mtgdash` to whichever team
 signed it, so don't upload from the Fable Designer team by accident.
+
+**On the Mac Studio** (since build 7) the MacBook's `spacerace-signing`
+keychain and `~/.mtg-dash/` do not exist. iOS signs with the Studio's own
+distribution certificate (DSCBVUCNT4, in
+`~/Library/Keychains/studio-signing.keychain-db`, password file
+`~/.config/release-signing/studio-signing-password`) and the profile
+"MTG Dash App Store (Studio)" (FDSL3VR9F4, created through the API
+2026-11-19, holds both Macs' certificates). `APPLE_TEAM_ID` is not exported
+there either, so the whole line is:
+
+```sh
+source ~/.zshrc
+security unlock-keychain -p "$(cat ~/.config/release-signing/studio-signing-password)" \
+  ~/Library/Keychains/studio-signing.keychain-db
+APPLE_TEAM_ID=J39B2498YF IOS_STORE_PROFILE="MTG Dash App Store (Studio)" \
+  IOS_SIGNING_KEYCHAIN="$HOME/Library/Keychains/studio-signing.keychain-db" \
+  npm run ios:release -- --upload
+```
+
+Android on the Studio: Android Studio's bundled JDK is 25, which Gradle
+8.14 cannot run ("Unsupported class file major version 69"); use
+`JAVA_HOME=/opt/homebrew/opt/openjdk@21`.
 
 Local build commands that work without Xcode's GUI:
 
