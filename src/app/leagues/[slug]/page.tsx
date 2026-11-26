@@ -13,9 +13,11 @@ import { getCurrentLeaguePlayer } from "@/lib/auth";
 import { getOrganizerView } from "@/lib/organizer-mode";
 import {
   findActiveBonusGameForPlayer,
+  listUnfinishedBonusGamesForPlayer,
   loadBonusOpponents,
 } from "@/lib/bonus-game";
 import { BonusGameForm } from "@/app/components/BonusGameForm";
+import { UnfinishedBonusGames } from "@/app/components/UnfinishedBonusGames";
 import { AppChrome } from "@/app/components/AppChrome";
 import { PushEnroll } from "@/app/components/PushEnroll";
 import { NightPlanLine, RsvpButtons } from "@/app/components/GameNightCard";
@@ -50,12 +52,21 @@ export default async function PlayHomePage({
   // The newest event already under way is "the ongoing event" for the
   // picker's top tiers; a draft that hasn't started seats nobody yet.
   const ongoingEvent = openEvents.find((e) => e.status === "active") ?? null;
-  const [myOpenEvents, myBonusGame, bonusOpponents, openSeats, pollDetails] =
-    await Promise.all([
+  const [
+    myOpenEvents,
+    myBonusGame,
+    myUnfinishedGames,
+    bonusOpponents,
+    openSeats,
+    pollDetails,
+  ] = await Promise.all([
       me ? listOpenEventsForPlayer(league.id, me.id) : Promise.resolve([]),
       me
         ? findActiveBonusGameForPlayer(league.id, me.id)
         : Promise.resolve(null),
+      me
+        ? listUnfinishedBonusGamesForPlayer(league.id, me.id)
+        : Promise.resolve([]),
       me
         ? loadBonusOpponents({
             leagueId: league.id,
@@ -152,6 +163,14 @@ export default async function PlayHomePage({
             <h2 id="bonus-h" className="label-caps text-ink-dim">
               Bonus games
             </h2>
+            {myUnfinishedGames.length > 0 && (
+              <UnfinishedBonusGames
+                games={myUnfinishedGames.map(({ createdAt, ...g }) => ({
+                  ...g,
+                  startedLabel: formatPollDate(createdAt),
+                }))}
+              />
+            )}
             {myBonusGame ? (
               <Link
                 href={`/matches/${myBonusGame.id}`}

@@ -78,7 +78,9 @@ import {
 import {
   createBonusGame,
   endBonusGame,
+  findActiveBonusGameForPlayer,
   joinBonusGame,
+  listUnfinishedBonusGamesForPlayer,
   loadBonusOpponents,
   startAnotherBonusGame,
 } from "../src/lib/bonus-game";
@@ -2843,6 +2845,42 @@ async function runBonusGamePass() {
         [pc.id, 3, "free"],
       ].join(),
     "opponent picker ranks recent bonus-game partners free and by name once the game ends"
+  );
+
+  const overnight = await createBonusGame({
+    leagueId: league.id,
+    playerAId: pa.id,
+    playerBId: pc.id,
+  });
+  await db
+    .update(games)
+    .set({ playerALife: 9, playerBLife: 10 })
+    .where(eq(games.matchId, overnight.id));
+  await db
+    .update(matches)
+    .set({ createdAt: new Date(Date.now() - 13 * 60 * 60 * 1000) })
+    .where(eq(matches.id, overnight.id));
+  assert(
+    (await findActiveBonusGameForPlayer(league.id, pc.id)) === null,
+    "a bonus game left overnight stops counting as active"
+  );
+  const unfinishedForC = await listUnfinishedBonusGamesForPlayer(
+    league.id,
+    pc.id
+  );
+  assert(
+    unfinishedForC.length === 1 &&
+      unfinishedForC[0].matchId === overnight.id &&
+      unfinishedForC[0].opponentName === pa.displayName &&
+      unfinishedForC[0].gameNumber === 1 &&
+      unfinishedForC[0].myLife === 10 &&
+      unfinishedForC[0].theirLife === 9,
+    "an overnight bonus game is offered back with life totals from the player's side"
+  );
+  await endBonusGame({ matchId: overnight.id });
+  assert(
+    (await listUnfinishedBonusGamesForPlayer(league.id, pa.id)).length === 0,
+    "ending an unfinished bonus game takes it off the list"
   );
 }
 
