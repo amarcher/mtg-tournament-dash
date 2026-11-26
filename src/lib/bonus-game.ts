@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { games, matches, players, type Match } from "@/db/schema";
 import { publishToChannel } from "@/lib/pubsub";
@@ -26,8 +26,9 @@ export const BONUS_LIFE_CHOICES = [20, 40] as const;
  * wandered off must not block either of them from being challenged the next
  * day (the Aug 31 draft night: a single abandoned game made two players
  * un-challengeable all night). Games older than this stop counting as
- * "active" everywhere — busy checks, "return to your game" — though their
- * match page still works if someone reopens it.
+ * "active" everywhere — busy checks, "return to your game" — and move to
+ * the Play tab's "Unfinished games" list, where they can be resumed at the
+ * same life totals or ended.
  */
 const ACTIVE_WINDOW_HOURS = 12;
 
@@ -80,6 +81,98 @@ export async function findActiveBonusGameForPlayer(
     .orderBy(desc(matches.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+const UNFINISHED_LOOKBACK_DAYS = 30;
+
+export type UnfinishedBonusGame = {
+  matchId: string;
+  createdAt: Date;
+  opponentName: string;
+  opponentAvatarUrl: string | null;
+  gameNumber: number;
+  myLife: number;
+  theirLife: number;
+  myWins: number;
+  theirWins: number;
+};
+
+/**
+ * Two-player bonus games this player left in progress longer ago than the
+ * active window. They no longer block anyone (see ACTIVE_WINDOW_HOURS), but
+ * the life totals are intact, so the Play tab offers them back to resume or
+ * end — otherwise a game interrupted overnight is unreachable from the app.
+ */
+export async function listUnfinishedBonusGamesForPlayer(
+  leagueId: string,
+  playerId: string
+): Promise<UnfinishedBonusGame[]> {
+  const rows = await db
+    .select()
+    .from(matches)
+    .where(
+      and(
+        eq(matches.leagueId, leagueId),
+        isNull(matches.roundId),
+        eq(matches.status, "in_progress"),
+        isNotNull(matches.playerBId),
+        lt(matches.createdAt, activeWindowCutoff()),
+        gte(
+          matches.createdAt,
+          new Date(Date.now() - UNFINISHED_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+        ),
+        sql`(${matches.playerAId} = ${playerId} OR ${matches.playerBId} = ${playerId})`
+      )
+    )
+    .orderBy(desc(matches.createdAt));
+  if (rows.length === 0) return [];
+
+  const opponentIds = rows.map((m) =>
+    m.playerAId === playerId ? m.playerBId! : m.playerAId
+  );
+  const [gameRows, opponentRows] = await Promise.all([
+    db
+      .select()
+      .from(games)
+      .where(inArray(games.matchId, rows.map((m) => m.id))),
+    db.select().from(players).where(inArray(players.id, opponentIds)),
+  ]);
+  const opponentsById = new Map(opponentRows.map((p) => [p.id, p]));
+
+  return rows.flatMap((m) => {
+    const opponent = opponentsById.get(
+      m.playerAId === playerId ? m.playerBId! : m.playerAId
+    );
+    if (!opponent) return [];
+    const matchGames = gameRows
+      .filter((g) => g.matchId === m.id)
+      .sort((x, y) => x.gameNumber - y.gameNumber);
+    const current =
+      matchGames.find((g) => !g.completedAt) ?? matchGames.at(-1);
+    const starting = m.startingLife ?? 20;
+    const iAmA = m.playerAId === playerId;
+    return [
+      {
+        matchId: m.id,
+        createdAt: m.createdAt,
+        opponentName: opponent.displayName,
+        opponentAvatarUrl: opponent.avatarUrl,
+        gameNumber: current?.gameNumber ?? 1,
+        myLife: current
+          ? iAmA
+            ? current.playerALife
+            : current.playerBLife
+          : starting,
+        theirLife: current
+          ? iAmA
+            ? current.playerBLife
+            : current.playerALife
+          : starting,
+        myWins: matchGames.filter((g) => g.winnerId === playerId).length,
+        theirWins: matchGames.filter((g) => g.winnerId === opponent.id).length,
+      },
+    ];
+  });
 }
 
 /**
